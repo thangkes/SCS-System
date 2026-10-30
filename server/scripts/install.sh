@@ -183,6 +183,24 @@ if [[ -f "$SERVER_DIR/.env" ]] && [[ "$(env_value "$ENV_FILE" SCS_DB_HOST)" =~ ^
 fi
 if [[ -n "$(env_value "$ENV_FILE" SCS_CA_CERT)" ]]; then
 	ok "Đã có CA: $(env_value "$ENV_FILE" SCS_CA_CERT)"
+	# Cài lại kèm địa chỉ chưa có trong chứng chỉ server: tự cấp lại, GIỮ các địa chỉ đang có.
+	if [[ $REISSUE -eq 0 && ${#PKI_IPS[@]}${#PKI_DNS[@]} != 00 && -f "$PKI_DIR/server.pem" ]] && command -v openssl >/dev/null; then
+		san="$(openssl x509 -in "$PKI_DIR/server.pem" -noout -ext subjectAltName 2>/dev/null | grep -oE '(IP Address|DNS):[^, ]+' || true)"
+		missing=0
+		for ip in "${PKI_IPS[@]}"; do grep -qxF "IP Address:$ip" <<<"$san" || missing=1; done
+		for d in "${PKI_DNS[@]}"; do grep -qxF "DNS:$d" <<<"$san" || missing=1; done
+		if [[ $missing -eq 1 ]]; then
+			while IFS= read -r x; do
+				case "$x" in
+					"IP Address:127.0.0.1") ;;
+					"IP Address:"*) [[ " ${PKI_IPS[*]} " == *" ${x#IP Address:} "* ]] || PKI_IPS+=("${x#IP Address:}") ;;
+					DNS:*) [[ " ${PKI_DNS[*]} " == *" ${x#DNS:} "* ]] || PKI_DNS+=("${x#DNS:}") ;;
+				esac
+			done <<<"$san"
+			REISSUE=1
+			ok "Địa chỉ mới chưa có trong chứng chỉ server: cấp lại (giữ các địa chỉ đang có)"
+		fi
+	fi
 	if [[ $REISSUE -eq 1 ]]; then
 		# Cấp lại chứng chỉ server từ CA đang có: agent vẫn tin (cùng CA), server tự nạp file mới.
 		stamp="$(date +%Y%m%d-%H%M%S)"
@@ -201,7 +219,7 @@ if [[ -n "$(env_value "$ENV_FILE" SCS_CA_CERT)" ]]; then
 		chown -R "$SVC_USER:$SVC_USER" "$PKI_DIR"
 		ok "Đã cấp lại chứng chỉ server cho 127.0.0.1 ${PKI_IPS[*]} ${PKI_DNS[*]} (bản cũ: *.old-$stamp)"
 	elif [[ ${#PKI_IPS[@]} -gt 0 ]]; then
-		warn "Đã có CA nên bỏ qua các IP vừa nhập. Muốn ghi IP mới vào chứng chỉ server: thêm --reissue-cert (liệt kê đủ mọi IP: WAN, VPN, LAN)"
+		ok "Chứng chỉ server đã có đủ các địa chỉ vừa nhập"
 	fi
 elif [[ ${#PKI_IPS[@]} -eq 0 && ${#PKI_DNS[@]} -eq 0 ]]; then
 	warn "Chưa có CA và chứng chỉ server: agent chưa kết nối được. Chạy lại: sudo bash $0 --wan-ip <IP WAN của server> [--vpn-ip <IP VPN>]"
@@ -263,6 +281,15 @@ fi
 
 [[ "$(env_value "$ENV_FILE" SCS_ENV)" == prod ]] ||
 	warn "SCS_ENV trong $ENV_FILE chưa phải prod (đang chạy thử thì bỏ qua)"
+# Thư mục dữ liệu đang ghi tương đối (mặc định ./data/devices, tính từ $DATA_DIR): đổi sang đường dẫn
+# tuyệt đối trỏ đúng chỗ đó, dữ liệu không phải chuyển.
+storage="$(env_value "$ENV_FILE" SCS_STORAGE_ROOT)"
+storage="${storage:-./data/devices}"
+if [[ "$storage" != /* ]]; then
+	storage="$DATA_DIR/${storage#./}"
+	set_env SCS_STORAGE_ROOT "$storage"
+	ok "SCS_STORAGE_ROOT=$storage"
+fi
 for key in SCS_TLS_CERT SCS_TLS_KEY SCS_TLS_CLIENT_CA SCS_CA_CERT SCS_CA_KEY SCS_STORAGE_ROOT; do
 	val="$(env_value "$ENV_FILE" "$key")"
 	if [[ -n "$val" && "$val" != /* ]]; then
@@ -310,13 +337,13 @@ fi
 cat <<EOF
 
   Cài agent trên từng máy tại điểm bán:
-    1. Chép $ETC_DIR/agent-ca.pem sang máy đó (chỉ là chứng chỉ, không bí mật).
-    2. sudo bash agent/scripts/install.sh --server https://<IP WAN>:<cổng chuyển tiếp> --ca agent-ca.pem
+    1. Menu server mục 11 (bash server/menu.sh) đóng gói agent thành một file .tar.gz.
+    2. Chép file đó sang máy, giải nén, chạy: sudo bash scs-agent/scripts/install.sh
     3. Vào web quản trị, trang "Chờ duyệt", đối chiếu mã khóa rồi bấm Duyệt.
 
   Xem log:          journalctl -u scs-server -f
   Trạng thái:       systemctl status scs-server
   Lấy mã đăng nhập: scs-login-code
   Sửa cấu hình:     sudo nano $ENV_FILE && sudo systemctl restart scs-server
-  Cập nhật binary:  build lại bin/scs-server rồi chạy lại script này
+  Cập nhật:         bash server/menu.sh, mục 4
 EOF

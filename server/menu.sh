@@ -115,8 +115,8 @@ ask_names() {
 	lan="$REPLY"
 	valid_ip "$lan" || { echo "  ${C_RED}\"$lan\" không phải IP${C_0}"; return 1; }
 	NAME_ARGS+=(--lan-ip "$lan")
-	echo "  ${C_DIM}Chỉ chạy trong mạng nội bộ: Enter bỏ qua câu dưới. Sau này mở cho agent từ Internet bằng mục 7,${C_0}"
-	echo "  ${C_DIM}agent đã cài vẫn chạy bình thường (cùng CA).${C_0}"
+	echo "  ${C_DIM}Agent gọi bằng địa chỉ nào cũng được (chỉ kiểm chứng chỉ do CA của server cấp). Các địa chỉ dưới${C_0}"
+	echo "  ${C_DIM}được gửi cho agent làm dự phòng, và ghi vào chứng chỉ để trình duyệt không báo sai tên.${C_0}"
 	ask "IP WAN, tên miền DDNS, IP VPN (tùy chọn, cách nhau dấu cách; '-' = không có)" "${2:-}"
 	ext="$REPLY"
 	[[ "$ext" == "-" ]] && ext=""
@@ -204,7 +204,18 @@ do_install() {
 	sudo bash "$SCRIPTS/install.sh" "${args[@]}"
 }
 
-do_update() { bash "$SCRIPTS/update.sh"; }
+# do_update: cập nhật xong mà menu.sh đã đổi thì nạp lại menu (bản đang chạy vẫn là code cũ).
+do_update() {
+	local before
+	before="$(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)"
+	bash "$SCRIPTS/update.sh" || return 1
+	if [[ "$(sha256sum "${BASH_SOURCE[0]}" | cut -d' ' -f1)" != "$before" ]]; then
+		echo
+		echo "  ${C_GRN}Menu có bản mới, nạp lại...${C_0}"
+		pause
+		exec bash "${BASH_SOURCE[0]}"
+	fi
+}
 
 do_rollback() { bash "$SCRIPTS/update.sh" --rollback; }
 
@@ -221,8 +232,8 @@ do_reissue() {
 	local cur x lan="" ext=""
 	cur="$(cert_names)"
 	echo "  Đang có trong chứng chỉ: ${cur:-(chưa đọc được)}"
-	echo "  ${C_DIM}Dùng khi đổi IP LAN hoặc mở cho agent từ Internet (thêm IP WAN / tên miền DDNS).${C_0}"
-	echo "  ${C_DIM}CA giữ nguyên nên agent đã cài vẫn kết nối bình thường.${C_0}"
+	echo "  ${C_DIM}Dùng khi đổi IP LAN hoặc thêm IP WAN / tên miền: agent đã duyệt nhận danh sách địa chỉ mới${C_0}"
+	echo "  ${C_DIM}trong vòng 5 phút. CA giữ nguyên nên agent đã cài vẫn kết nối bình thường.${C_0}"
 	# Tách địa chỉ đang có: IP LAN (dải riêng) làm mặc định câu đầu, còn lại làm mặc định câu sau.
 	for x in $cur; do
 		if [[ -z "$lan" && "$x" =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.) ]]; then lan="$x"; else ext="${ext:+$ext }$x"; fi
@@ -267,15 +278,7 @@ do_package() {
 	ask "Địa chỉ agent gọi tới" "$def"
 	[[ "$REPLY" =~ ^https://[^/:@[:space:]]+:[0-9]{1,5}/?$ ]] ||
 		{ echo "  ${C_RED}Phải có dạng https://<IP>:<cổng>, ví dụ https://192.168.1.10:6222${C_0}"; return 1; }
-	local server="$REPLY" host names
-	host="${server#https://}"
-	host="${host%%:*}"
-	names="$(cert_names)"
-	if [[ -n "$names" && " $names " != *" $host "* ]]; then
-		echo "  ${C_RED}\"$host\" không có trong chứng chỉ server ($names): agent sẽ báo lỗi TLS.${C_0}"
-		echo "  Thêm địa chỉ này bằng mục 7 trước, rồi đóng gói lại."
-		return 1
-	fi
+	local server="$REPLY"
 	ask "Dịch vụ mặc định cần báo trạng thái, cách nhau dấu phẩy (bỏ trống nếu không có)" ""
 	watch="$REPLY"
 	ask "Kiến trúc máy tại điểm bán (amd64 / arm64)" "amd64"

@@ -178,16 +178,12 @@ else
 	warn "Đồng hồ chưa đồng bộ NTP; bật: timedatectl set-ntp true"
 fi
 
-# Kết nối tới server (kiểm luôn chứng chỉ server bằng đúng CA này)
-if command -v curl >/dev/null; then
-	if out="$(curl -sS --max-time 10 --cacert "$CA_FILE" "$SERVER/healthz" 2>&1)" && [[ "$out" == *'"status":"ok"'* ]]; then
-		ok "Kết nối được server $SERVER (chứng chỉ server khớp CA)"
-	else
-		err "Không kết nối được $SERVER/healthz: ${out:0:200}"
-		echo "      Kiểm tra: IP/cổng, chuyển tiếp cổng trên router phía server, firewall; chứng chỉ server phải ghi đúng IP này."
-	fi
+# Kết nối tới server: dùng chính binary agent (kiểm chứng chỉ server theo CA, không so IP như curl).
+if out="$("$BIN_SRC" ping -server "$SERVER" -ca "$CA_FILE" 2>&1)"; then
+	ok "Kết nối được server $SERVER (chứng chỉ server do đúng CA cấp)"
 else
-	warn "Không có curl, bỏ qua kiểm tra kết nối"
+	err "Không kết nối được $SERVER: ${out:0:300}"
+	echo "      Kiểm tra: IP/cổng, chuyển tiếp cổng trên router phía server, firewall, đúng file CA của server này."
 fi
 
 if [[ $MODE == check ]]; then

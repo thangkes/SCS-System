@@ -57,12 +57,38 @@ func New(server, caFile, keyDir string, key *identity.Key, version string) (*Cli
 	}
 	c := &Client{bases: []string{strings.TrimRight(server, "/")}, key: key, keyDir: keyDir, version: version}
 	c.tls = &tls.Config{
-		MinVersion:           tls.VersionTLS13,
-		RootCAs:              pool,
+		MinVersion: tls.VersionTLS13,
+		// Không so IP / tên miền trong chứng chỉ server: agent gọi server bằng địa chỉ nào cũng được
+		// (IP LAN, VLAN khác, IP WAN qua NAT, tên miền) mà không phải cấp lại chứng chỉ khi đổi IP.
+		// Thay vào đó verifyServer bắt buộc chứng chỉ do CA riêng của server ký và dùng cho server:
+		// CA này chỉ cấp chứng chỉ server cho scs-server, chứng chỉ máy agent chỉ dùng cho client.
+		InsecureSkipVerify:   true,
+		VerifyConnection:     verifyServer(pool),
 		GetClientCertificate: c.clientCert,
 	}
 	c.ResetSessions()
 	return c, nil
+}
+
+// verifyServer: chứng chỉ server phải chuỗi về CA của server và có mục đích ServerAuth.
+// Chạy cả khi nối lại phiên TLS cũ.
+func verifyServer(roots *x509.CertPool) func(tls.ConnectionState) error {
+	return func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return errors.New("server không gửi chứng chỉ")
+		}
+		inter := x509.NewCertPool()
+		for _, c := range cs.PeerCertificates[1:] {
+			inter.AddCert(c)
+		}
+		_, err := cs.PeerCertificates[0].Verify(x509.VerifyOptions{
+			Roots: roots, Intermediates: inter, KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		})
+		if err != nil {
+			return fmt.Errorf("chứng chỉ server không do CA của server cấp: %w", err)
+		}
+		return nil
+	}
 }
 
 // ResetSessions bỏ các phiên TLS đã lưu. Gọi sau khi nhận chứng chỉ mới: phiên cũ lập lúc
@@ -212,6 +238,35 @@ func (c *Client) Send(ctx context.Context, path, typ, deviceID, fingerprint stri
 		}
 	}
 	return nil
+}
+
+// Ping gọi GET /healthz (không cần chứng chỉ máy) để kiểm kết nối và chứng chỉ server, thử lần
+// lượt các địa chỉ như Send. Trả địa chỉ đã kết nối được.
+func (c *Client) Ping(ctx context.Context) (string, error) {
+	c.mu.Lock()
+	bases, hc := append([]string(nil), c.bases...), c.http
+	c.mu.Unlock()
+	var errs []error
+	for _, base := range bases {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/healthz", nil)
+		if err != nil {
+			return "", err
+		}
+		req.Header.Set("User-Agent", "scs-agent/"+c.version)
+		resp, err := hc.Do(req)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", base, err))
+			continue
+		}
+		data, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || !strings.Contains(string(data), `"ok"`) {
+			errs = append(errs, fmt.Errorf("%s: server trả %d", base, resp.StatusCode))
+			continue
+		}
+		return base, nil
+	}
+	return "", errors.Join(errs...)
 }
 
 // learnClock: header Date của server (độ phân giải 1 giây) so với giờ máy ở giữa lúc gửi và

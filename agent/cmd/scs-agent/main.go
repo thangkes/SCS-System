@@ -4,6 +4,8 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -14,6 +16,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/thangkes/SCS-System/agent/internal/client"
 	"github.com/thangkes/SCS-System/agent/internal/config"
@@ -36,6 +39,7 @@ Lệnh:
   run          chạy agent (dịch vụ systemd gọi lệnh này)
   fingerprint  xem hostname có đúng quy ước không, các thành phần nhận dạng máy, mã khóa
   status       xem cấu hình, trạng thái đăng ký và trạng thái máy sẽ gửi trong heartbeat
+  ping         kiểm tra kết nối và chứng chỉ server (-server URL -ca FILE: thử trước khi cài)
   version      in phiên bản
 
 Hostname phải đúng quy ước <mã siêu thị>-TN<số>[-PRI|-SEC]:
@@ -59,7 +63,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return 0
-	case "run", "fingerprint", "status":
+	case "run", "fingerprint", "status", "ping":
 	default:
 		fmt.Fprintf(stderr, "lệnh không hợp lệ: %q\n\n%s", cmd, usage)
 		return 2
@@ -67,13 +71,24 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet(cmd, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cfgPath := fs.String("config", "", "file cấu hình (mặc định "+config.DefaultFile+")")
+	server := fs.String("server", "", "ping: địa chỉ server cần thử (mặc định lấy từ cấu hình)")
+	caFile := fs.String("ca", "", "ping: CA của server (mặc định lấy từ cấu hình)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
+	}
+	if cmd == "ping" && *cfgPath == "" && *server != "" && *caFile != "" {
+		*cfgPath = os.DevNull // thử trước khi cài: không cần file cấu hình
 	}
 	cfg, err := config.Load(*cfgPath)
 	if err != nil {
 		fmt.Fprintln(stderr, "cấu hình không hợp lệ:\n"+err.Error())
 		return 1
+	}
+	if *server != "" {
+		cfg.Server = *server
+	}
+	if *caFile != "" {
+		cfg.ServerCA = *caFile
 	}
 
 	switch cmd {
@@ -82,6 +97,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "status":
 		return printStatus(stdout, stderr, cfg)
+	case "ping":
+		return ping(stdout, stderr, cfg)
 	}
 	return runAgent(stdout, stderr, cfg)
 }
@@ -141,6 +158,36 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 	}
 	<-ctx.Done()
 	log.Info("đã dừng")
+	return 0
+}
+
+// ping: gọi /healthz qua mọi địa chỉ đã biết (địa chỉ lúc cài + danh sách server gửi xuống).
+func ping(stdout, stderr io.Writer, cfg *config.Config) int {
+	if err := cfg.RequireServer(); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	key, err := identity.LoadKey(cfg.KeyDir)
+	if err != nil { // chưa cài: khóa tạm, /healthz không cần chứng chỉ máy
+		pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+		key = &identity.Key{Public: pub, Private: priv}
+	}
+	c, err := client.New(cfg.Server, cfg.ServerCA, cfg.KeyDir, key, version)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if st, err := identity.LoadState(cfg.StateDir); err == nil {
+		c.SetServers(st.Servers)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	base, err := c.Ping(ctx)
+	if err != nil {
+		fmt.Fprintln(stderr, "không kết nối được server:\n"+err.Error())
+		return 1
+	}
+	fmt.Fprintf(stdout, "OK: %s trả lời, chứng chỉ server do CA %s cấp\n", base, cfg.ServerCA)
 	return 0
 }
 

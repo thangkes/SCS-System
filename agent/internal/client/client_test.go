@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/thangkes/SCS-System/agent/internal/identity"
@@ -46,5 +47,26 @@ func TestFailoverToNextServer(t *testing.T) {
 	c.SetServers([]string{"https://10.0.0.1:6222", srv.URL})
 	if c.Current() != srv.URL {
 		t.Fatalf("SetServers không được đổi địa chỉ đang chạy tốt: %s", c.Current())
+	}
+}
+
+// Gọi server bằng tên không có trong chứng chỉ (localhost; chứng chỉ chỉ ghi 127.0.0.1, example.com)
+// vẫn được, vì agent chỉ kiểm chứng chỉ do CA của server ký.
+func TestPingAnyAddress(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	ca := filepath.Join(dir, "ca.pem")
+	os.WriteFile(ca, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}), 0o600)
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	addr := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	c, err := New(addr, ca, dir, &identity.Key{Public: pub, Private: priv}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := c.Ping(context.Background()); err != nil || got != addr {
+		t.Fatalf("ping %s: %v", addr, err)
 	}
 }

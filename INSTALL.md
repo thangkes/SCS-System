@@ -59,10 +59,13 @@ Script:
 - **Chỉ mạng nội bộ** (mặc định): chứng chỉ server chỉ ghi IP LAN, agent gọi `https://<IP LAN>:6222`. Đặt IP tĩnh cho
   server (hoặc giữ IP trên router). ufw đang bật thì script cài tự mở cổng 6222 (cổng agent được bảo vệ bằng TLS,
   chứng chỉ máy và admin duyệt, không dựa vào tường lửa).
+- **Cổng agent 6222 không phụ thuộc IP trong chứng chỉ:** agent chỉ kiểm chứng chỉ server do CA của server cấp (CA
+  đóng sẵn trong gói), không so IP / tên miền. Agent ở VLAN khác, gọi qua IP WAN có NAT, hay server đổi IP đều không
+  phải cấp lại chứng chỉ. Kẻ khác không giả làm server được vì không có chứng chỉ do CA này cấp cho server (chứng
+  chỉ của các máy agent chỉ dùng được cho client).
 - **Mở cho agent từ Internet** (làm lúc cài hoặc sau này): router **chuyển tiếp một cổng** (ví dụ `16222`) về `6222` của
-  máy server, rồi menu mục **7** thêm IP WAN tĩnh hoặc tên miền DDNS vào chứng chỉ. CA giữ nguyên nên agent đã cài
-  vẫn chạy; máy ở ngoài cài bằng gói đóng với `https://<IP WAN hoặc tên miền>:16222` (mục 11 từ chối địa chỉ chưa có
-  trong chứng chỉ).
+  máy server, rồi menu mục **7** thêm IP WAN tĩnh hoặc tên miền DDNS để agent đã duyệt nhận làm địa chỉ dự phòng.
+  Máy ở ngoài cài bằng gói đóng với `https://<IP WAN hoặc tên miền>:16222`.
 - **Agent tự chuyển địa chỉ:** mục 3/7 ghi danh sách địa chỉ server (IP LAN, IP WAN, tên miền) vào `SCS_AGENT_SERVERS`.
   Server gửi danh sách này cho agent đã duyệt (lúc duyệt và mỗi heartbeat 5 phút); agent lưu lại, địa chỉ đang dùng
   không kết nối được thì thử ngay địa chỉ kế tiếp. Máy cài bằng gói LAN mang ra ngoài vẫn gọi về được qua IP WAN.
@@ -71,7 +74,7 @@ Script:
   lớp mạng / VLAN định tuyến qua nhau), chỉ dải LAN của server, hoặc tự nhập các dải. Dòng lệnh:
   `sudo bash server/scripts/install.sh --admin-allow private` (hoặc `--admin-allow 10.10.0.0/16`, lặp lại được).
   Script thêm vào `SCS_ADMIN_ALLOW` và mở ufw cho đúng các dải đó nếu ufw đang bật.
-- Muốn trình duyệt không báo sai tên, chứng chỉ server phải ghi IP mà bạn gõ trên trình duyệt (IP LAN, IP VPN):
+- Riêng web quản trị 7222: muốn trình duyệt không báo sai tên, chứng chỉ server phải ghi IP bạn gõ trên trình duyệt (IP LAN, IP VPN):
   menu mục **7** cấp lại chứng chỉ với đủ các IP (CA giữ nguyên, agent không bị ảnh hưởng). Trình duyệt vẫn cảnh báo
   "chưa tin cậy" vì CA là CA nội bộ: nhập file `/etc/scs-server/agent-ca.pem` vào kho chứng chỉ tin cậy của máy
   admin để hết cảnh báo.
