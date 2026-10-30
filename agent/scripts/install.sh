@@ -19,6 +19,9 @@
 # cài dịch vụ scs-agent.service (giới hạn CPU/RAM, thu hẹp quyền), khởi động và in mã khóa máy
 # để admin đối chiếu khi duyệt trên web. Chạy lại nhiều lần được.
 
+# Chạy bằng sh (dash) thì tự chuyển sang bash: script dùng cú pháp của bash.
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
+
 set -Eeuo pipefail
 
 AGENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

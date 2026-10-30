@@ -18,6 +18,9 @@
 #
 # Chạy lại nhiều lần được: phần nào đã đủ sẽ bỏ qua. Log ghi vào server/setup.log.
 
+# Chạy bằng sh (dash) thì tự chuyển sang bash: script dùng cú pháp của bash.
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
+
 set -Eeuo pipefail
 
 GO_VERSION="${GO_VERSION:-1.27.0}"

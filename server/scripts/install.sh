@@ -20,6 +20,9 @@
 #   - cài lệnh scs-login-code để lấy mã đăng nhập web
 # Chạy lại nhiều lần được.
 
+# Chạy bằng sh (dash) thì tự chuyển sang bash: script dùng cú pháp của bash.
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
+
 set -Eeuo pipefail
 
 SERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

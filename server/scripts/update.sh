@@ -13,6 +13,9 @@
 # cấu trúc DB thì sao lưu DB → cài (giữ binary cũ thành scs-server.prev) → kiểm /readyz;
 # không lên thì tự quay về binary cũ. Thư mục code có thay đổi chưa commit thì không chạy.
 
+# Chạy bằng sh (dash) thì tự chuyển sang bash: script dùng cú pháp của bash.
+if [ -z "${BASH_VERSION:-}" ]; then exec bash "$0" "$@"; fi
+
 set -Eeuo pipefail
 
 SERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
