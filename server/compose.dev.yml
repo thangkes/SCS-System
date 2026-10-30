@@ -1,0 +1,65 @@
+# Phụ thuộc để chạy scs-server khi dev: PostgreSQL (TimescaleDB) và NATS JetStream.
+#
+#   docker compose -f compose.dev.yml up -d      # khởi động
+#   docker compose -f compose.dev.yml ps         # xem trạng thái (healthy)
+#   docker compose -f compose.dev.yml down       # dừng, GIỮ dữ liệu
+#   docker compose -f compose.dev.yml down -v    # dừng và XÓA dữ liệu
+#
+# Mật khẩu lấy từ .env cùng thư mục (chung với scs-server). Cổng chỉ mở ở
+# 127.0.0.1 để máy khác trong LAN không truy cập được DB/NATS dev.
+
+name: scs-dev
+
+# Docker mặc định không giới hạn log của container: chạy vài tháng là đầy ổ đĩa.
+# Mỗi container giữ tối đa 5 file x 10 MB, xoay vòng tự động.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  postgres:
+    image: timescale/timescaledb:2.17.2-pg16
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_DB: ${SCS_DB_NAME:-scs}
+      POSTGRES_USER: ${SCS_DB_USER:-scs}
+      POSTGRES_PASSWORD: ${SCS_DB_PASSWORD:?Cần đặt SCS_DB_PASSWORD trong .env}
+      TZ: Asia/Ho_Chi_Minh
+    ports:
+      - "127.0.0.1:${SCS_DB_PORT:-5432}:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  nats:
+    image: nats:2.10.22-alpine
+    restart: unless-stopped
+    logging: *logging
+    command: ["-c", "/etc/nats/nats.conf"]
+    environment:
+      # nats.conf đọc hai biến này ($NATS_USER, $NATS_PASSWORD), mật khẩu
+      # không nằm trên dòng lệnh của tiến trình.
+      NATS_USER: ${SCS_NATS_USER:?Cần đặt SCS_NATS_USER trong .env}
+      NATS_PASSWORD: ${SCS_NATS_PASSWORD:?Cần đặt SCS_NATS_PASSWORD trong .env}
+    ports:
+      - "127.0.0.1:4222:4222"   # client
+      - "127.0.0.1:8222:8222"   # trang giám sát http://127.0.0.1:8222
+    volumes:
+      - ./deploy/nats/nats.conf:/etc/nats/nats.conf:ro
+      - nats-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:8222/healthz?js-enabled-only=true"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pg-data:
+  nats-data:

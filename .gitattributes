@@ -1,0 +1,2 @@
+# Mọi file văn bản dùng LF (code chạy trên Ubuntu), kể cả khi checkout trên Windows
+* text=auto eol=lf

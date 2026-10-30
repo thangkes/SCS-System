@@ -1,0 +1,542 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SCS-System · Thiết kế giai đoạn 1</title>
+<style>
+:root{
+  --bg:#f7f8fa; --panel:#ffffff; --text:#1d2330; --muted:#5b6475; --line:#dde2ea;
+  --accent:#1f6feb; --accent-soft:#e8f0fe; --warn:#b54708; --warn-soft:#fff4e5;
+  --ok:#1a7f37; --ok-soft:#e9f7ee; --bad:#b42318; --bad-soft:#fdecea; --code:#f1f3f6;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0f1218; --panel:#171b23; --text:#e6e9ef; --muted:#9aa3b2; --line:#2a303c;
+    --accent:#5b9dff; --accent-soft:#1a2740; --warn:#f0a35e; --warn-soft:#2e2216;
+    --ok:#56d17a; --ok-soft:#14261a; --bad:#ff7b72; --bad-soft:#2d1615; --code:#1e232d;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0f1218; --panel:#171b23; --text:#e6e9ef; --muted:#9aa3b2; --line:#2a303c;
+  --accent:#5b9dff; --accent-soft:#1a2740; --warn:#f0a35e; --warn-soft:#2e2216;
+  --ok:#56d17a; --ok-soft:#14261a; --bad:#ff7b72; --bad-soft:#2d1615; --code:#1e232d;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.65 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:32px 16px 80px}
+header h1{margin:0 0 4px;font-size:28px;line-height:1.25}
+header p{margin:0;color:var(--muted)}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 10px;border-radius:99px;background:var(--accent-soft);color:var(--accent);margin-bottom:10px}
+nav{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin:24px 0}
+nav ol{margin:0;padding-left:20px;columns:2;column-gap:28px}
+nav a{color:var(--accent);text-decoration:none}
+nav a:hover{text-decoration:underline}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px 24px;margin:18px 0}
+h2{margin:0 0 12px;font-size:21px}
+h3{margin:20px 0 8px;font-size:16px}
+p{margin:8px 0}
+table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--code)}
+.tbl{overflow-x:auto}
+code{background:var(--code);padding:1px 6px;border-radius:5px;font-size:13px}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px 14px;overflow-x:auto;font-size:13px;line-height:1.5;margin:10px 0}
+pre code{background:none;padding:0}
+.note{border-left:4px solid var(--accent);background:var(--accent-soft);padding:10px 14px;border-radius:6px;margin:12px 0}
+.warn{border-left:4px solid var(--warn);background:var(--warn-soft);padding:10px 14px;border-radius:6px;margin:12px 0}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.card{border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.card.ok{background:var(--ok-soft);border-color:transparent}
+.card.bad{background:var(--bad-soft);border-color:transparent}
+.card h4{margin:0 0 6px}
+.steps{counter-reset:s;list-style:none;padding:0;margin:10px 0}
+.steps li{counter-increment:s;position:relative;padding:8px 0 8px 44px;border-bottom:1px dashed var(--line)}
+.steps li:last-child{border-bottom:0}
+.steps li::before{content:counter(s);position:absolute;left:0;top:8px;width:30px;height:30px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;font-size:14px}
+.who{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+svg{max-width:100%;height:auto;display:block;margin:10px auto}
+svg text{fill:var(--text);font-family:inherit}
+svg .box{fill:var(--panel);stroke:var(--line);stroke-width:1.5}
+svg .boxA{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.5}
+svg .ln{stroke:var(--muted);stroke-width:1.5;fill:none}
+svg .sub{fill:var(--muted);font-size:11px}
+footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
+@media (max-width:700px){
+  nav ol{columns:1}
+  .grid2{grid-template-columns:1fr}
+  section{padding:18px 16px}
+  header h1{font-size:23px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <span class="badge">Giai đoạn 1 · Giám sát</span>
+  <h1>SCS-System: giám sát máy Ubuntu tại nhiều điểm bán</h1>
+  <p>Các con số tính tải trong tài liệu dùng <strong>quy mô tham chiếu 20.000 máy</strong>; thay bằng quy mô thực tế khi triển khai.</p>
+  <p>Tài liệu tham khảo vận hành: đăng ký máy, truyền dữ liệu mã hóa, quét log theo rule, cập nhật agent, ước tính tải. Bản nháp ngày 27/10/2026.</p>
+</header>
+
+<nav>
+  <ol>
+    <li><a href="#pham-vi">Phạm vi giai đoạn 1</a></li>
+    <li><a href="#kien-truc">Kiến trúc tổng thể</a></li>
+    <li><a href="#dinh-danh">Fingerprint và khóa máy</a></li>
+    <li><a href="#dang-ky">Đăng ký lần đầu và duyệt máy</a></li>
+    <li><a href="#folder">Lưu trữ dữ liệu</a></li>
+    <li><a href="#truyen">Truyền dữ liệu và mã hóa</a></li>
+    <li><a href="#payload">Mẫu payload</a></li>
+    <li><a href="#bao-mat">Mô hình bảo mật khi lộ source</a></li>
+    <li><a href="#van-hanh">Chu kỳ vận hành</a></li>
+    <li><a href="#rule">Rule quét log</a></li>
+    <li><a href="#update">Cập nhật agent</a></li>
+    <li><a href="#loi">Mất mạng và xử lý lỗi</a></li>
+    <li><a href="#tai">Ước tính tải</a></li>
+    <li><a href="#server">Thành phần server</a></li>
+    <li><a href="#cong-nghe">Ngôn ngữ và công nghệ</a></li>
+    <li><a href="#gd2">Chuẩn bị cho giai đoạn 2</a></li>
+    <li><a href="#lo-trinh">Lộ trình triển khai</a></li>
+    <li><a href="#cau-hoi">Câu hỏi còn mở</a></li>
+  </ol>
+</nav>
+
+<section id="pham-vi">
+  <h2>1. Phạm vi giai đoạn 1</h2>
+  <p>Agent chỉ <strong>quan sát và báo cáo</strong>, chưa nhận lệnh điều khiển máy. Năm chức năng:</p>
+  <table>
+    <tr><th>#</th><th>Chức năng</th><th>Mô tả</th></tr>
+    <tr><td>1</td><td>Đăng ký lần đầu</td><td>Gửi thông tin ban đầu, chờ admin duyệt rồi mới được gửi dữ liệu</td></tr>
+    <tr><td>2</td><td>Quét log theo rule</td><td>Mỗi agent áp dụng bộ rule được gán sẵn, chỉ gửi những dòng khớp rule</td></tr>
+    <tr><td>3</td><td>Gửi trạng thái định kỳ</td><td>Heartbeat kèm thông tin trạng thái (nội dung chi tiết sẽ bổ sung sau)</td></tr>
+    <tr><td>4</td><td>Tự cập nhật</td><td>Tải và cài bản agent mới có chữ ký hợp lệ, tự quay về bản cũ nếu lỗi</td></tr>
+    <tr><td>5</td><td>Mã hóa mọi dữ liệu</td><td>Không có gói tin nào đi ra dưới dạng rõ</td></tr>
+  </table>
+</section>
+
+<section id="kien-truc">
+  <h2>2. Kiến trúc tổng thể</h2>
+  <svg viewBox="0 0 760 400" role="img" aria-label="Sơ đồ kiến trúc">
+    <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" style="fill:var(--muted)"/></marker></defs>
+    <rect class="boxA" x="20" y="20" width="200" height="70" rx="10"/>
+    <text x="120" y="50" text-anchor="middle" font-weight="700">SCS-Agent × N máy</text>
+    <text x="120" y="70" text-anchor="middle" class="sub">systemd service trên mỗi máy</text>
+
+    <rect class="box" x="290" y="20" width="200" height="70" rx="10"/>
+    <text x="390" y="50" text-anchor="middle" font-weight="700">Load balancer</text>
+    <text x="390" y="70" text-anchor="middle" class="sub">TLS 1.3 · xác thực mTLS</text>
+    <path class="ln" d="M220 55 H288" marker-end="url(#ar)"/>
+    <text x="254" y="46" text-anchor="middle" class="sub">HTTPS</text>
+
+    <rect class="box" x="540" y="20" width="200" height="70" rx="10"/>
+    <text x="640" y="50" text-anchor="middle" font-weight="700">Ingest API ×3</text>
+    <text x="640" y="70" text-anchor="middle" class="sub">kiểm chữ ký · chống replay</text>
+    <path class="ln" d="M490 55 H538" marker-end="url(#ar)"/>
+
+    <rect class="box" x="540" y="140" width="200" height="60" rx="10"/>
+    <text x="640" y="166" text-anchor="middle" font-weight="700">Hàng đợi ×3</text>
+    <text x="640" y="185" text-anchor="middle" class="sub">NATS JetStream / Kafka</text>
+    <path class="ln" d="M640 90 V138" marker-end="url(#ar)"/>
+
+    <rect class="box" x="540" y="240" width="200" height="60" rx="10"/>
+    <text x="640" y="266" text-anchor="middle" font-weight="700">Workers</text>
+    <text x="640" y="285" text-anchor="middle" class="sub">ghi dữ liệu · sinh cảnh báo</text>
+    <path class="ln" d="M640 200 V238" marker-end="url(#ar)"/>
+
+    <rect class="box" x="290" y="320" width="200" height="60" rx="10"/>
+    <text x="390" y="346" text-anchor="middle" font-weight="700">Kho dữ liệu</text>
+    <text x="390" y="365" text-anchor="middle" class="sub">PostgreSQL + TimescaleDB · 60 ngày</text>
+    <path class="ln" d="M600 300 L480 330" marker-end="url(#ar)"/>
+
+    <rect class="box" x="20" y="320" width="200" height="60" rx="10"/>
+    <text x="120" y="346" text-anchor="middle" font-weight="700">Dashboard + cảnh báo</text>
+    <text x="120" y="365" text-anchor="middle" class="sub">chỉ hiện trên web quản trị</text>
+    <path class="ln" d="M290 350 H222" marker-end="url(#ar)"/>
+
+    <rect class="box" x="290" y="140" width="200" height="140" rx="10"/>
+    <text x="390" y="166" text-anchor="middle" font-weight="700">Dịch vụ điều phối</text>
+    <text x="390" y="192" text-anchor="middle" class="sub">Enrollment (đăng ký + cấp chứng chỉ)</text>
+    <text x="390" y="214" text-anchor="middle" class="sub">Rule service (rule có ký số)</text>
+    <text x="390" y="236" text-anchor="middle" class="sub">Update repo (gói .deb có ký số)</text>
+    <text x="390" y="258" text-anchor="middle" class="sub">Danh sách tài sản (serial máy)</text>
+    <path class="ln" d="M538 70 L492 150" marker-end="url(#ar)"/>
+  </svg>
+  <p>Agent luôn là bên <strong>chủ động gọi lên</strong> (pull). Server không cần mở kết nối vào máy cửa hàng, nên không bị ảnh hưởng bởi NAT/firewall, và máy offline cũng không làm server phải chờ.</p>
+</section>
+
+<section id="dinh-danh">
+  <h2>3. Fingerprint và khóa máy</h2>
+  <p>Theo yêu cầu, mọi lần gửi dữ liệu đều kèm <strong>fingerprint</strong>. Cần phân biệt rõ hai vai trò:</p>
+  <div class="grid2">
+    <div class="card">
+      <h4>Fingerprint: "máy này là máy nào"</h4>
+      <p>Mã băm từ đặc điểm phần cứng và hệ điều hành. Server dùng nó để nhận ra máy, và để phát hiện máy bị thay linh kiện hoặc bị clone.</p>
+    </div>
+    <div class="card">
+      <h4>Khóa riêng của máy: "đúng là máy đó gửi"</h4>
+      <p>Cặp khóa Ed25519 sinh ngay trên máy lúc đăng ký. Khóa riêng không bao giờ rời máy. Mọi gói tin được ký bằng khóa này.</p>
+    </div>
+  </div>
+  <div class="warn"><strong>Vì sao fingerprint thôi là chưa đủ:</strong> serial, MAC hay machine-id đều đọc được và sao chép được. Ai biết fingerprint của một máy (ví dụ từ log, ảnh chụp màn hình, hoặc lúc sửa máy) có thể gửi dữ liệu giả dưới tên máy đó. Fingerprint dùng để <em>định danh</em>, còn khóa riêng dùng để <em>xác thực</em>.</div>
+
+  <h3>Thành phần fingerprint</h3>
+  <pre><code>fingerprint = SHA-256(
+    /etc/machine-id
+  + serial mainboard   (dmidecode -s baseboard-serial-number)
+  + serial hệ thống    (dmidecode -s system-serial-number)
+  + MAC card mạng chính
+)</code></pre>
+  <p>Server lưu <strong>từng thành phần riêng</strong>, không chỉ lưu mã băm cuối. Lý do: máy RAID 1 có thể thay ổ, card mạng có thể thay. Quy tắc gợi ý:</p>
+  <table>
+    <tr><th>Thay đổi</th><th>Xử lý</th></tr>
+    <tr><td>1 thành phần đổi (thay ổ, thay card mạng)</td><td>Chấp nhận, cập nhật fingerprint, ghi sự kiện "thay linh kiện"</td></tr>
+    <tr><td>Từ 2 thành phần đổi trở lên</td><td>Tạm khóa máy, cảnh báo admin (nghi clone hoặc cài lại)</td></tr>
+    <tr><td>Cùng fingerprint xuất hiện từ 2 khóa khác nhau</td><td>Cảnh báo mức cao: nghi clone image có sẵn agent đã đăng ký</td></tr>
+  </table>
+  <h3>Kết hợp với IP WAN do server tự quan sát</h3>
+  <p>Agent <strong>không khai IP WAN</strong>. Máy sau router/firewall chỉ thấy IP LAN; nếu để agent tự điền IP WAN thì kẻ sửa source có thể điền IP của cửa hàng thật. Thay vào đó, server lấy IP nguồn trực tiếp từ kết nối TCP (giá trị này không giả được nếu không ngồi trong mạng cửa hàng), rồi tự gộp với fingerprint:</p>
+  <pre><code>Agent gửi:    fingerprint (+ chữ ký bằng khóa riêng)
+Server thấy:  IP WAN thật của kết nối
+
+site_key = SHA-256(fingerprint + IP WAN quan sát được)
+→ so với danh sách site_key đã duyệt của máy này</code></pre>
+  <p>Mỗi máy có thể có nhiều <code>site_key</code> hợp lệ (line chính, line dự phòng). Server vẫn lưu riêng fingerprint và IP để biết lệch ở phần nào:</p>
+  <div class="tbl"><table>
+    <tr><th>Fingerprint</th><th>IP WAN</th><th>Kết luận</th><th>Xử lý</th></tr>
+    <tr><td>Khớp</td><td>Khớp</td><td>Bình thường</td><td>Nhận dữ liệu</td></tr>
+    <tr><td>Khớp</td><td>Lạ</td><td>Đổi line, failover 4G, nhà mạng đổi IP, hoặc khóa bị dùng ở nơi khác</td><td>Nhận, gắn cờ, cảnh báo; admin duyệt để thêm site_key. Cửa hàng IP tĩnh có thể bật chế độ nghiêm: từ chối</td></tr>
+    <tr><td>Lệch 1 thành phần</td><td>Khớp</td><td>Thay ổ hoặc card mạng tại cửa hàng</td><td>Nhận, cập nhật hồ sơ, ghi sự kiện "thay linh kiện"</td></tr>
+    <tr><td>Lệch từ 2 thành phần</td><td>Bất kỳ</td><td>Nghi clone hoặc cài lại máy</td><td>Tạm khóa máy, cảnh báo</td></tr>
+  </table></div>
+  <div class="warn"><strong>Lưu ý hạ tầng:</strong> nếu cửa hàng kết nối về trung tâm qua VPN/MPLS, server sẽ thấy IP nội bộ của tunnel thay vì IP WAN. Khi đó dùng IP tunnel hoặc ID tunnel trên router/firewall làm "điểm cố định" thay cho IP WAN, cơ chế giữ nguyên. Nếu đi qua load balancer, phải cấu hình để Ingest nhận được IP gốc (PROXY protocol), không phải IP của load balancer.</div>
+
+  <div class="note"><strong>Liên quan việc ghost máy:</strong> image Ubuntu dùng để ghost <em>không được</em> chứa agent đã đăng ký, và phải xóa <code>/etc/machine-id</code> trước khi đóng image. Nếu không, hàng loạt máy sẽ có cùng machine-id và cùng khóa.</div>
+</section>
+
+<section id="dang-ky">
+  <h2>4. Đăng ký lần đầu và duyệt máy</h2>
+  <p>Đây là bước máy gửi thông tin ban đầu và chờ admin duyệt. Không dùng bootstrap token: <strong>mọi máy đều phải được admin duyệt</strong> trên web trước khi gửi được dữ liệu, nên máy lạ chạy source agent chỉ nằm trong hàng chờ.</p>
+  <ol class="steps">
+    <li><span class="who">Kỹ thuật viên</span><br>Đặt hostname đúng quy ước (<code>12345-TN1-PRI</code>, <code>12345-TN2-SEC</code>, <code>12345-TN3</code>…), cài gói agent, chạy <code>scs-agent fingerprint</code> để kiểm hostname và lấy mã khóa máy đối chiếu với yêu cầu trên web.</li>
+    <li><span class="who">Agent</span><br>Sinh cặp khóa Ed25519 (lưu trong TPM nếu máy có), thu thập fingerprint, mã cửa hàng, hostname, phiên bản Ubuntu.</li>
+    <li><span class="who">Agent → Server</span><br>Gửi gói <code>enroll</code> qua TLS: public key, fingerprint và từng thành phần, hostname, phiên bản Ubuntu. Gói được ký bằng khóa riêng vừa sinh.</li>
+    <li><span class="who">Server</span><br>Kiểm tra chữ ký, đọc hostname theo quy ước <code>&lt;mã siêu thị&gt;-TN&lt;số&gt;[-PRI|-SEC]</code> và so IP kết nối với IP WAN cố định của siêu thị. <strong>Mọi máy đều vào hàng chờ admin duyệt</strong>, không tự duyệt; hostname sai quy ước hoặc IP lạ thì gắn cảnh báo để admin xem kỹ.</li>
+    <li><span class="who">Admin duyệt</span><br>Server ghi máy vào DB (siêu thị, vị trí TN), gán IP WAN cho siêu thị nếu là máy đầu tiên, ký và trả về chứng chỉ client (hạn 90 ngày). Agent tự kéo bộ rule về sau đó.</li>
+    <li><span class="who">Agent</span><br>Lưu <code>device_id</code> và chứng chỉ vào <code>/etc/scs-agent/</code> (quyền 600, chủ sở hữu root). Từ đây chuyển sang chế độ vận hành thường.</li>
+  </ol>
+  <p>Máy đang chờ duyệt gửi lại gói <code>enroll</code> (cùng khóa) mỗi 5 phút để hỏi trạng thái. Agent gọi server qua <strong>IP WAN của server, cổng được chuyển tiếp (port forward) về 6222</strong>; chứng chỉ server phải ghi đúng IP đó.</p>
+</section>
+
+<section id="folder">
+  <h2>5. Lưu trữ dữ liệu (PostgreSQL + TimescaleDB)</h2>
+  <p>Database là nơi lưu chính, không dùng folder theo máy. Server <strong>chỉ nhận và lưu</strong>, không gửi yêu cầu nào cho agent (agent tự kéo rule và bản cập nhật); cảnh báo chỉ hiện trên web.</p>
+  <pre><code>Siêu thị (mã, ví dụ 12345) ── IP WAN cố định (một IP)
+├── 12345-TN1-PRI   máy số 1 (máy chính)
+├── 12345-TN2-SEC   máy số 2 (máy chính thứ hai)
+├── 12345-TN3       máy số 3 trở đi: không có hậu tố
+└── 12345-TN4 ...
+      └── dữ liệu theo ngày (giờ Việt Nam), giữ 60 ngày: heartbeat, sự kiện log, tóm tắt ngày</code></pre>
+  <div class="tbl"><table>
+    <tr><th>Bảng</th><th>Nội dung</th><th>Giữ</th></tr>
+    <tr><td><code>stores</code></td><td>Mã siêu thị, IP WAN cố định (gán khi duyệt máy đầu tiên)</td><td>Lâu dài</td></tr>
+    <tr><td><code>devices</code></td><td>Hostname, vị trí TN, PRI/SEC, khóa công khai, fingerprint, trạng thái chờ duyệt / đã duyệt / từ chối / thu hồi, ai duyệt lúc nào</td><td>Lâu dài</td></tr>
+    <tr><td><code>device_status</code></td><td>Trạng thái mới nhất mỗi máy (ghi đè mỗi heartbeat)</td><td>Bản mới nhất</td></tr>
+    <tr><td><code>heartbeats</code>, <code>events</code></td><td>Mọi heartbeat và sự kiện khớp rule; chia theo ngày, nén sau 2 ngày</td><td>60 ngày (Timescale tự xóa)</td></tr>
+    <tr><td><code>device_days</code></td><td>Tóm tắt mỗi máy mỗi ngày: lần đầu / cuối thấy, số heartbeat, số sự kiện</td><td>60 ngày</td></tr>
+    <tr><td><code>alerts</code></td><td>Cảnh báo hiện trên web: máy chờ duyệt, hostname sai, IP lạ, đổi fingerprint, trùng vị trí, offline, sự kiện mức cao</td><td>60 ngày</td></tr>
+    <tr><td><code>audit</code></td><td>Nhật ký thao tác: duyệt / thu hồi máy, xác nhận cảnh báo… chỉ ghi thêm, không sửa xóa được</td><td>Lâu dài</td></tr>
+  </table></div>
+  <div class="note"><strong>Để dữ liệu chính xác:</strong> ràng buộc nằm ngay trong DB nên code có lỗi cũng không ghi được dữ liệu sai — hostname hợp lệ phải đúng quy ước PRI/SEC; mỗi vị trí TN trong siêu thị và mỗi hostname chỉ một máy đang hoạt động; mỗi gói có nonce, gửi lại không bị ghi hai lần; server chỉ trả OK cho agent sau khi đã ghi xong; lưu cả giờ server nhận lẫn giờ máy gửi (đồng hồ máy có thể lệch); trạng thái online/offline tính theo giờ server nhận, không tin máy tự báo.</div>
+</section>
+
+<section id="truyen">
+  <h2>6. Truyền dữ liệu và mã hóa</h2>
+  <p>Ba lớp bảo vệ cho mỗi gói tin:</p>
+  <table>
+    <tr><th>Lớp</th><th>Cơ chế</th><th>Chống lại</th></tr>
+    <tr><td>Đường truyền</td><td>TLS 1.3, agent chỉ tin CA nội bộ nhúng sẵn (certificate pinning)</td><td>Nghe lén, giả mạo server</td></tr>
+    <tr><td>Xác thực máy</td><td>mTLS bằng chứng chỉ riêng từng máy</td><td>Máy lạ kết nối vào</td></tr>
+    <tr><td>Nội dung</td><td>Payload ký Ed25519, kèm fingerprint, timestamp, nonce</td><td>Sửa nội dung, gửi lại gói cũ (replay), giả mạo máy khác</td></tr>
+  </table>
+  <h3>Kiểm tra phía server cho mỗi gói tin</h3>
+  <ol>
+    <li>Chứng chỉ mTLS hợp lệ và chưa bị thu hồi.</li>
+    <li><code>device_id</code> trong payload khớp với chứng chỉ.</li>
+    <li>Chữ ký payload đúng với public key đã lưu khi đăng ký.</li>
+    <li>Fingerprint khớp với hồ sơ (áp dụng quy tắc ở mục 3).</li>
+    <li>Ghép fingerprint với IP WAN server quan sát được thành <code>site_key</code>, so với danh sách đã duyệt của máy (mục 3).</li>
+    <li>Timestamp lệch không quá 5 phút, nonce chưa từng xuất hiện trong 10 phút gần nhất.</li>
+  </ol>
+  <p>Sai bất kỳ bước nào: từ chối, ghi audit; nếu lặp lại nhiều lần thì cảnh báo.</p>
+  <div class="note">Nếu yêu cầu dữ liệu vẫn được mã hóa cả khi đi qua proxy có giải mã TLS, có thể thêm lớp mã hóa payload bằng public key của server (X25519 + ChaCha20-Poly1305). Lớp này tùy chọn, quyết định sau khi khảo sát hạ tầng mạng.</div>
+</section>
+
+<section id="payload">
+  <h2>7. Mẫu payload</h2>
+  <h3>Phong bì chung (mọi gói tin)</h3>
+  <pre><code>{
+  "v": 1,                          // phiên bản giao thức
+  "type": "heartbeat",             // enroll | heartbeat | log_batch | rule_ack | update_report
+  "device_id": "DEV-1234-01",
+  "fingerprint": "9f2c...e1",
+  "ts": "2026-10-27T21:00:05+07:00",
+  "nonce": "b6c1f0a9e2...",        // ngẫu nhiên 16 byte
+  "bot_version": "1.0.3",
+  "body": { ... },
+  "sig": "ed25519:..."             // chữ ký trên toàn bộ các trường phía trên
+}</code></pre>
+
+  <h3>Heartbeat (body, chi tiết bổ sung sau)</h3>
+  <pre><code>{
+  "uptime_s": 18230,
+  "rule_set_version": "2026.10.27-03",
+  "log_queue_pending": 0,
+  "status": { }                    // phần trạng thái chi tiết sẽ định nghĩa sau
+}</code></pre>
+
+  <h3>Lô sự kiện log (body)</h3>
+  <pre><code>{
+  "events": [
+    {
+      "rule_id": "SSH-FAIL-01",
+      "severity": "medium",
+      "source": "/var/log/auth.log",
+      "time": "2026-10-27T20:58:41+07:00",
+      "line": "Failed password for root from 10.20.3.15 port 52114 ssh2",
+      "count": 7                   // gộp các dòng giống nhau trong cùng lô
+    }
+  ],
+  "counters": { "SSH-FAIL-01": 7, "USB-ADD-01": 0 }
+}</code></pre>
+
+  <h3>Phản hồi của server</h3>
+  <pre><code>{
+  "ok": true,
+  "next_poll_s": 300,              // server điều chỉnh nhịp gọi khi quá tải
+  "rule_set_version": "2026.10.27-04",   // khác bản đang chạy thì agent tải rule mới
+  "update": { "version": "1.0.4", "ring": 1 }   // có thì agent vào luồng cập nhật
+}</code></pre>
+</section>
+
+<section id="bao-mat">
+  <h2>8. Mô hình bảo mật khi lộ source</h2>
+  <p>Nguyên tắc: <strong>giao thức có thể công khai, an toàn nằm ở khóa riêng từng máy</strong>. Source agent không chứa bất kỳ bí mật dùng chung nào.</p>
+  <div class="grid2">
+    <div class="card bad">
+      <h4>Người có source agent có thể</h4>
+      <ul>
+        <li>Đọc hiểu toàn bộ định dạng gói tin</li>
+        <li>Tạo yêu cầu đăng ký, nhưng chỉ nằm ở hàng chờ cho tới khi admin duyệt</li>
+        <li>Nếu có root trên một máy thật: gửi dữ liệu giả dưới tên <em>chính máy đó</em> (giảm thiểu bằng TPM; mang khóa ra ngoài cửa hàng để dùng sẽ bị phát hiện qua IP WAN lạ)</li>
+      </ul>
+    </div>
+    <div class="card ok">
+      <h4>Người có source agent không thể</h4>
+      <ul>
+        <li>Giả mạo bất kỳ máy nào khác</li>
+        <li>Đưa máy lạ vào hệ thống khi admin chưa duyệt</li>
+        <li>Đọc dữ liệu của máy khác trên đường truyền</li>
+        <li>Đẩy rule giả hoặc bản cập nhật giả xuống agent (không có khóa ký)</li>
+        <li>Gửi lại gói tin cũ (bị chặn bởi nonce và timestamp)</li>
+      </ul>
+    </div>
+  </div>
+  <h3>Danh sách bắt buộc</h3>
+  <ul>
+    <li>Không hardcode API key, mật khẩu hay khóa mã hóa chung trong source.</li>
+    <li>Khóa ký rule và khóa ký bản cập nhật giữ offline hoặc trong HSM, không nằm trên server Ingest.</li>
+    <li>File cấu hình và khóa của agent: quyền 600, chủ sở hữu root.</li>
+    <li>Server giới hạn tần suất theo từng máy và theo từng IP.</li>
+    <li>Có thể obfuscate binary để làm chậm người phân tích, nhưng không coi đó là lớp bảo vệ chính.</li>
+  </ul>
+</section>
+
+<section id="van-hanh">
+  <h2>9. Chu kỳ vận hành</h2>
+  <div class="tbl"><table>
+    <tr><th>Việc</th><th>Chu kỳ</th><th>Ghi chú</th></tr>
+    <tr><td>Heartbeat</td><td>5 phút</td><td>Server có thể đổi bằng <code>next_poll_s</code></td></tr>
+    <tr><td>Quét log</td><td>Liên tục (đọc nối đuôi file)</td><td>Lưu vị trí đã đọc (offset/cursor journald) để khởi động lại không quét trùng hoặc bỏ sót</td></tr>
+    <tr><td>Gửi lô sự kiện</td><td>Mỗi 2 phút hoặc khi đủ 200 sự kiện</td><td>Sự kiện mức <code>critical</code> gửi ngay</td></tr>
+    <tr><td>Kiểm tra rule mới</td><td>Theo phản hồi heartbeat</td><td>Không cần gọi riêng</td></tr>
+    <tr><td>Kiểm tra cập nhật</td><td>Theo phản hồi heartbeat</td><td>Server quyết định máy nào được cập nhật</td></tr>
+    <tr><td>Gia hạn chứng chỉ</td><td>Khi còn dưới 30 ngày</td><td>Tự động</td></tr>
+  </table></div>
+  <div class="warn"><strong>Jitter là bắt buộc.</strong> Mỗi chu kỳ cộng thêm thời gian ngẫu nhiên ±60 giây, và lần gọi đầu tiên sau khi khởi động chờ ngẫu nhiên 0–300 giây. Nếu không, khi cả vùng mất điện rồi có điện lại hoặc khi các cửa hàng mở cửa cùng giờ, hàng nghìn máy sẽ gọi về trong cùng một giây.</div>
+</section>
+
+<section id="rule">
+  <h2>10. Rule quét log</h2>
+  <p>Rule được nhóm thành <strong>bộ rule</strong> và gán theo nhóm máy (loại máy, vùng, cửa hàng). Mỗi bộ có số phiên bản và chữ ký số. Agent chỉ áp dụng bộ rule có chữ ký hợp lệ; nếu sai chữ ký thì giữ bộ cũ và báo lỗi.</p>
+  <pre><code>rule_set: pos-default
+version: 2026.10.27-03
+rules:
+  - id: SSH-FAIL-01
+    source: /var/log/auth.log
+    match: 'Failed password for .* from (?P&lt;ip&gt;\S+)'
+    severity: medium
+    aggregate: { window_s: 300, threshold: 5 }   # 5 lần trong 5 phút mới báo
+
+  - id: USB-ADD-01
+    source: journald
+    unit: kernel
+    match: 'New USB device found'
+    severity: low
+
+  - id: RAID-DEGRADED-01
+    source: journald
+    unit: mdmonitor
+    match: 'DegradedArray|Fail'
+    severity: critical
+
+  - id: POS-SVC-DOWN-01
+    source: journald
+    unit: pos.service
+    match: 'Failed with result'
+    severity: high</code></pre>
+  <p>Rule giới hạn ở regex và đếm ngưỡng. Agent <strong>không chạy lệnh</strong> từ rule ở giai đoạn 1, nhờ vậy dù bộ rule có bị can thiệp thì cũng không thực thi được gì trên máy.</p>
+</section>
+
+<section id="update">
+  <h2>11. Cập nhật agent</h2>
+  <ol class="steps">
+    <li>Đội phát triển build gói <code>.deb</code> và ký bằng khóa phát hành offline.</li>
+    <li>Đưa lên update repo, gán vòng triển khai: vòng 0 (máy lab), vòng 1 (1%), vòng 2 (10%), vòng 3 (toàn bộ).</li>
+    <li>Heartbeat của máy thuộc vòng hiện tại nhận thông tin <code>update</code>.</li>
+    <li>Agent tải gói, kiểm chữ ký, cài bản mới và giữ bản cũ ở <code>/opt/scs-agent/previous/</code>.</li>
+    <li>Nếu trong 10 phút bản mới không gửi được heartbeat thành công, agent tự quay về bản cũ và báo lỗi.</li>
+    <li>Tỷ lệ lỗi của vòng dưới 0,5% sau 24 giờ thì mở vòng tiếp theo.</li>
+  </ol>
+  <p>Chạy song song một <strong>watchdog</strong> rất nhỏ, độc lập với agent, chuyên khởi động lại hoặc rollback agent. Watchdog hiếm khi phải cập nhật.</p>
+</section>
+
+<section id="loi">
+  <h2>12. Mất mạng và xử lý lỗi</h2>
+  <table>
+    <tr><th>Tình huống</th><th>Hành vi của agent</th></tr>
+    <tr><td>Mất mạng</td><td>Ghi sự kiện vào hàng đợi cục bộ (giới hạn 50 MB). Đầy thì bỏ sự kiện mức thấp trước và giữ bộ đếm. Có mạng lại thì gửi dần, không gửi dồn một lúc.</td></tr>
+    <tr><td>Server trả 429/503</td><td>Giãn nhịp gọi theo cấp số nhân (30s, 60s, 120s... tối đa 30 phút) cộng jitter</td></tr>
+    <tr><td>Chứng chỉ hết hạn hoặc bị thu hồi</td><td>Dừng gửi dữ liệu, ghi log cục bộ, chờ đăng ký lại</td></tr>
+    <tr><td>Rule hoặc bản cập nhật sai chữ ký</td><td>Từ chối, giữ bản đang chạy, báo cáo ở heartbeat kế tiếp</td></tr>
+    <tr><td>Đồng hồ máy lệch</td><td>Đồng bộ NTP; nếu lệch quá 5 phút, server trả giờ chuẩn để agent bù trừ</td></tr>
+  </table>
+  <p>Giới hạn tài nguyên của agent qua systemd: <code>CPUQuota=10%</code>, <code>MemoryMax=128M</code>, <code>Nice=10</code>, để không ảnh hưởng ứng dụng bán hàng chạy trên máy.</p>
+</section>
+
+<section id="tai">
+  <h2>13. Ước tính tải</h2>
+  <p>Giả định: 20.000 máy, heartbeat 2 KB mỗi 5 phút, trung bình 50 sự kiện khớp rule mỗi máy mỗi ngày, mỗi sự kiện khoảng 1 KB.</p>
+  <div class="tbl"><table>
+    <tr><th>Hạng mục</th><th>Cách tính</th><th>Kết quả</th></tr>
+    <tr><td>Request heartbeat trung bình</td><td>20.000 ÷ 300 giây</td><td>≈ 67 request/giây</td></tr>
+    <tr><td>Request đỉnh (giờ mở cửa, có jitter)</td><td>Ước tính gấp 5–10 lần trung bình</td><td>≈ 350–700 request/giây</td></tr>
+    <tr><td>Heartbeat mỗi ngày</td><td>20.000 × 288 lần × 2 KB</td><td>5,76 triệu bản ghi, ≈ 11,5 GB thô</td></tr>
+    <tr><td>Sự kiện log mỗi ngày</td><td>20.000 × 50 × 1 KB</td><td>1 triệu sự kiện, ≈ 1 GB</td></tr>
+    <tr><td>Tổng dữ liệu nén mỗi ngày</td><td>Nén zstd khoảng 1/6–1/8</td><td>≈ 1,5–2 GB</td></tr>
+    <tr><td>Lưu trữ 1 năm</td><td>Dữ liệu nén cộng index database</td><td>≈ 1–2 TB</td></tr>
+    <tr><td>Băng thông mỗi máy</td><td>2 KB / 5 phút</td><td>Không đáng kể</td></tr>
+    <tr><td>Một đợt cập nhật agent (gói 15 MB)</td><td>20.000 × 15 MB</td><td>300 GB, rải theo vòng hoặc cache theo vùng</td></tr>
+    <tr><td>Số dòng trong DB (giữ 60 ngày)</td><td>(5,76 triệu heartbeat + 1 triệu sự kiện) × 60 ngày</td><td>≈ 400 triệu dòng, nén theo máy sau 2 ngày</td></tr>
+  </table></div>
+  <div class="note">Dữ liệu cũ hơn 60 ngày được Timescale xóa theo từng ngày (xóa nguyên chunk, không quét bảng). Heartbeat chiếm phần lớn dung lượng; nếu cần tiết kiệm thêm, chỉ lưu heartbeat khi trạng thái thay đổi.</div>
+</section>
+
+<section id="server">
+  <h2>14. Thành phần server (khởi điểm)</h2>
+  <div class="tbl"><table>
+    <tr><th>Thành phần</th><th>Số node</th><th>Cấu hình gợi ý mỗi node</th><th>Vai trò</th></tr>
+    <tr><td>Load balancer (HAProxy/Nginx)</td><td>2</td><td>4 vCPU, 8 GB RAM</td><td>Kết thúc TLS, xác thực mTLS, chia tải</td></tr>
+    <tr><td>Ingest API</td><td>3</td><td>8 vCPU, 16 GB RAM</td><td>Kiểm chữ ký, fingerprint, chống replay, đẩy vào hàng đợi</td></tr>
+    <tr><td>Enrollment + Rule + Update</td><td>2</td><td>4 vCPU, 8 GB RAM</td><td>Đăng ký, cấp chứng chỉ, phát rule và gói cập nhật</td></tr>
+    <tr><td>Hàng đợi (NATS JetStream)</td><td>3</td><td>4 vCPU, 16 GB RAM, SSD 500 GB</td><td>Đệm khi đỉnh tải</td></tr>
+    <tr><td>Workers</td><td>2–4</td><td>8 vCPU, 16 GB RAM</td><td>Ghi database, sinh cảnh báo</td></tr>
+    <tr><td>PostgreSQL + TimescaleDB</td><td>2 (primary + replica)</td><td>16 vCPU, 64 GB RAM, NVMe 2 TB</td><td>Hồ sơ máy, trạng thái, chỉ mục sự kiện</td></tr>
+    <tr><td>Sao lưu DB</td><td>1</td><td>4 vCPU, 8 GB RAM, 4 TB</td><td>pgBackRest + WAL, ở máy khác (nhân bản không thay được sao lưu)</td></tr>
+    <tr><td>Dashboard</td><td>2</td><td>4 vCPU, 8 GB RAM</td><td>Giao diện quản trị và cảnh báo</td></tr>
+  </table></div>
+  <p>Cấu hình này dư sức cho 20.000 máy ở giai đoạn 1 và chịu được việc mất 1 node bất kỳ. Số liệu cần đo lại sau giai đoạn pilot.</p>
+</section>
+
+<section id="cong-nghe">
+  <h2>15. Ngôn ngữ và công nghệ</h2>
+  <h3>Agent: Go</h3>
+  <div class="tbl"><table>
+    <tr><th>Tiêu chí</th><th>Go</th><th>Rust</th><th>Python</th><th>Node.js</th></tr>
+    <tr><td>RAM khi chạy</td><td>~15–30 MB</td><td>~3–10 MB</td><td>~40–80 MB</td><td>~50–100 MB</td></tr>
+    <tr><td>Đóng gói</td><td>1 binary, không cần runtime</td><td>1 binary</td><td>Cần Python + thư viện</td><td>Cần Node + node_modules</td></tr>
+    <tr><td>TLS 1.3, mTLS, Ed25519</td><td>Thư viện chuẩn</td><td>Thư viện ngoài, tốt</td><td>Thư viện ngoài</td><td>Có sẵn</td></tr>
+    <tr><td>Tốc độ phát triển</td><td>Nhanh</td><td>Chậm hơn đáng kể</td><td>Nhanh</td><td>Nhanh</td></tr>
+    <tr><td>Dễ đọc, dễ review</td><td>Rất dễ</td><td>Khó</td><td>Dễ</td><td>Dễ</td></tr>
+  </table></div>
+  <ul>
+    <li><strong>Một file binary:</strong> không phụ thuộc phiên bản thư viện trên từng máy; cập nhật và rollback chỉ là thay một file.</li>
+    <li><strong>Đủ nhẹ:</strong> nằm thoải mái trong giới hạn <code>MemoryMax=128M</code>, gần như không tốn CPU khi rảnh.</li>
+    <li><strong>Đã kiểm chứng:</strong> nhiều agent phổ biến viết bằng Go (Filebeat, Telegraf, node_exporter).</li>
+    <li><strong>Dễ review:</strong> với agent chạy trên hàng chục nghìn máy, đọc hiểu được code quan trọng hơn tiết kiệm thêm vài MB RAM.</li>
+    <li>Build với <code>-ldflags="-s -w"</code>, binary còn khoảng 8–12 MB.</li>
+    <li><strong>Watchdog</strong> cũng viết bằng Go, giữ tối giản để hiếm khi phải cập nhật.</li>
+  </ul>
+  <div class="note"><strong>Khi nào chọn Rust:</strong> đội triển khai đã thành thạo Rust, hoặc máy cửa hàng rất yếu (RAM 2–4 GB, chạy sát giới hạn). Python và Node.js không nên dùng cho agent chính.</div>
+
+  <h3>Server: Go cho phần lõi, TypeScript cho dashboard</h3>
+  <div class="tbl"><table>
+    <tr><th>Thành phần</th><th>Ngôn ngữ / công cụ</th><th>Lý do</th></tr>
+    <tr><td>Ingest API</td><td>Go</td><td>Chịu nhiều kết nối đồng thời với ít tài nguyên; TLS/mTLS, Ed25519 có sẵn</td></tr>
+    <tr><td>Enrollment, Rule, Update service</td><td>Go</td><td>Dùng chung code gói tin và kiểm chữ ký với agent</td></tr>
+    <tr><td>Workers</td><td>Go</td><td>Đọc NATS, ghi PostgreSQL</td></tr>
+    <tr><td>CA nội bộ cấp chứng chỉ máy</td><td>step-ca (Smallstep)</td><td>Không tự viết CA; hỗ trợ chứng chỉ ngắn hạn và gia hạn tự động</td></tr>
+    <tr><td>Giữ khóa ký rule và bản cập nhật</td><td>HashiCorp Vault hoặc HSM</td><td>Khóa không nằm trên server Ingest</td></tr>
+    <tr><td>Dashboard quản trị</td><td>TypeScript (React / Next.js)</td><td>Giao diện nhiều bảng, biểu đồ</td></tr>
+    <tr><td>Hàng đợi, database, lưu trữ</td><td>NATS JetStream, PostgreSQL + TimescaleDB, pgBackRest</td><td>Như mục 14</td></tr>
+  </table></div>
+  <ul>
+    <li><strong>Thư viện giao thức dùng chung</strong> giữa agent và server: định nghĩa gói tin, cách tính fingerprint, <code>site_key</code>, kiểm chữ ký. Sửa một chỗ, cả hai bên cùng đúng.</li>
+    <li>Giai đoạn 2 cần giữ 20.000 kết nối liên tục: Go xử lý tốt, mỗi kết nối chỉ tốn vài KB.</li>
+    <li>Mỗi service là một binary, đóng Docker image nhỏ.</li>
+  </ul>
+  <div class="warn"><strong>Dashboard tách riêng:</strong> dashboard chỉ gọi vào API quản trị, không truy cập thẳng database. Nếu dashboard bị khai thác (XSS, lỗi phân quyền), kẻ tấn công chỉ làm được những gì API quản trị cho phép, và mọi thao tác đều có audit log. Đặc biệt quan trọng ở giai đoạn 2 khi dashboard có chức năng gửi lệnh xuống máy.</div>
+  <p><strong>Khi nào chọn khác:</strong> Java/Kotlin nếu bộ phận phát triển đã chuẩn hóa trên Java; Python chỉ dùng cho phân tích phụ (báo cáo, thống kê), không dùng cho Ingest.</p>
+</section>
+
+<section id="gd2">
+  <h2>16. Chuẩn bị cho giai đoạn 2</h2>
+  <p>Những quyết định đưa vào ngay từ giai đoạn 1 để sau này mở rộng sang kiểm soát toàn diện mà không phải viết lại:</p>
+  <ul>
+    <li><strong>Trường <code>v</code> trong mọi gói tin:</strong> server hỗ trợ đồng thời nhiều phiên bản giao thức, nên nâng cấp server và agent không cần đồng loạt.</li>
+    <li><strong>Agent khai báo khả năng</strong> (các module hiện có) ở heartbeat; server chỉ gửi yêu cầu agent hỗ trợ.</li>
+    <li><strong>Agent chia module:</strong> đăng ký, trạng thái, quét log, cập nhật. Giai đoạn 2 thêm module thực thi lệnh, bật/tắt được từ server.</li>
+    <li><strong>Kênh liên lạc tách khỏi nội dung message:</strong> giai đoạn 1 dùng polling HTTPS; giai đoạn 2 có thể chuyển sang kết nối giữ liên tục (MQTT hoặc gRPC stream) để server gửi lệnh tức thì.</li>
+    <li><strong>Lệnh giai đoạn 2 ký bằng khóa riêng</strong>, tách khỏi khóa TLS và khóa ký rule, kèm phân quyền, duyệt 2 người cho lệnh nguy hiểm và audit log.</li>
+  </ul>
+</section>
+
+<section id="lo-trinh">
+  <h2>17. Lộ trình triển khai giai đoạn 1</h2>
+  <div class="tbl"><table>
+    <tr><th>Giai đoạn</th><th>Thời gian</th><th>Nội dung</th><th>Tiêu chí hoàn thành</th></tr>
+    <tr><td>Thiết kế chi tiết</td><td>2 tuần</td><td>Chốt payload trạng thái, bộ rule đầu tiên, quy trình duyệt máy</td><td>Tài liệu được duyệt</td></tr>
+    <tr><td>Phát triển</td><td>6–8 tuần</td><td>Agent, Ingest, Enrollment, Rule, Update, dashboard cơ bản</td><td>Chạy ổn trên 20 máy lab</td></tr>
+    <tr><td>Kiểm thử bảo mật</td><td>2 tuần</td><td>Team bảo mật thử giả mạo máy, replay, rule giả, cập nhật giả</td><td>Không còn lỗ hổng mức cao</td></tr>
+    <tr><td>Pilot</td><td>4 tuần</td><td>100–200 máy ở 20–30 cửa hàng</td><td>Tỷ lệ heartbeat thành công trên 99%, agent dùng dưới 5% CPU</td></tr>
+    <tr><td>Mở rộng</td><td>6–8 tuần</td><td>Theo vùng: 1.000, 5.000, rồi 20.000 máy</td><td>Đo tải thực tế khớp ước tính</td></tr>
+  </table></div>
+</section>
+
+<section id="cau-hoi">
+  <h2>18. Câu hỏi còn mở</h2>
+  <ol>
+    <li>Toàn bộ máy có TPM 2.0 không, hay chỉ các dòng máy mới?</li>
+    <li>Nội dung chi tiết của phần trạng thái trong heartbeat.</li>
+    <li>Danh sách log cần quét ở giai đoạn 1 (SSH, USB, service POS, RAID, đăng nhập desktop...).</li>
+    <li>Có proxy giải mã TLS trên đường từ cửa hàng về trung tâm không? Quyết định việc cần thêm lớp mã hóa payload hay không.</li>
+    <li>Cửa hàng dùng IP WAN tĩnh hay động, có line dự phòng không, và kết nối về trung tâm qua Internet hay VPN/MPLS?</li>
+    <li>Thời gian lưu trữ log theo yêu cầu nội bộ và theo luật bảo vệ dữ liệu cá nhân.</li>
+  </ol>
+</section>
+
+<footer>Bản nháp tham khảo · Giai đoạn 1 · 27/10/2026</footer>
+</div>
+</body>
+</html>

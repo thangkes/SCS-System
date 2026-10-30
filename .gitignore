@@ -1,0 +1,16 @@
+# Cấu hình chứa mật khẩu
+.env
+*.env
+!.env.example
+
+# Khóa, chứng chỉ
+*.key
+*.pem
+*.crt
+
+# Build và dữ liệu chạy thử
+bin/
+data/
+
+# Log của script cài đặt, chạy thử
+*.log

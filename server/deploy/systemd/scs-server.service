@@ -1,0 +1,67 @@
+# scs-server chạy như dịch vụ systemd: tự chạy khi máy khởi động, tự bật lại khi chết.
+# Cài bằng: sudo bash scripts/install-service.sh   (đừng chép tay, script tạo user và thư mục)
+#
+#   /opt/scs-server/scs-server        binary (root sở hữu, dịch vụ không sửa được)
+#   /etc/scs-server/server.env        cấu hình + mật khẩu (user scs, quyền 600)
+#   /var/lib/scs-server               thư mục làm việc, dữ liệu (đường dẫn tương đối tính từ đây)
+#   /run/scs-server/control.sock      socket cho lệnh login-code (thư mục 700, tự xóa khi dừng)
+#
+# Xem log:  journalctl -u scs-server -f
+# Lấy mã:   scs-login-code   (script cài sẵn, chạy bằng user scs)
+
+[Unit]
+Description=scs-server (trung tâm giám sát scs-agent)
+Documentation=file:///opt/scs-server/README.md
+# Chờ mạng sẵn sàng. Docker (Postgres, NATS) không bắt buộc phải lên trước:
+# server vẫn chạy khi DB chưa lên, /readyz báo 503 cho tới khi DB kết nối được.
+Wants=network-online.target
+After=network-online.target docker.service
+# Chết bao nhiêu lần cũng bật lại (mỗi lần cách RestartSec), không bỏ cuộc.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=scs
+Group=scs
+WorkingDirectory=/var/lib/scs-server
+ExecStart=/opt/scs-server/scs-server all -env-file /etc/scs-server/server.env
+# Biến đặt ở đây thắng giá trị trong server.env.
+Environment=SCS_CONTROL_SOCKET=/run/scs-server/control.sock
+RuntimeDirectory=scs-server
+RuntimeDirectoryMode=0700
+
+Restart=always
+RestartSec=10
+# SIGTERM → server tắt êm (chờ request dở dang tối đa 10 giây).
+TimeoutStopSec=30
+
+# Cổng agent giới hạn 40.000 kết nối (SCS_INGEST_MAX_CONNS): cần đủ file descriptor.
+LimitNOFILE=65536
+UMask=0077
+
+# Thu hẹp quyền: chỉ ghi được thư mục dữ liệu, không leo quyền, không đọc /home.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/scs-server
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+# Cổng 6222/7222 > 1024 nên không cần capability nào.
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target
