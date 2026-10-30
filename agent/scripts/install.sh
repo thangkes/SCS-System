@@ -103,7 +103,21 @@ else
 	warn "Không phải Ubuntu: agent được viết và thử cho Ubuntu"
 fi
 
-# Tham số bắt buộc khi cài lần đầu (cài lại thì dùng cấu hình đang có)
+# Địa chỉ server và CA: cờ lệnh > đóng sẵn trong gói (server: package-agent.sh) > cấu hình đang có.
+BUNDLE_ENV="$AGENT_DIR/bundle.env"
+if [[ -r "$BUNDLE_ENV" ]]; then
+	if [[ -z "$SERVER" ]]; then
+		SERVER="$(sed -n 's/^SCS_SERVER=//p' "$BUNDLE_ENV" | tail -n1)"
+		[[ -n "$SERVER" ]] && ok "Dùng địa chỉ server đóng sẵn trong gói: $SERVER"
+	fi
+	if [[ -z "$WATCH" ]]; then
+		WATCH="$(sed -n 's/^SCS_WATCH_SERVICES=//p' "$BUNDLE_ENV" | tail -n1)"
+	fi
+fi
+if [[ -z "$CA_FILE" && -r "$AGENT_DIR/agent-ca.pem" ]]; then
+	CA_FILE="$AGENT_DIR/agent-ca.pem"
+	ok "Dùng CA đóng sẵn trong gói: $CA_FILE"
+fi
 if [[ -z "$SERVER" && -r "$ETC_DIR/agent.env" ]]; then
 	SERVER="$(sed -n 's/^SCS_SERVER=//p' "$ETC_DIR/agent.env" | tail -n1)"
 	[[ -n "$SERVER" ]] && ok "Dùng địa chỉ server đang cấu hình: $SERVER"
@@ -132,7 +146,8 @@ for s in ${WATCH//,/ }; do
 	[[ "$s" =~ ^[A-Za-z0-9@_.:][A-Za-z0-9@_.:-]*$ ]] || die "--watch: \"$s\" không phải tên dịch vụ systemd hợp lệ"
 done
 
-# Binary
+# Binary (chép qua USB định dạng FAT thường mất quyền thực thi: đặt lại)
+[[ -f "$BIN_SRC" && ! -x "$BIN_SRC" ]] && chmod 755 "$BIN_SRC"
 if [[ ! -x "$BIN_SRC" ]]; then
 	GO="$(command -v go || echo /usr/local/go/bin/go)"
 	if [[ $MODE == install && -x "$GO" ]]; then

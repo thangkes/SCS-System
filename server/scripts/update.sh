@@ -109,7 +109,9 @@ ready() {
 rollback() {
 	[[ -x "$OPT_DIR/scs-server.prev" ]] || die "Không có binary cũ ($OPT_DIR/scs-server.prev) để quay về"
 	sudo cp -p "$OPT_DIR/scs-server" "$OPT_DIR/scs-server.failed"
-	sudo cp -p "$OPT_DIR/scs-server.prev" "$OPT_DIR/scs-server"
+	# Không chép đè file đang chạy (Linux báo "Text file busy"): chép ra file tạm rồi đổi tên.
+	sudo cp -p "$OPT_DIR/scs-server.prev" "$OPT_DIR/scs-server.new"
+	sudo mv -f "$OPT_DIR/scs-server.new" "$OPT_DIR/scs-server"
 	sudo systemctl restart scs-server
 	if ready; then
 		ok "Đã quay về bản trước: $("$OPT_DIR/scs-server" version) (bản lỗi giữ ở $OPT_DIR/scs-server.failed)"

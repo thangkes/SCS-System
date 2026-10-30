@@ -168,6 +168,25 @@ do_uninstall() {
 	sudo bash "$SCRIPTS/install.sh" --uninstall
 }
 
+do_package() {
+	local last="$SERVER_DIR/data/dist/last-server.txt" def="" watch arch
+	[[ -r "$last" ]] && def="$(head -n1 "$last")"
+	echo "  Gói gồm binary agent, script cài, CA của server và địa chỉ server đặt sẵn: máy tại điểm bán"
+	echo "  chỉ cần giải nén rồi chạy cài, không phải nhập gì."
+	ask "Địa chỉ agent gọi tới (https://<IP WAN>:<cổng chuyển tiếp về 6222>)" "$def"
+	[[ "$REPLY" =~ ^https://[^/:@[:space:]]+:[0-9]{1,5}/?$ ]] ||
+		{ echo "  ${C_RED}Phải có dạng https://<IP>:<cổng>, ví dụ https://203.0.113.10:16222${C_0}"; return 1; }
+	local server="$REPLY"
+	ask "Dịch vụ mặc định cần báo trạng thái, cách nhau dấu phẩy (bỏ trống nếu không có)" ""
+	watch="$REPLY"
+	ask "Kiến trúc máy tại điểm bán (amd64 / arm64)" "amd64"
+	arch="$REPLY"
+	if bash "$SCRIPTS/package-agent.sh" --server "$server" --watch "$watch" --arch "$arch"; then
+		mkdir -p "$(dirname "$last")"
+		printf '%s\n' "$server" >"$last"
+	fi
+}
+
 # ---------------------------------------------------------------- menu
 while true; do
 	clear 2>/dev/null || true
@@ -193,6 +212,9 @@ while true; do
    9) Trạng thái và log gần nhất
   10) Gỡ dịch vụ (giữ dữ liệu)
 
+  ${C_B}Agent${C_0}
+  11) Đóng gói agent để cài cho máy tại điểm bán (một file .tar.gz)
+
    0) Thoát
 EOF
 	echo
@@ -209,6 +231,7 @@ EOF
 		8) do_code ;;
 		9) do_status ;;
 		10) do_uninstall ;;
+		11) do_package ;;
 		0 | q | Q | "") exit 0 ;;
 		*) echo "  Không có mục \"$choice\"." ;;
 	esac

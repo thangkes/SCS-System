@@ -94,27 +94,37 @@ Khi chạy thật nên đặt `SCS_ENV=prod` trong `/etc/scs-server/server.env` 
 
 ## 2. SCS-Agent (mỗi máy tại điểm bán)
 
+### 2.1 Tạo gói cài trên máy server (một lần, làm lại khi có bản agent mới)
+
+Menu server mục **11** (hoặc `bash server/scripts/package-agent.sh --server https://<IP WAN>:<cổng>`). Script build
+agent từ code hiện tại và gói thành **một file** `server/data/dist/scs-agent-<phiên bản>-linux-amd64.tar.gz`
+(kèm file `.sha256`), gồm: binary `scs-agent`, script cài, unit systemd, menu, **CA của server** và **địa chỉ server
+đặt sẵn**. Gói không chứa bí mật (CA chỉ là chứng chỉ công khai; script từ chối nếu lỡ đưa file khóa vào).
+
+### 2.2 Cài trên máy tại điểm bán
+
+Đặt hostname đúng quy ước trước (server đọc mã điểm bán và vị trí máy từ đây):
+`12345-TN1-PRI` (máy 1), `12345-TN2-SEC` (máy 2), `12345-TN3`, `12345-TN4`… Đổi: `sudo hostnamectl set-hostname 12345-TN1-PRI`.
+
+Chép file `.tar.gz` sang (USB, `scp`), rồi:
+
 ```bash
-sudo bash agent/menu.sh
+tar xzf scs-agent-*.tar.gz
+```
+```bash
+sudo bash scs-agent/scripts/install.sh
 ```
 
-Chọn **1** kiểm tra trước (hostname, đồng hồ, kết nối tới server), rồi **2** cài: script hỏi địa chỉ server và file
-`agent-ca.pem` (tự tìm file đặt cạnh thư mục `agent/`). Về sau: **3** trạng thái đăng ký, **4** mã khóa máy để
-admin đối chiếu khi duyệt, **5** log.
+Không cần nhập gì: địa chỉ server và CA lấy từ gói. Muốn kiểm tra trước hoặc xem trạng thái sau khi cài:
+`sudo bash scs-agent/menu.sh` (**1** kiểm tra, **2** cài, **3** trạng thái, **4** mã khóa máy, **5** log).
 
-### 2.1 Chuẩn bị
+### 2.3 Cài không dùng gói (dùng cờ lệnh)
 
-- **Hostname đúng quy ước** (server đọc mã điểm bán và vị trí máy từ đây):
-  `12345-TN1-PRI` (máy 1), `12345-TN2-SEC` (máy 2), `12345-TN3`, `12345-TN4`… Đổi: `sudo hostnamectl set-hostname 12345-TN1-PRI`.
-- **Binary** `scs-agent` cho Linux. Build một lần (máy nào có Go cũng được) rồi chép sang:
-  ```bash
-  cd agent && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/scs-agent ./cmd/scs-agent
-  ```
-- **File `agent-ca.pem`** lấy từ máy server (`/etc/scs-server/agent-ca.pem`).
+Khi không dùng gói: build binary (`cd agent && CGO_ENABLED=0 GOOS=linux go build -trimpath -o bin/scs-agent ./cmd/scs-agent`),
+chép thư mục `agent/` và `/etc/scs-server/agent-ca.pem` sang máy cần cài, rồi chạy `install.sh` với `--server`, `--ca`
+như các mục dưới.
 
-Chép thư mục `agent/` (có `bin/scs-agent`, `scripts/`, `deploy/`) và `agent-ca.pem` sang máy cần cài.
-
-### 2.2 Kiểm tra trước (không thay đổi gì trên máy)
+### 2.4 Kiểm tra trước (không thay đổi gì trên máy)
 
 ```bash
 sudo bash agent/scripts/install.sh --check --server https://<IP WAN>:16222 --ca agent-ca.pem
@@ -123,7 +133,7 @@ sudo bash agent/scripts/install.sh --check --server https://<IP WAN>:16222 --ca 
 Kiểm: Ubuntu, systemd, binary chạy được, hostname đúng quy ước, đồng hồ đồng bộ NTP, **kết nối tới server**
 và chứng chỉ server khớp CA.
 
-### 2.3 Cài
+### 2.5 Cài bằng cờ lệnh
 
 ```bash
 sudo bash agent/scripts/install.sh --server https://<IP WAN>:16222 --ca agent-ca.pem [--watch pos.service]
@@ -138,13 +148,13 @@ Script:
 
 `--watch` (tùy chọn): các dịch vụ systemd cần báo trạng thái trong heartbeat, ngăn bằng dấu phẩy.
 
-### 2.4 Duyệt máy
+### 2.6 Duyệt máy
 
 Admin vào web quản trị → trang **Chờ duyệt** → đối chiếu **mã khóa** với mã script vừa in (hoặc `scs-agent fingerprint`
 trên máy) → **Duyệt**. Hostname sai quy ước thì phải nhập mã điểm bán khi duyệt. Agent hỏi lại khoảng 5 phút một lần
 và nhận chứng chỉ sau khi được duyệt.
 
-### 2.5 Sau khi cài
+### 2.7 Sau khi cài
 
 ```bash
 scs-agent status                   # trạng thái đăng ký và thông tin máy sẽ gửi

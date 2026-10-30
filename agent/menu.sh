@@ -50,7 +50,7 @@ conf_get() { [[ -r "$CONF" ]] && sed -n "s/^$1=//p" "$CONF" | tail -n1; }
 # default_ca: CA đang cài, hoặc file agent-ca.pem / ca.pem nằm cạnh thư mục agent.
 default_ca() {
 	local f
-	for f in /etc/scs-agent/server-ca.pem "$AGENT_DIR/../agent-ca.pem" "$AGENT_DIR/agent-ca.pem" "$PWD/agent-ca.pem" "$PWD/ca.pem"; do
+	for f in "$AGENT_DIR/agent-ca.pem" /etc/scs-agent/server-ca.pem "$AGENT_DIR/../agent-ca.pem" "$PWD/agent-ca.pem" "$PWD/ca.pem"; do
 		[[ -r "$f" ]] && { readlink -f "$f"; return; }
 	done
 }
@@ -77,7 +77,10 @@ status_line() {
 
 # ask_target: hỏi địa chỉ server và CA (mặc định lấy từ cấu hình đang có); kết quả ở SERVER, CA.
 ask_target() {
-	ask "Địa chỉ server (https://<IP WAN>:<cổng>)" "$(conf_get SCS_SERVER || true)"
+	local def
+	def="$(sed -n 's/^SCS_SERVER=//p' "$AGENT_DIR/bundle.env" 2>/dev/null | tail -n1)" # đóng sẵn trong gói
+	[[ -n "$def" ]] || def="$(conf_get SCS_SERVER || true)"
+	ask "Địa chỉ server (https://<IP WAN>:<cổng>)" "$def"
 	SERVER="$REPLY"
 	[[ "$SERVER" =~ ^https://[^/:@[:space:]]+:[0-9]{1,5}/?$ ]] ||
 		{ echo "  ${C_RED}Phải có dạng https://<IP>:<cổng>, ví dụ https://203.0.113.10:16222${C_0}"; return 1; }

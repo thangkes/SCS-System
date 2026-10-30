@@ -32,7 +32,8 @@ Hướng dẫn đầy đủ, tách riêng server và agent: **[INSTALL.md](INSTA
 
 ```bash
 bash server/menu.sh          # máy server: menu cài đặt, cập nhật, vận hành (user thường hoặc root)
-sudo bash agent/menu.sh      # mỗi máy tại điểm bán (cần agent-ca.pem lấy từ server)
+                             # menu mục 11: đóng gói agent thành một file .tar.gz
+sudo bash scs-agent/scripts/install.sh   # mỗi máy tại điểm bán: giải nén gói rồi chạy, không cần nhập gì
 ```
 
 Chi tiết từng thành phần: [server/README.md](server/README.md), [agent/README.md](agent/README.md).
