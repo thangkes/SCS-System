@@ -24,7 +24,7 @@ git clone https://github.com/thangkes/SCS-System.git
 bash SCS-System/server/menu.sh
 ```
 
-Chạy bằng user thường (không dùng root). Lần đầu chọn lần lượt **1 → 2 → 3**:
+Chạy bằng user thường hoặc root (thư mục code thuộc user nào thì script tự chạy bằng user đó). Lần đầu chọn lần lượt **1 → 2 → 3**:
 **1** kiểm tra điều kiện, **2** cài Docker/Go/PostgreSQL/NATS, **3** cài dịch vụ (hỏi IP WAN, IP LAN, dải mạng
 được vào web; gợi ý sẵn IP LAN và dải LAN của máy). Về sau: **4** cập nhật, **6** cho thêm dải mạng vào web,
 **8** lấy mã đăng nhập web, **9** xem trạng thái và log.
@@ -83,7 +83,7 @@ bash server/scripts/update.sh --ref v0.2.0 # lên đúng một bản
 bash server/scripts/update.sh --rollback   # quay về binary trước lần cập nhật gần nhất
 ```
 
-Chạy bằng user thường (tự gọi sudo khi cài). Script kéo code, chạy test, build; bản mới có đổi cấu trúc DB thì
+Chạy bằng user thường hoặc root (tự gọi sudo khi cài). Script kéo code, chạy test, build; bản mới có đổi cấu trúc DB thì
 **sao lưu DB** vào `server/data/backup/` trước; cài xong kiểm `/readyz`, không lên trong 60 giây thì **tự quay về
 binary cũ**. Thư mục code có thay đổi chưa commit thì từ chối chạy.
 

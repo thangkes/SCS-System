@@ -31,7 +31,7 @@ Code comments and docs are in Vietnamese.*
 Hướng dẫn đầy đủ, tách riêng server và agent: **[INSTALL.md](INSTALL.md)**.
 
 ```bash
-bash server/menu.sh          # máy server: menu cài đặt, cập nhật, vận hành (chạy bằng user thường)
+bash server/menu.sh          # máy server: menu cài đặt, cập nhật, vận hành (user thường hoặc root)
 sudo bash agent/menu.sh      # mỗi máy tại điểm bán (cần agent-ca.pem lấy từ server)
 ```
 

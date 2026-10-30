@@ -3,7 +3,8 @@
 #
 #   bash server/menu.sh
 #
-# Chạy bằng user thường (không dùng root); bước nào cần quyền quản trị script tự gọi sudo.
+# Chạy bằng user thường hoặc root: thư mục code thuộc user nào thì script chạy bằng user đó;
+# bước nào cần quyền quản trị script tự gọi sudo.
 # Các script bên dưới (scripts/setup.sh, install.sh, update.sh) vẫn dùng trực tiếp bằng cờ lệnh được
 # khi cần tự động hóa; xem --help của từng script.
 
@@ -22,7 +23,15 @@ else
 	C_B='' C_DIM='' C_GRN='' C_YEL='' C_RED='' C_0=''
 fi
 
-[[ $EUID -ne 0 ]] || { echo "Chạy bằng user thường: bash server/menu.sh (bước nào cần quyền, script tự hỏi sudo)."; exit 1; }
+# Chạy bằng root: repo thuộc user khác thì chuyển sang user đó (git và build chạy bằng chủ repo,
+# bước cần quyền vẫn tự gọi sudo); repo thuộc root thì chạy luôn bằng root.
+if [[ $EUID -eq 0 ]]; then
+	owner="$(stat -c %U "$SERVER_DIR/..")"
+	if [[ "$owner" != root ]]; then
+		echo "Đang chạy bằng root, chuyển sang user sở hữu thư mục code: $owner"
+		exec sudo -u "$owner" -H bash "${BASH_SOURCE[0]}" "$@"
+	fi
+fi
 [[ -t 0 ]] || { echo "menu.sh cần chạy trong terminal. Tự động hóa: dùng trực tiếp scripts/*.sh với cờ lệnh (--help)."; exit 1; }
 
 # ask CÂU_HỎI [MẶC_ĐỊNH]: hỏi, Enter để lấy mặc định; kết quả ở REPLY.

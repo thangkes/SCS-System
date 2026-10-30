@@ -43,6 +43,7 @@ die() {
 }
 trap 'die "Lệnh ở dòng $LINENO thất bại" "Xem thông báo phía trên"' ERR
 
+ARGS=("$@") # giữ lại để chuyển sang user khác nếu cần (vòng dưới dùng shift)
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--ref) REF="${2:-}"; shift 2 ;;
@@ -55,7 +56,15 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
-[[ $EUID -ne 0 ]] || die "Không chạy bằng root" "Chạy bằng user sở hữu thư mục code; script tự gọi sudo ở bước cài"
+# Chạy bằng root: repo thuộc user khác thì chuyển sang user đó (git từ chối thao tác repo của người khác,
+# và file build ra phải thuộc chủ repo); repo thuộc root thì chạy luôn bằng root.
+if [[ $EUID -eq 0 ]]; then
+	owner="$(stat -c %U "$REPO_DIR")"
+	if [[ "$owner" != root ]]; then
+		echo "  Đang chạy bằng root, chuyển sang user sở hữu thư mục code: $owner"
+		exec sudo -u "$owner" -H bash "${BASH_SOURCE[0]}" "${ARGS[@]}"
+	fi
+fi
 command -v systemctl >/dev/null || die "Máy không dùng systemd"
 [[ -x "$OPT_DIR/scs-server" ]] || die "Chưa cài dịch vụ scs-server" "Cài lần đầu: sudo bash scripts/install.sh --wan-ip <IP WAN>"
 
