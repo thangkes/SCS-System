@@ -25,8 +25,8 @@ bash SCS-System/server/menu.sh
 ```
 
 Chạy bằng user thường hoặc root (thư mục code thuộc user nào thì script tự chạy bằng user đó). Lần đầu chọn lần lượt **1 → 2 → 3**:
-**1** kiểm tra điều kiện, **2** cài Docker/Go/PostgreSQL/NATS, **3** cài dịch vụ (hỏi IP WAN, IP LAN, dải mạng
-được vào web; gợi ý sẵn IP LAN và dải LAN của máy). Về sau: **4** cập nhật, **6** cho thêm dải mạng vào web,
+**1** kiểm tra điều kiện, **2** cài Docker/Go/PostgreSQL/NATS, **3** cài dịch vụ (hỏi IP LAN, tùy chọn IP WAN /
+tên miền DDNS, dải mạng được vào web; gợi ý sẵn IP LAN và dải LAN của máy). Về sau: **4** cập nhật, **6** cho thêm dải mạng vào web,
 **8** lấy mã đăng nhập web, **9** xem trạng thái và log.
 
 ### 1.1 Chuẩn bị máy: Docker, Go, PostgreSQL + NATS (dùng cờ lệnh)
@@ -56,7 +56,12 @@ Script:
 
 ### 1.3 Mạng và vào web từ máy khác trong LAN
 
-- Router phía server **chuyển tiếp một cổng** ra ngoài (ví dụ `16222`) về cổng `6222` của máy server. Agent gọi `https://<IP WAN>:16222`.
+- **Chỉ mạng nội bộ** (mặc định): chứng chỉ server chỉ ghi IP LAN, agent gọi `https://<IP LAN>:6222`. Đặt IP tĩnh cho
+  server (hoặc giữ IP trên router). ufw đang bật thì mở 6222 cho dải nội bộ.
+- **Mở cho agent từ Internet** (làm lúc cài hoặc sau này): router **chuyển tiếp một cổng** (ví dụ `16222`) về `6222` của
+  máy server, rồi menu mục **7** thêm IP WAN tĩnh hoặc tên miền DDNS vào chứng chỉ. CA giữ nguyên nên agent đã cài
+  vẫn chạy; máy ở ngoài cài bằng gói đóng với `https://<IP WAN hoặc tên miền>:16222` (mục 11 từ chối địa chỉ chưa có
+  trong chứng chỉ).
 - Cổng web quản trị `7222` **không mở ra Internet**: mặc định chỉ chính máy server vào được. Cho máy trong LAN hoặc VPN
   vào: menu mục **6** (hoặc `sudo bash server/scripts/install.sh --admin-allow 192.168.1.0/24`); script thêm dải đó vào
   `SCS_ADMIN_ALLOW` và mở ufw cho đúng dải nếu ufw đang bật.

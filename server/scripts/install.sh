@@ -90,7 +90,10 @@ for cidr in "${ADMIN_ALLOW[@]}"; do
 	[[ "$cidr" == 0.0.0.0/0 || "$cidr" == ::/0 ]] &&
 		die "--admin-allow $cidr mở web quản trị cho cả Internet" "Chỉ cho dải LAN hoặc VPN, ví dụ 192.168.1.0/24"
 done
-[[ $REISSUE -eq 0 || ${#PKI_IPS[@]} -gt 0 ]] || die "--reissue-cert cần ít nhất một --wan-ip / --vpn-ip / --lan-ip"
+for d in "${PKI_DNS[@]}"; do
+	[[ "$d" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "--dns \"$d\" không phải tên miền"
+done
+[[ $REISSUE -eq 0 || ${#PKI_IPS[@]} -gt 0 || ${#PKI_DNS[@]} -gt 0 ]] || die "--reissue-cert cần ít nhất một --wan-ip / --vpn-ip / --lan-ip / --dns"
 
 if [[ $MODE == uninstall ]]; then
 	systemctl disable --now scs-server 2>/dev/null || true
@@ -180,11 +183,11 @@ if [[ -n "$(env_value "$ENV_FILE" SCS_CA_CERT)" ]]; then
 			die "Không cấp lại được chứng chỉ server (đã trả lại chứng chỉ cũ)"
 		fi
 		chown -R "$SVC_USER:$SVC_USER" "$PKI_DIR"
-		ok "Đã cấp lại chứng chỉ server cho 127.0.0.1 ${PKI_IPS[*]} (bản cũ: *.old-$stamp)"
+		ok "Đã cấp lại chứng chỉ server cho 127.0.0.1 ${PKI_IPS[*]} ${PKI_DNS[*]} (bản cũ: *.old-$stamp)"
 	elif [[ ${#PKI_IPS[@]} -gt 0 ]]; then
 		warn "Đã có CA nên bỏ qua các IP vừa nhập. Muốn ghi IP mới vào chứng chỉ server: thêm --reissue-cert (liệt kê đủ mọi IP: WAN, VPN, LAN)"
 	fi
-elif [[ ${#PKI_IPS[@]} -eq 0 ]]; then
+elif [[ ${#PKI_IPS[@]} -eq 0 && ${#PKI_DNS[@]} -eq 0 ]]; then
 	warn "Chưa có CA và chứng chỉ server: agent chưa kết nối được. Chạy lại: sudo bash $0 --wan-ip <IP WAN của server> [--vpn-ip <IP VPN>]"
 else
 	args=(-ip 127.0.0.1) # để kiểm tra được ngay trên máy server

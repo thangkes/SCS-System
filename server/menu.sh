@@ -94,26 +94,53 @@ do_check() { bash "$SCRIPTS/setup.sh" --check; }
 
 do_setup() { bash "$SCRIPTS/setup.sh" --start --test; }
 
-do_install() {
-	local args=() wan lan vpn allow
-	echo "  Thông tin để tạo chứng chỉ server (bỏ trống phần không dùng)."
-	echo "  ${C_DIM}Đã có CA từ lần cài trước thì các IP chỉ dùng khi cấp lại chứng chỉ (mục 7).${C_0}"
-	ask "IP WAN của server (agent ở điểm bán gọi tới; xem bằng: curl -s ifconfig.me)" ""
-	wan="$REPLY"
-	if [[ -n "$wan" ]] && ! valid_ip "$wan"; then echo "  ${C_RED}\"$wan\" không phải IP${C_0}"; return 1; fi
-	ask "IP LAN của server (máy trong mạng nội bộ vào web)" "$(lan_ip || true)"
+valid_dns() { [[ "$1" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ && "$1" == *.* ]]; }
+
+# cert_names: các IP / tên miền đang có trong chứng chỉ server (trừ 127.0.0.1), cách nhau dấu cách.
+cert_names() {
+	local pem
+	pem="$(env_get SCS_TLS_CERT)"
+	[[ -n "$pem" ]] || return 0
+	sudo openssl x509 -in "$pem" -noout -ext subjectAltName 2>/dev/null |
+		grep -oE '(IP Address|DNS):[^, ]+' | sed -E 's/^(IP Address|DNS)://' | grep -vxE '127\.0\.0\.1|::1' | tr '\n' ' ' | sed 's/ $//'
+}
+
+# ask_names [LAN] [WAN...]: hỏi địa chỉ ghi vào chứng chỉ server. Chỉ IP LAN là bắt buộc;
+# IP WAN / tên miền DDNS (agent từ Internet qua chuyển tiếp cổng) và VPN thêm sau bằng mục 7 được.
+# Kết quả: mảng NAME_ARGS (--lan-ip / --wan-ip / --dns ...).
+ask_names() {
+	local lan ext x
+	NAME_ARGS=()
+	ask "IP LAN của server (nên đặt IP tĩnh hoặc giữ IP trên router)" "${1:-$(lan_ip || true)}"
 	lan="$REPLY"
-	if [[ -n "$lan" ]] && ! valid_ip "$lan"; then echo "  ${C_RED}\"$lan\" không phải IP${C_0}"; return 1; fi
-	ask "IP VPN của server (nếu admin vào qua VPN)" ""
-	vpn="$REPLY"
-	if [[ -n "$vpn" ]] && ! valid_ip "$vpn"; then echo "  ${C_RED}\"$vpn\" không phải IP${C_0}"; return 1; fi
+	valid_ip "$lan" || { echo "  ${C_RED}\"$lan\" không phải IP${C_0}"; return 1; }
+	NAME_ARGS+=(--lan-ip "$lan")
+	echo "  ${C_DIM}Chỉ chạy trong mạng nội bộ: Enter bỏ qua câu dưới. Sau này mở cho agent từ Internet bằng mục 7,${C_0}"
+	echo "  ${C_DIM}agent đã cài vẫn chạy bình thường (cùng CA).${C_0}"
+	ask "IP WAN, tên miền DDNS, IP VPN (tùy chọn, cách nhau dấu cách; '-' = không có)" "${2:-}"
+	ext="$REPLY"
+	[[ "$ext" == "-" ]] && ext=""
+	for x in $ext; do
+		if valid_ip "$x"; then
+			[[ "$x" == "$lan" ]] || NAME_ARGS+=(--wan-ip "$x")
+		elif valid_dns "$x"; then
+			NAME_ARGS+=(--dns "$x")
+		else
+			echo "  ${C_RED}\"$x\" không phải IP hay tên miền${C_0}"
+			return 1
+		fi
+	done
+}
+
+do_install() {
+	local args=() allow
+	echo "  Địa chỉ ghi vào chứng chỉ server."
+	echo "  ${C_DIM}Đã có CA từ lần cài trước thì địa chỉ chỉ dùng khi cấp lại chứng chỉ (mục 7).${C_0}"
+	ask_names || return 1
+	args+=("${NAME_ARGS[@]}")
 	ask "Dải mạng được vào web quản trị 7222 (Enter = dải LAN; '-' = chỉ máy server)" "$(lan_cidr || true)"
 	allow="$REPLY"
 	if [[ -n "$allow" && "$allow" != "-" ]] && ! valid_cidr "$allow"; then echo "  ${C_RED}\"$allow\" không phải dải CIDR${C_0}"; return 1; fi
-
-	[[ -n "$wan" ]] && args+=(--wan-ip "$wan")
-	[[ -n "$lan" ]] && args+=(--lan-ip "$lan")
-	[[ -n "$vpn" ]] && args+=(--vpn-ip "$vpn")
 	[[ -n "$allow" && "$allow" != "-" ]] && args+=(--admin-allow "$allow")
 	echo
 	echo "  Sẽ chạy: sudo bash scripts/install.sh ${args[*]}"
@@ -135,18 +162,18 @@ do_allow() {
 }
 
 do_reissue() {
-	local args=() ips
-	echo "  Liệt kê ĐỦ mọi IP cần có trong chứng chỉ (WAN, LAN, VPN), cách nhau bằng dấu cách."
-	echo "  ${C_DIM}CA giữ nguyên nên agent không bị ảnh hưởng; trình duyệt sẽ thấy chứng chỉ mới.${C_0}"
-	ask "Các IP" "$(lan_ip || true)"
-	ips="$REPLY"
-	for ip in $ips; do
-		valid_ip "$ip" || { echo "  ${C_RED}\"$ip\" không phải IP${C_0}"; return 1; }
-		args+=(--wan-ip "$ip")
+	local cur x lan="" ext=""
+	cur="$(cert_names)"
+	echo "  Đang có trong chứng chỉ: ${cur:-(chưa đọc được)}"
+	echo "  ${C_DIM}Dùng khi đổi IP LAN hoặc mở cho agent từ Internet (thêm IP WAN / tên miền DDNS).${C_0}"
+	echo "  ${C_DIM}CA giữ nguyên nên agent đã cài vẫn kết nối bình thường.${C_0}"
+	# Tách địa chỉ đang có: IP LAN (dải riêng) làm mặc định câu đầu, còn lại làm mặc định câu sau.
+	for x in $cur; do
+		if [[ -z "$lan" && "$x" =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.) ]]; then lan="$x"; else ext="${ext:+$ext }$x"; fi
 	done
-	[[ ${#args[@]} -gt 0 ]] || { echo "  Chưa nhập IP nào."; return 1; }
-	confirm "Cấp lại chứng chỉ server cho: $ips ?" || return 0
-	sudo bash "$SCRIPTS/install.sh" --reissue-cert "${args[@]}"
+	ask_names "$lan" "$ext" || return 1
+	confirm "Cấp lại chứng chỉ server với: ${NAME_ARGS[*]} ?" || return 0
+	sudo bash "$SCRIPTS/install.sh" --reissue-cert "${NAME_ARGS[@]}"
 }
 
 do_code() {
@@ -171,12 +198,27 @@ do_uninstall() {
 do_package() {
 	local last="$SERVER_DIR/data/dist/last-server.txt" def="" watch arch
 	[[ -r "$last" ]] && def="$(head -n1 "$last")"
+	if [[ -z "$def" ]]; then
+		local port
+		port="$(env_get SCS_INGEST_LISTEN)"
+		port="${port##*:}"
+		def="https://$(lan_ip || echo 127.0.0.1):${port:-6222}"
+	fi
 	echo "  Gói gồm binary agent, script cài, CA của server và địa chỉ server đặt sẵn: máy tại điểm bán"
 	echo "  chỉ cần giải nén rồi chạy cài, không phải nhập gì."
-	ask "Địa chỉ agent gọi tới (https://<IP WAN>:<cổng chuyển tiếp về 6222>)" "$def"
+	echo "  ${C_DIM}Trong mạng nội bộ: https://<IP LAN>:6222. Từ Internet: https://<IP WAN hoặc tên miền>:<cổng chuyển tiếp về 6222>.${C_0}"
+	ask "Địa chỉ agent gọi tới" "$def"
 	[[ "$REPLY" =~ ^https://[^/:@[:space:]]+:[0-9]{1,5}/?$ ]] ||
-		{ echo "  ${C_RED}Phải có dạng https://<IP>:<cổng>, ví dụ https://203.0.113.10:16222${C_0}"; return 1; }
-	local server="$REPLY"
+		{ echo "  ${C_RED}Phải có dạng https://<IP>:<cổng>, ví dụ https://192.168.1.10:6222${C_0}"; return 1; }
+	local server="$REPLY" host names
+	host="${server#https://}"
+	host="${host%%:*}"
+	names="$(cert_names)"
+	if [[ -n "$names" && " $names " != *" $host "* ]]; then
+		echo "  ${C_RED}\"$host\" không có trong chứng chỉ server ($names): agent sẽ báo lỗi TLS.${C_0}"
+		echo "  Thêm địa chỉ này bằng mục 7 trước, rồi đóng gói lại."
+		return 1
+	fi
 	ask "Dịch vụ mặc định cần báo trạng thái, cách nhau dấu phẩy (bỏ trống nếu không có)" ""
 	watch="$REPLY"
 	ask "Kiến trúc máy tại điểm bán (amd64 / arm64)" "amd64"
