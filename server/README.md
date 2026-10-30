@@ -28,7 +28,7 @@ Cần Go ≥ 1.22 (nên cài bản mới từ https://go.dev/dl thay vì `apt`) 
 ```bash
 cd github.com/thangkes/SCS-System/server
 cp .env.example .env && chmod 600 .env
-# Điền SCS_DB_PASSWORD, SCS_NATS_PASSWORD (tạo bằng: openssl rand -hex 24)
+# Điền SCS_DB_PASSWORD, SCS_NATS_PASSWORD (tạo bằng: echo "s$(openssl rand -hex 24)"; mật khẩu NATS phải bắt đầu bằng chữ cái)
 
 docker compose -f compose.dev.yml up -d  # Postgres + NATS, dùng chung mật khẩu trong .env
 docker compose -f compose.dev.yml ps     # chờ cả hai báo (healthy)

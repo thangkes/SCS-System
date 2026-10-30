@@ -410,7 +410,7 @@ setup_env() {
 			continue
 		fi
 		# Chỉ điền dòng đang trống (KEY= hoặc KEY=   # chú thích); không ghi đè giá trị đã có.
-		val="$(openssl rand -hex 24)"
+		val="$(new_secret)"
 		if grep -qE "^$key=" "$env"; then
 			sed -i -E "s|^$key=[[:space:]]*(#.*)?$|$key=$val|" "$env"
 		else
@@ -420,6 +420,19 @@ setup_env() {
 		generated+=("$key")
 	done
 	(( ${#generated[@]} > 0 )) && ok "Đã sinh giá trị ngẫu nhiên cho: ${generated[*]} (xem trong .env, không in ra đây)"
+
+	# NATS đọc mật khẩu như cú pháp config: bắt đầu bằng số (ví dụ "9f3a...") thì NATS không khởi động.
+	# Bản cũ của script có thể đã sinh mật khẩu như vậy: sinh lại (NATS không lưu mật khẩu ở đâu khác).
+	val="$(env_value SCS_NATS_PASSWORD)"
+	if [[ -n "$val" && ! "$val" =~ ^[A-Za-z][A-Za-z0-9]*$ ]]; then
+		if [[ $MODE_CHECK -eq 1 ]]; then
+			warn "SCS_NATS_PASSWORD phải bắt đầu bằng chữ cái và chỉ gồm chữ, số (chạy không --check để sinh lại)"
+		else
+			val="$(new_secret)"
+			sed -i -E "s|^SCS_NATS_PASSWORD=.*$|SCS_NATS_PASSWORD=$val|" "$env"
+			ok "Đã sinh lại SCS_NATS_PASSWORD (mật khẩu cũ bắt đầu bằng số, NATS không đọc được)"
+		fi
+	fi
 
 	if [[ -z "$(env_value SCS_NATS_USER)" ]]; then
 		err "SCS_NATS_USER trong .env đang trống; điền ví dụ: SCS_NATS_USER=scs"
@@ -436,6 +449,35 @@ setup_env() {
 		else
 			warn ".env đang quyền $perm, nên là 600 (chmod 600 .env)"
 		fi
+	fi
+}
+
+# new_secret: 48 ký tự chữ thường và số, luôn bắt đầu bằng chữ cái (NATS hiểu "9..." là số).
+new_secret() { printf 's%s' "$(openssl rand -hex 24)"; }
+
+# sync_installed_env: scs-server đã cài dùng bản sao cấu hình ở /etc/scs-server/scs-server.env.
+# Mật khẩu DB/NATS ở đó phải khớp server/.env (compose dùng file này), nếu không scs-server
+# báo "password authentication failed". Chép mật khẩu từ .env sang, giữ bản cũ .bak-<thời điểm>.
+sync_installed_env() {
+	local etc=/etc/scs-server/scs-server.env key val cur changed=0
+	$SUDO test -f "$etc" || return 0
+	for key in SCS_DB_PASSWORD SCS_NATS_PASSWORD; do
+		val="$(env_value "$key")"
+		[[ -n "$val" ]] || continue
+		cur="$($SUDO sed -n "s/^$key=//p" "$etc" | tail -n1)"
+		[[ "$cur" == "$val" ]] && continue
+		[[ $changed -eq 0 ]] && $SUDO cp -p "$etc" "$etc.bak-$(date +%Y%m%d-%H%M%S)"
+		if $SUDO grep -qE "^$key=" "$etc"; then
+			$SUDO sed -i -E "s|^$key=.*$|$key=$val|" "$etc"
+		else
+			printf '%s=%s\n' "$key" "$val" | $SUDO tee -a "$etc" >/dev/null
+		fi
+		changed=1
+	done
+	[[ $changed -eq 1 ]] || return 0
+	ok "Đã cập nhật mật khẩu DB/NATS trong $etc cho khớp .env"
+	if systemctl is-active --quiet scs-server 2>/dev/null || systemctl is-failed --quiet scs-server 2>/dev/null; then
+		$SUDO systemctl restart scs-server && ok "Đã khởi động lại scs-server" || warn "Không khởi động lại được scs-server (xem: journalctl -u scs-server -n 30)"
 	fi
 }
 
@@ -456,6 +498,7 @@ start_deps() {
 	fi
 	docker_cmd compose -f "$COMPOSE_FILE" ps
 	ok "Postgres và NATS đang chạy (healthy)"
+	sync_installed_env
 }
 
 # test_db_url: Postgres (compose) đang chạy thì tạo DB riêng scs_test cho test cấu trúc DB,
