@@ -362,3 +362,23 @@ func nullInt64(n int64) any {
 	}
 	return n
 }
+
+func (g *Registry) AgentAuth(ctx context.Context, id int64) (app.AgentAuth, error) {
+	var a app.AgentAuth
+	var serial *string
+	err := g.pool.QueryRow(ctx, `SELECT public_key, status, cert_serial FROM devices WHERE id = $1`, id).
+		Scan(&a.PublicKey, &a.Status, &serial)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return a, app.ErrNotFound
+	}
+	if serial != nil {
+		a.CertSerial = *serial
+	}
+	return a, err
+}
+
+func (g *Registry) Seen(ctx context.Context, id int64, ip netip.Addr, agentVersion string) error {
+	_, err := g.pool.Exec(ctx, `UPDATE devices SET last_seen = now(), last_ip = $2, agent_version = $3 WHERE id = $1`,
+		id, ip.String(), agentVersion)
+	return err
+}

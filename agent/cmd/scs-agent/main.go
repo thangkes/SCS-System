@@ -18,6 +18,7 @@ import (
 	"github.com/thangkes/SCS-System/agent/internal/client"
 	"github.com/thangkes/SCS-System/agent/internal/config"
 	"github.com/thangkes/SCS-System/agent/internal/enroll"
+	"github.com/thangkes/SCS-System/agent/internal/heartbeat"
 	"github.com/thangkes/SCS-System/agent/internal/identity"
 	"github.com/thangkes/SCS-System/agent/internal/sysinfo"
 	"github.com/thangkes/SCS-System/common/fleet"
@@ -85,7 +86,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	return runAgent(stdout, stderr, cfg)
 }
 
-// runAgent: vòng chạy chính: đăng ký và chờ duyệt (A1); heartbeat, gửi log ở A2–A3.
+// runAgent: vòng chạy chính: đăng ký và chờ duyệt (A1), rồi heartbeat; gửi log ở A3.
 // Bị từ chối hoặc lỗi không tự khỏi thì không thoát (để systemd không khởi động lại liên tục),
 // chỉ ghi log và chờ tới khi bị dừng.
 func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
@@ -117,6 +118,7 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		log.Error("không khởi động được", "err", err)
 		return 1
 	}
+	c.SetServers(st.Servers) // địa chỉ server gửi xuống từ lần trước
 	_, certErr := os.Stat(identity.CertPath(cfg.KeyDir))
 	if st.Status != identity.StatusApproved || certErr != nil {
 		st, err = enroll.Run(ctx, enroll.Deps{Log: log, Client: c, Key: key,
@@ -132,7 +134,8 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 	}
 	switch st.Status {
 	case identity.StatusApproved:
-		log.Info("đã được duyệt; heartbeat và gửi log sẽ có ở mốc A2–A3", "device_id", st.DeviceID)
+		log.Info("đã được duyệt, bắt đầu gửi heartbeat", "device_id", st.DeviceID, "dia_chi", c.Servers())
+		heartbeat.Run(ctx, heartbeat.Deps{Log: log, Client: c, StateDir: cfg.StateDir, State: st})
 	case identity.StatusRejected:
 		log.Error("máy bị từ chối hoặc thu hồi; muốn dùng lại: xóa khóa máy, cài lại agent và chờ duyệt lại")
 	}
@@ -178,6 +181,9 @@ func printStatus(stdout, stderr io.Writer, cfg *config.Config) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "Server            : %s\n", orDash(cfg.Server))
+	if len(st.Servers) > 0 {
+		fmt.Fprintf(stdout, "Địa chỉ dự phòng  : %s (server gửi xuống)\n", strings.Join(st.Servers, ", "))
+	}
 	fmt.Fprintf(stdout, "Dịch vụ theo dõi  : %s\n", orDash(strings.Join(cfg.WatchServices, ", ")))
 	fmt.Fprintf(stdout, "Trạng thái đăng ký: %s\n", st.Status)
 	if st.DeviceID != "" {

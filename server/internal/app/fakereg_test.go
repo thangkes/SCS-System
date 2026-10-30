@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"net/netip"
 	"sync"
 	"time"
 )
@@ -66,6 +67,25 @@ func (f *fakeRegistry) SetCertSerial(_ context.Context, id int64, serial string)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.serials[id] = serial
+	return nil
+}
+
+func (f *fakeRegistry) AgentAuth(_ context.Context, id int64) (AgentAuth, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d := f.find(id)
+	if d == nil {
+		return AgentAuth{}, ErrNotFound
+	}
+	return AgentAuth{PublicKey: d.pub, Status: d.Status, CertSerial: f.serials[id]}, nil
+}
+
+func (f *fakeRegistry) Seen(_ context.Context, id int64, ip netip.Addr, agentVersion string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if d := f.find(id); d != nil {
+		d.LastSeen, d.LastIP, d.AgentVersion = time.Now(), ip.String(), agentVersion
+	}
 	return nil
 }
 

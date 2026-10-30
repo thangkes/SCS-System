@@ -18,6 +18,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,8 +27,15 @@ import (
 )
 
 // Client gọi các API của server.
+//
+// Có thể có nhiều địa chỉ server (LAN, IP WAN, tên miền): địa chỉ khai lúc cài đứng đầu, sau đó
+// là danh sách server gửi xuống. Không kết nối được địa chỉ đang dùng thì thử địa chỉ kế tiếp
+// ngay trong lần gọi đó, được thì dùng tiếp địa chỉ ấy. Mọi địa chỉ đều phải có chứng chỉ do
+// CA của server ký nên danh sách không mở thêm đường cho kẻ giả mạo.
 type Client struct {
-	base    string
+	mu      sync.Mutex
+	bases   []string
+	cur     int
 	tls     *tls.Config
 	http    *http.Client
 	key     *identity.Key
@@ -47,7 +55,7 @@ func New(server, caFile, keyDir string, key *identity.Key, version string) (*Cli
 	if !pool.AppendCertsFromPEM(pemBytes) {
 		return nil, fmt.Errorf("%s không có chứng chỉ PEM hợp lệ", caFile)
 	}
-	c := &Client{base: strings.TrimRight(server, "/"), key: key, keyDir: keyDir, version: version}
+	c := &Client{bases: []string{strings.TrimRight(server, "/")}, key: key, keyDir: keyDir, version: version}
 	c.tls = &tls.Config{
 		MinVersion:           tls.VersionTLS13,
 		RootCAs:              pool,
@@ -62,7 +70,7 @@ func New(server, caFile, keyDir string, key *identity.Key, version string) (*Cli
 func (c *Client) ResetSessions() {
 	cfg := c.tls.Clone()
 	cfg.ClientSessionCache = tls.NewLRUClientSessionCache(4)
-	c.http = &http.Client{
+	hc := &http.Client{
 		Timeout: 60 * time.Second,
 		Transport: &http.Transport{
 			TLSClientConfig:       cfg,
@@ -73,6 +81,37 @@ func (c *Client) ResetSessions() {
 			Proxy:                 http.ProxyFromEnvironment,
 		},
 	}
+	c.mu.Lock()
+	c.http = hc
+	c.mu.Unlock()
+}
+
+// SetServers đặt danh sách địa chỉ server gửi xuống (địa chỉ lúc cài luôn giữ ở đầu).
+// Địa chỉ đang dùng vẫn được dùng tiếp nếu còn trong danh sách mới.
+func (c *Client) SetServers(list []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cur := c.bases[c.cur]
+	c.bases = protocol.CleanServers(append([]string{c.bases[0]}, list...))
+	c.cur = 0
+	for i, b := range c.bases {
+		if b == cur {
+			c.cur = i
+		}
+	}
+}
+
+// Servers: danh sách địa chỉ đang dùng; Current: địa chỉ đang gọi.
+func (c *Client) Servers() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.bases...)
+}
+
+func (c *Client) Current() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bases[c.cur]
 }
 
 // clientCert gửi chứng chỉ máy khi đã có (sau khi được duyệt); chưa có thì không gửi gì.
@@ -119,16 +158,35 @@ func (c *Client) Send(ctx context.Context, path, typ, deviceID, fingerprint stri
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+path, bytes.NewReader(b))
-	if err != nil {
-		return err
+	c.mu.Lock()
+	bases, start, hc := append([]string(nil), c.bases...), c.cur, c.http
+	c.mu.Unlock()
+	var resp *http.Response
+	var sent time.Time
+	for i := range bases {
+		idx := (start + i) % len(bases)
+		req, rerr := http.NewRequestWithContext(ctx, http.MethodPost, bases[idx]+path, bytes.NewReader(b))
+		if rerr != nil {
+			return rerr
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("User-Agent", "scs-agent/"+c.version)
+		sent = time.Now()
+		resp, err = hc.Do(req)
+		if err == nil {
+			c.mu.Lock()
+			if idx < len(c.bases) && c.bases[idx] == bases[idx] {
+				c.cur = idx
+			}
+			c.mu.Unlock()
+			break
+		}
+		if ctx.Err() != nil {
+			return err
+		}
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "scs-agent/"+c.version)
-	sent := time.Now()
-	resp, err := c.http.Do(req)
 	if err != nil {
-		return err
+		return err // không địa chỉ nào kết nối được
 	}
 	defer resp.Body.Close()
 	c.learnClock(resp.Header.Get("Date"), sent, time.Now())

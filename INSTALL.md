@@ -57,14 +57,20 @@ Script:
 ### 1.3 Mạng và vào web từ máy khác trong LAN
 
 - **Chỉ mạng nội bộ** (mặc định): chứng chỉ server chỉ ghi IP LAN, agent gọi `https://<IP LAN>:6222`. Đặt IP tĩnh cho
-  server (hoặc giữ IP trên router). ufw đang bật thì mở 6222 cho dải nội bộ.
+  server (hoặc giữ IP trên router). ufw đang bật thì script cài tự mở cổng 6222 (cổng agent được bảo vệ bằng TLS,
+  chứng chỉ máy và admin duyệt, không dựa vào tường lửa).
 - **Mở cho agent từ Internet** (làm lúc cài hoặc sau này): router **chuyển tiếp một cổng** (ví dụ `16222`) về `6222` của
   máy server, rồi menu mục **7** thêm IP WAN tĩnh hoặc tên miền DDNS vào chứng chỉ. CA giữ nguyên nên agent đã cài
   vẫn chạy; máy ở ngoài cài bằng gói đóng với `https://<IP WAN hoặc tên miền>:16222` (mục 11 từ chối địa chỉ chưa có
   trong chứng chỉ).
-- Cổng web quản trị `7222` **không mở ra Internet**: mặc định chỉ chính máy server vào được. Cho máy trong LAN hoặc VPN
-  vào: menu mục **6** (hoặc `sudo bash server/scripts/install.sh --admin-allow 192.168.1.0/24`); script thêm dải đó vào
-  `SCS_ADMIN_ALLOW` và mở ufw cho đúng dải nếu ufw đang bật.
+- **Agent tự chuyển địa chỉ:** mục 3/7 ghi danh sách địa chỉ server (IP LAN, IP WAN, tên miền) vào `SCS_AGENT_SERVERS`.
+  Server gửi danh sách này cho agent đã duyệt (lúc duyệt và mỗi heartbeat 5 phút); agent lưu lại, địa chỉ đang dùng
+  không kết nối được thì thử ngay địa chỉ kế tiếp. Máy cài bằng gói LAN mang ra ngoài vẫn gọi về được qua IP WAN.
+- Cổng web quản trị `7222` **không mở ra Internet**: mặc định chỉ chính máy server vào được. Menu mục **6** (hoặc
+  câu hỏi ở mục 3) chọn: **toàn mạng nội bộ** (mọi dải IP riêng 10.x, 172.16–31.x, 192.168.x, hợp với công ty nhiều
+  lớp mạng / VLAN định tuyến qua nhau), chỉ dải LAN của server, hoặc tự nhập các dải. Dòng lệnh:
+  `sudo bash server/scripts/install.sh --admin-allow private` (hoặc `--admin-allow 10.10.0.0/16`, lặp lại được).
+  Script thêm vào `SCS_ADMIN_ALLOW` và mở ufw cho đúng các dải đó nếu ufw đang bật.
 - Muốn trình duyệt không báo sai tên, chứng chỉ server phải ghi IP mà bạn gõ trên trình duyệt (IP LAN, IP VPN):
   menu mục **7** cấp lại chứng chỉ với đủ các IP (CA giữ nguyên, agent không bị ảnh hưởng). Trình duyệt vẫn cảnh báo
   "chưa tin cậy" vì CA là CA nội bộ: nhập file `/etc/scs-server/agent-ca.pem` vào kho chứng chỉ tin cậy của máy

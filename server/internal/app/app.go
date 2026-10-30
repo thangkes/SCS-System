@@ -73,7 +73,7 @@ func IngestHandler(d Deps) http.Handler {
 	// Máy mới: chưa có chứng chỉ; mọi yêu cầu đăng ký chờ admin duyệt.
 	mux.Handle("POST /v1/enroll", route(open, ingestBody.enroll, enroll, enrollHandler(d)))
 
-	mux.Handle("POST /v1/heartbeat", route(cert, ingestBody.heartbeat, agent, httpx.NotImplemented("M4")))
+	mux.Handle("POST /v1/heartbeat", route(cert, ingestBody.heartbeat, agent, heartbeatHandler(d)))
 	mux.Handle("POST /v1/logs", route(cert, ingestBody.logs, logs, httpx.NotImplemented("M4")))
 	mux.Handle("POST /v1/cert/renew", route(cert, ingestBody.renew, agent, httpx.NotImplemented("M3")))
 	mux.Handle("GET /v1/rules/{version}", route(cert, ingestBody.get, agent, httpx.NotImplemented("M7")))

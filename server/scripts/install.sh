@@ -12,7 +12,11 @@
 #   --lan-ip IP          IP LAN của server (máy trong mạng nội bộ vào web bằng IP này), lặp lại được
 #   --dns TÊN            tên miền ghi thêm vào chứng chỉ server (tùy chọn)
 #   --admin-allow DẢI    cho dải IP này vào web quản trị 7222 (ví dụ 192.168.1.0/24), lặp lại được;
-#                        thêm vào SCS_ADMIN_ALLOW (giữ localhost) và mở ufw cho đúng dải đó nếu ufw đang bật
+#                        thêm vào SCS_ADMIN_ALLOW (giữ localhost) và mở ufw cho đúng dải đó nếu ufw đang bật;
+#                        "private" = toàn mạng nội bộ (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+#   --agent-servers DS   các địa chỉ agent dùng gọi server, cách nhau dấu phẩy, thứ tự ưu tiên
+#                        (ví dụ https://192.168.1.10:6222,https://ten.ddns.net:16222); server gửi danh
+#                        sách này cho agent đã duyệt, agent tự chuyển khi địa chỉ đang dùng mất kết nối
 #   --reissue-cert       cấp lại chứng chỉ server theo các --wan-ip/--vpn-ip/--lan-ip (CA giữ nguyên,
 #                        agent không bị ảnh hưởng); dùng khi đổi IP hoặc thêm IP LAN
 #
@@ -41,7 +45,7 @@ DATA_DIR=/var/lib/scs-server
 UNIT_DST=/etc/systemd/system/scs-server.service
 LOGIN_CMD=/usr/local/bin/scs-login-code
 PKI_DIR=$ETC_DIR/pki
-PKI_IPS=() PKI_DNS=() ADMIN_ALLOW=() MODE=install REISSUE=0
+PKI_IPS=() PKI_DNS=() ADMIN_ALLOW=() MODE=install REISSUE=0 AGENT_SERVERS="-"
 
 if [[ -t 1 ]]; then
 	C_RED=$'\e[31m' C_GRN=$'\e[32m' C_YEL=$'\e[33m' C_0=$'\e[0m'
@@ -75,15 +79,22 @@ while [[ $# -gt 0 ]]; do
 		--wan-ip | --vpn-ip | --lan-ip) PKI_IPS+=("${2:-}"); shift 2 ;;
 		--dns) PKI_DNS+=("${2:-}"); shift 2 ;;
 		--admin-allow) ADMIN_ALLOW+=("${2:-}"); shift 2 ;;
+		--agent-servers) AGENT_SERVERS="${2:-}"; shift 2 ;;
 		--reissue-cert) REISSUE=1; shift ;;
 		--uninstall) MODE=uninstall; shift ;;
-		-h | --help) sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		-h | --help) sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		*) die "Tham số không hợp lệ: $1" "Xem: bash $0 --help" ;;
 	esac
 done
 for ip in "${PKI_IPS[@]}"; do
 	[[ "$ip" =~ ^[0-9]+([.][0-9]+){3}$ || "$ip" =~ ^[0-9a-fA-F]*:[0-9a-fA-F:]*$ ]] || die "\"$ip\" không phải địa chỉ IP"
 done
+# "private" = toàn mạng nội bộ: mọi dải IP riêng (công ty nhiều lớp mạng / VLAN định tuyến qua nhau).
+expanded=()
+for cidr in "${ADMIN_ALLOW[@]}"; do
+	if [[ "$cidr" == private ]]; then expanded+=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16); else expanded+=("$cidr"); fi
+done
+ADMIN_ALLOW=("${expanded[@]}")
 for cidr in "${ADMIN_ALLOW[@]}"; do
 	[[ "$cidr" =~ ^[0-9]+([.][0-9]+){3}(/[0-9]{1,2})?$ || "$cidr" =~ ^[0-9a-fA-F]*:[0-9a-fA-F:]*(/[0-9]{1,3})?$ ]] ||
 		die "--admin-allow \"$cidr\" không phải IP hoặc dải CIDR (ví dụ 192.168.1.0/24)"
@@ -93,6 +104,11 @@ done
 for d in "${PKI_DNS[@]}"; do
 	[[ "$d" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "--dns \"$d\" không phải tên miền"
 done
+if [[ "$AGENT_SERVERS" != "-" ]]; then
+	for u in ${AGENT_SERVERS//,/ }; do
+		[[ "$u" =~ ^https://[^/:@[:space:]]+:[0-9]{1,5}/?$ ]] || die "--agent-servers: \"$u\" không có dạng https://<IP>:<cổng>"
+	done
+fi
 [[ $REISSUE -eq 0 || ${#PKI_IPS[@]} -gt 0 || ${#PKI_DNS[@]} -gt 0 ]] || die "--reissue-cert cần ít nhất một --wan-ip / --vpn-ip / --lan-ip / --dns"
 
 if [[ $MODE == uninstall ]]; then
@@ -210,6 +226,11 @@ if [[ -n "$CA_PEM" && -r "$CA_PEM" ]]; then
 	install -o root -g root -m 644 "$CA_PEM" "$ETC_DIR/agent-ca.pem"
 fi
 
+if [[ "$AGENT_SERVERS" != "-" ]]; then
+	set_env SCS_AGENT_SERVERS "$AGENT_SERVERS"
+	ok "Địa chỉ gửi cho agent: ${AGENT_SERVERS:-(chỉ địa chỉ lúc cài)}"
+fi
+
 # ---- ai được vào web quản trị (7222)
 if [[ ${#ADMIN_ALLOW[@]} -gt 0 ]]; then
 	allow="$(env_value "$ENV_FILE" SCS_ADMIN_ALLOW)"
@@ -228,6 +249,16 @@ if [[ ${#ADMIN_ALLOW[@]} -gt 0 ]]; then
 		done
 		ok "ufw: đã mở cổng $admin_port cho ${ADMIN_ALLOW[*]}"
 	fi
+fi
+
+# Cổng agent (6222) phải mở cho mọi nơi agent gọi tới (LAN, VLAN khác, Internet qua router):
+# bảo vệ bằng TLS, chứng chỉ máy và admin duyệt, không bằng tường lửa.
+if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+	ingest_listen="$(env_value "$ENV_FILE" SCS_INGEST_LISTEN)"
+	ingest_port="${ingest_listen##*:}"
+	ingest_port="${ingest_port:-6222}"
+	ufw allow "$ingest_port/tcp" comment "SCS agent" >/dev/null
+	ok "ufw: đã mở cổng agent $ingest_port"
 fi
 
 [[ "$(env_value "$ENV_FILE" SCS_ENV)" == prod ]] ||

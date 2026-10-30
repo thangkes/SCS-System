@@ -13,6 +13,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/thangkes/SCS-System/common/protocol"
 )
 
 type Config struct {
@@ -49,6 +51,10 @@ type Config struct {
 	AdminToken secret
 	// ControlSocket: Unix socket để lệnh `scs-server login-code` lấy mã đăng nhập.
 	ControlSocket string
+	// AgentServers (SCS_AGENT_SERVERS): các địa chỉ agent dùng để gọi server, theo thứ tự ưu tiên
+	// (ví dụ https://192.168.1.10:6222,https://ten.ddns.net:16222). Gửi cho agent đã duyệt; agent
+	// thử lần lượt khi địa chỉ đang dùng không kết nối được. Rỗng = agent chỉ dùng địa chỉ lúc cài.
+	AgentServers []string
 }
 
 type DB struct {
@@ -112,6 +118,7 @@ func Load() (*Config, error) {
 		AdminToken:  secret(get("SCS_ADMIN_TOKEN", "")),
 
 		ControlSocket: get("SCS_CONTROL_SOCKET", "data/run/control.sock"),
+		AgentServers:  getServers("SCS_AGENT_SERVERS", &errs),
 	}
 	errs = append(errs, c.validate()...)
 	if len(errs) > 0 {
@@ -218,6 +225,26 @@ func getInt(key string, def int, errs *[]error) int {
 		return def
 	}
 	return n
+}
+
+// getServers đọc danh sách địa chỉ https://<host>:<cổng> cách nhau dấu phẩy.
+func getServers(key string, errs *[]error) []string {
+	var out []string
+	for _, s := range strings.Split(get(key, ""), ",") {
+		s = strings.TrimRight(strings.TrimSpace(s), "/")
+		if s == "" {
+			continue
+		}
+		if err := protocol.CheckServerURL(s); err != nil {
+			*errs = append(*errs, fmt.Errorf("%s: %w", key, err))
+			continue
+		}
+		out = append(out, s)
+	}
+	if len(out) > protocol.MaxServers {
+		*errs = append(*errs, fmt.Errorf("%s: tối đa %d địa chỉ", key, protocol.MaxServers))
+	}
+	return out
 }
 
 // getPrefixes đọc danh sách "10.8.0.0/24, 100.64.0.0/10, 192.168.1.5" (IP đơn = /32 hoặc /128).

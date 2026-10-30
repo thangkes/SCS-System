@@ -154,6 +154,8 @@ type State struct {
 	RequestedAt    time.Time `json:"requested_at,omitzero"`
 	ApprovedAt     time.Time `json:"approved_at,omitzero"`
 	RuleSetVersion string    `json:"rule_set_version,omitempty"`
+	// Servers: địa chỉ server gửi xuống (LAN, IP WAN, tên miền), thử lần lượt khi mất kết nối.
+	Servers []string `json:"servers,omitempty"`
 }
 
 // LoadState đọc trạng thái; chưa có file thì là máy mới.

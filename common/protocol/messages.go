@@ -31,6 +31,8 @@ type EnrollResponse struct {
 	CertificatePEM string `json:"certificate_pem,omitempty"`
 	CAPEM          string `json:"ca_pem,omitempty"`
 	RuleSetVersion string `json:"rule_set_version,omitempty"`
+	// Servers: các địa chỉ agent được dùng để gọi server (chỉ gửi khi đã duyệt), xem Response.Servers.
+	Servers []string `json:"servers,omitempty"`
 }
 
 // HeartbeatBody: gửi mỗi 5 phút.
@@ -126,6 +128,9 @@ type Response struct {
 	Update         *UpdateInfo `json:"update,omitempty"`
 	ServerTime     time.Time   `json:"server_time"` // để agent bù khi đồng hồ lệch
 	Error          string      `json:"error,omitempty"`
+	// Servers: danh sách địa chỉ server (LAN, IP WAN, tên miền...) theo thứ tự ưu tiên. Agent lưu
+	// lại và thử lần lượt khi địa chỉ đang dùng không kết nối được. Rỗng = giữ danh sách đang có.
+	Servers []string `json:"servers,omitempty"`
 }
 
 type UpdateInfo struct {

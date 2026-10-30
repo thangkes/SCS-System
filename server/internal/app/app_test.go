@@ -75,7 +75,6 @@ func TestPlaceholderRoutes(t *testing.T) {
 		h            http.Handler
 		method, path string
 	}{
-		{IngestHandler(d), "POST", "/v1/heartbeat"},
 		{IngestHandler(d), "POST", "/v1/logs"},
 		{IngestHandler(d), "GET", "/v1/rules/2026.10.27-03"},
 	}
@@ -85,8 +84,8 @@ func TestPlaceholderRoutes(t *testing.T) {
 		}
 	}
 	// Sai method / sai đường dẫn.
-	if rec := do(t, IngestHandler(d), "GET", "/v1/heartbeat", nil); rec.Code != http.StatusMethodNotAllowed {
-		t.Errorf("GET /v1/heartbeat = %d, muốn 405", rec.Code)
+	if rec := do(t, IngestHandler(d), "GET", "/v1/logs", nil); rec.Code != http.StatusMethodNotAllowed {
+		t.Errorf("GET /v1/logs = %d, muốn 405", rec.Code)
 	}
 	if rec := do(t, IngestHandler(d), "GET", "/khong-co", nil); rec.Code != http.StatusNotFound {
 		t.Errorf("/khong-co = %d, muốn 404", rec.Code)
@@ -98,11 +97,11 @@ func TestClientCertRequiredWhenCAConfigured(t *testing.T) {
 	h := IngestHandler(d)
 
 	// Không có TLS / không có chứng chỉ client → 401.
-	if rec := do(t, h, "POST", "/v1/heartbeat", nil); rec.Code != http.StatusUnauthorized {
+	if rec := do(t, h, "POST", "/v1/logs", nil); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("không chứng chỉ = %d, muốn 401", rec.Code)
 	}
 	// Có chứng chỉ đã kiểm → qua middleware, tới handler 501.
-	req := httptest.NewRequest("POST", "/v1/heartbeat", nil)
+	req := httptest.NewRequest("POST", "/v1/logs", nil)
 	req.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{{}}}}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
@@ -123,12 +122,12 @@ func TestNoCAFailsClosed(t *testing.T) {
 	}
 	for name, mutate := range cases {
 		d, _ := deps(t, mutate)
-		if rec := do(t, IngestHandler(d), "POST", "/v1/heartbeat", nil); rec.Code != http.StatusUnauthorized {
+		if rec := do(t, IngestHandler(d), "POST", "/v1/logs", nil); rec.Code != http.StatusUnauthorized {
 			t.Errorf("%s: không CA = %d, muốn 401", name, rec.Code)
 		}
 	}
 	d, _ := deps(t, func(c *config.Config) { c.DevInsecure = false; c.IngestListen = "127.0.0.1:6222" })
-	if rec := do(t, IngestHandler(d), "POST", "/v1/heartbeat", nil); rec.Code != http.StatusNotImplemented {
+	if rec := do(t, IngestHandler(d), "POST", "/v1/logs", nil); rec.Code != http.StatusNotImplemented {
 		t.Errorf("dev chỉ nghe loopback được thử không CA: %d", rec.Code)
 	}
 }
@@ -278,7 +277,8 @@ func TestIngestPerRouteBodyLimit(t *testing.T) {
 		ok := httptest.NewRequest("POST", c.path, bytes.NewReader(make([]byte, c.size)))
 		rec = httptest.NewRecorder()
 		h.ServeHTTP(rec, ok)
-		if rec.Code == http.StatusRequestEntityTooLarge || rec.Code == http.StatusUnauthorized {
+		// heartbeat tự kiểm chứng chỉ trong handler (401 ở đây là đã qua bước kiểm body).
+		if rec.Code == http.StatusRequestEntityTooLarge || (rec.Code == http.StatusUnauthorized && c.path != "/v1/heartbeat") {
 			t.Errorf("%s body đúng giới hạn = %d, muốn tới handler", c.path, rec.Code)
 		}
 	}

@@ -132,16 +132,72 @@ ask_names() {
 	done
 }
 
+# ask_allow: ai được vào web quản trị 7222. Kết quả: mảng ALLOW_ARGS (--admin-allow ...).
+ask_allow() {
+	local x
+	ALLOW_ARGS=()
+	echo "  Ai được vào web quản trị (cổng 7222)? Vẫn phải đăng nhập bằng mã 6 số."
+	echo "   1) Toàn mạng nội bộ: mọi dải IP riêng 10.x, 172.16-31.x, 192.168.x (công ty nhiều lớp mạng / VLAN)"
+	echo "   2) Chỉ dải LAN của máy server ($(lan_cidr || echo '?'))"
+	echo "   3) Tự nhập các dải (ví dụ 10.10.0.0/16 10.20.5.0/24)"
+	echo "   4) Chỉ chính máy server"
+	ask "Chọn" "1"
+	case "$REPLY" in
+		1) ALLOW_ARGS=(--admin-allow private) ;;
+		2) x="$(lan_cidr || true)"
+			[[ -n "$x" ]] || { echo "  ${C_RED}Không dò được dải LAN${C_0}"; return 1; }
+			ALLOW_ARGS=(--admin-allow "$x") ;;
+		3) ask "Các dải, cách nhau dấu cách" ""
+			for x in $REPLY; do
+				valid_cidr "$x" || { echo "  ${C_RED}\"$x\" không phải dải CIDR${C_0}"; return 1; }
+				[[ "$x" == 0.0.0.0/0 ]] && { echo "  ${C_RED}Không mở web quản trị cho cả Internet${C_0}"; return 1; }
+				ALLOW_ARGS+=(--admin-allow "$x")
+			done
+			[[ ${#ALLOW_ARGS[@]} -gt 0 ]] || { echo "  Chưa nhập dải nào."; return 1; }
+			;;
+		4) ;;
+		*) echo "  Không có lựa chọn \"$REPLY\"."; return 1 ;;
+	esac
+}
+
+# agent_servers_arg: từ NAME_ARGS dựng danh sách địa chỉ gửi cho agent (--agent-servers).
+# IP LAN dùng cổng agent của server; IP WAN / tên miền dùng cổng chuyển tiếp trên router (hỏi).
+# Kết quả: mảng SERVERS_ARGS.
+agent_servers_arg() {
+	local port fwd list="" i=0 kind val
+	port="$(env_get SCS_INGEST_LISTEN)"
+	port="${port##*:}"
+	port="${port:-6222}"
+	SERVERS_ARGS=()
+	while [[ $i -lt ${#NAME_ARGS[@]} ]]; do
+		kind="${NAME_ARGS[$i]}" val="${NAME_ARGS[$((i + 1))]}"
+		i=$((i + 2))
+		if [[ "$kind" == --lan-ip ]]; then
+			list="${list:+$list,}https://$val:$port"
+		else
+			if [[ -z "${fwd:-}" ]]; then
+				ask "Cổng trên router chuyển tiếp về $port (agent từ Internet gọi vào cổng này)" "$port"
+				fwd="$REPLY"
+				[[ "$fwd" =~ ^[0-9]{1,5}$ ]] || { echo "  ${C_RED}\"$fwd\" không phải số cổng${C_0}"; return 1; }
+			fi
+			[[ "$val" == *:* ]] && val="[$val]"
+			list="${list:+$list,}https://$val:$fwd"
+		fi
+	done
+	SERVERS_ARGS=(--agent-servers "$list")
+	echo "  ${C_DIM}Agent sẽ nhận danh sách địa chỉ: $list (tự chuyển khi một địa chỉ mất kết nối)${C_0}"
+}
+
 do_install() {
-	local args=() allow
+	local args=()
 	echo "  Địa chỉ ghi vào chứng chỉ server."
 	echo "  ${C_DIM}Đã có CA từ lần cài trước thì địa chỉ chỉ dùng khi cấp lại chứng chỉ (mục 7).${C_0}"
 	ask_names || return 1
 	args+=("${NAME_ARGS[@]}")
-	ask "Dải mạng được vào web quản trị 7222 (Enter = dải LAN; '-' = chỉ máy server)" "$(lan_cidr || true)"
-	allow="$REPLY"
-	if [[ -n "$allow" && "$allow" != "-" ]] && ! valid_cidr "$allow"; then echo "  ${C_RED}\"$allow\" không phải dải CIDR${C_0}"; return 1; fi
-	[[ -n "$allow" && "$allow" != "-" ]] && args+=(--admin-allow "$allow")
+	agent_servers_arg || return 1
+	args+=("${SERVERS_ARGS[@]}")
+	ask_allow || return 1
+	args+=("${ALLOW_ARGS[@]}")
 	echo
 	echo "  Sẽ chạy: sudo bash scripts/install.sh ${args[*]}"
 	confirm "Tiếp tục?" || return 0
@@ -156,9 +212,9 @@ do_allow() {
 	local cur
 	cur="$(env_get SCS_ADMIN_ALLOW)"
 	[[ -n "$cur" ]] && echo "  Đang cho phép: $cur"
-	ask "Dải mạng thêm vào (ví dụ 192.168.1.0/24, 10.8.0.0/24)" "$(lan_cidr || true)"
-	valid_cidr "$REPLY" || { echo "  ${C_RED}\"$REPLY\" không phải dải CIDR${C_0}"; return 1; }
-	sudo bash "$SCRIPTS/install.sh" --admin-allow "$REPLY"
+	ask_allow || return 1
+	[[ ${#ALLOW_ARGS[@]} -gt 0 ]] || { echo "  Không thêm dải nào."; return 0; }
+	sudo bash "$SCRIPTS/install.sh" "${ALLOW_ARGS[@]}"
 }
 
 do_reissue() {
@@ -172,8 +228,9 @@ do_reissue() {
 		if [[ -z "$lan" && "$x" =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.) ]]; then lan="$x"; else ext="${ext:+$ext }$x"; fi
 	done
 	ask_names "$lan" "$ext" || return 1
+	agent_servers_arg || return 1
 	confirm "Cấp lại chứng chỉ server với: ${NAME_ARGS[*]} ?" || return 0
-	sudo bash "$SCRIPTS/install.sh" --reissue-cert "${NAME_ARGS[@]}"
+	sudo bash "$SCRIPTS/install.sh" --reissue-cert "${NAME_ARGS[@]}" "${SERVERS_ARGS[@]}"
 }
 
 do_code() {
@@ -246,8 +303,8 @@ while true; do
    5) Quay về bản trước
 
   ${C_B}Mạng và chứng chỉ${C_0}
-   6) Cho thêm dải mạng vào web quản trị (7222)
-   7) Cấp lại chứng chỉ server (đổi / thêm IP)
+   6) Cho thêm dải mạng vào web quản trị (7222), kể cả toàn mạng nội bộ
+   7) Đổi / thêm địa chỉ server (IP LAN, IP WAN, tên miền): cấp lại chứng chỉ, báo cho agent
 
   ${C_B}Vận hành${C_0}
    8) Lấy mã đăng nhập web

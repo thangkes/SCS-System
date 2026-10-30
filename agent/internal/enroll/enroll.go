@@ -98,6 +98,10 @@ func Run(ctx context.Context, d Deps) (identity.State, error) {
 					st.RequestedAt = st.ApprovedAt
 				}
 				st.RuleSetVersion = resp.RuleSetVersion
+				if list := protocol.CleanServers(resp.Servers); len(list) > 0 {
+					st.Servers = list
+					d.Client.SetServers(list)
+				}
 				if err := identity.SaveState(d.StateDir, st); err != nil {
 					return st, err
 				}

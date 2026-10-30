@@ -27,6 +27,19 @@ type Registry interface {
 	ListAlerts(ctx context.Context, includeAcked bool) ([]Alert, error)
 	// AckAlert: admin xác nhận đã xem cảnh báo (đóng cảnh báo).
 	AckAlert(ctx context.Context, alertID int64, by string) error
+
+	// AgentAuth: khóa công khai, trạng thái và serial chứng chỉ hiện hành của máy, để kiểm
+	// gói tin của agent đã duyệt (heartbeat...). Không có máy: ErrNotFound.
+	AgentAuth(ctx context.Context, deviceID int64) (AgentAuth, error)
+	// Seen ghi lần cuối máy gọi về, IP và phiên bản agent.
+	Seen(ctx context.Context, deviceID int64, ip netip.Addr, agentVersion string) error
+}
+
+// AgentAuth: thông tin để xác thực gói tin của một máy.
+type AgentAuth struct {
+	PublicKey  []byte
+	Status     string
+	CertSerial string
 }
 
 // Alert: một cảnh báo, chỉ hiện trên web quản trị.
