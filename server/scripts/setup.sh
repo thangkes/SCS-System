@@ -455,11 +455,11 @@ setup_env() {
 # new_secret: 48 ký tự chữ thường và số, luôn bắt đầu bằng chữ cái (NATS hiểu "9..." là số).
 new_secret() { printf 's%s' "$(openssl rand -hex 24)"; }
 
-# sync_installed_env: scs-server đã cài dùng bản sao cấu hình ở /etc/scs-server/scs-server.env.
+# sync_installed_env: scs-server đã cài dùng bản sao cấu hình ở /etc/scs-server/server.env.
 # Mật khẩu DB/NATS ở đó phải khớp server/.env (compose dùng file này), nếu không scs-server
 # báo "password authentication failed". Chép mật khẩu từ .env sang, giữ bản cũ .bak-<thời điểm>.
 sync_installed_env() {
-	local etc=/etc/scs-server/scs-server.env key val cur changed=0
+	local etc=/etc/scs-server/server.env key val cur changed=0
 	$SUDO test -f "$etc" || return 0
 	for key in SCS_DB_PASSWORD SCS_NATS_PASSWORD; do
 		val="$(env_value "$key")"

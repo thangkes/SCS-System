@@ -148,6 +148,20 @@ set_env() { # set_env KEY VALUE: thay dòng KEY=... hoặc thêm vào cuối fil
 		printf '%s=%s\n' "$1" "$2" >>"$ENV_FILE"
 	fi
 }
+# Postgres/NATS chạy bằng compose.dev.yml trên chính máy này lấy mật khẩu từ server/.env.
+# Bản sao trong $ENV_FILE lệch (tạo lại .env, xóa volume DB) thì scs-server bị từ chối đăng nhập:
+# chép mật khẩu từ server/.env sang. DB ở máy khác (SCS_DB_HOST không phải máy này) thì không đụng.
+if [[ -f "$SERVER_DIR/.env" ]] && [[ "$(env_value "$ENV_FILE" SCS_DB_HOST)" =~ ^(127\.0\.0\.1|localhost|::1)?$ ]]; then
+	synced=()
+	for key in SCS_DB_PASSWORD SCS_NATS_PASSWORD; do
+		val="$(env_value "$SERVER_DIR/.env" "$key")"
+		[[ -n "$val" && "$val" != "$(env_value "$ENV_FILE" "$key")" ]] || continue
+		[[ ${#synced[@]} -eq 0 ]] && cp -p "$ENV_FILE" "$ENV_FILE.bak-$(date +%Y%m%d-%H%M%S)"
+		set_env "$key" "$val"
+		synced+=("$key")
+	done
+	[[ ${#synced[@]} -eq 0 ]] || ok "Đã chép ${synced[*]} từ server/.env sang $ENV_FILE cho khớp Postgres/NATS (bản cũ: $ENV_FILE.bak-*)"
+fi
 if [[ -n "$(env_value "$ENV_FILE" SCS_CA_CERT)" ]]; then
 	ok "Đã có CA: $(env_value "$ENV_FILE" SCS_CA_CERT)"
 	if [[ $REISSUE -eq 1 ]]; then
