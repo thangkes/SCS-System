@@ -55,7 +55,7 @@ die() {
 	[[ $# -gt 1 ]] && printf '  Cách xử lý: %s\n' "$2" >&2
 	exit 1
 }
-trap 'die "Lệnh ở dòng $LINENO thất bại" "Xem thông báo phía trên"' ERR
+trap 'die "Lệnh ở dòng $LINENO thất bại: $BASH_COMMAND" "Xem thông báo phía trên"' ERR
 
 # env_value đọc một biến trong file .env (không source file, không chạy gì trong đó).
 env_value() {
@@ -101,11 +101,16 @@ if [[ $MODE == uninstall ]]; then
 fi
 
 # ---- binary
-if [[ ! -x "$BIN_SRC" ]]; then
+if [[ ! -x "$BIN_SRC" && -x "$OPT_DIR/scs-server" && (${#ADMIN_ALLOW[@]} -gt 0 || $REISSUE -eq 1) ]]; then
+	# Chỉ thêm dải admin / cấp lại chứng chỉ: dùng luôn binary đang chạy, không build lại.
+	BIN_SRC="$OPT_DIR/scs-server"
+elif [[ ! -x "$BIN_SRC" ]]; then
 	GO="$(command -v go || echo /usr/local/go/bin/go)"
 	[[ -x "$GO" ]] || die "Chưa có $BIN_SRC và không có go để build" "Chạy scripts/setup.sh trước, hoặc build trên máy khác rồi chép vào bin/"
 	echo "Build scs-server..."
-	(cd "$SERVER_DIR" && CGO_ENABLED=0 "$GO" build -trimpath -ldflags "-s -w" -o "$BIN_SRC" ./cmd/scs-server)
+	# -buildvcs=false: chạy bằng root trên repo của user khác thì git từ chối ("dubious ownership").
+	(cd "$SERVER_DIR" && CGO_ENABLED=0 "$GO" build -buildvcs=false -trimpath -ldflags "-s -w" -o "$BIN_SRC" ./cmd/scs-server) ||
+		die "Build scs-server thất bại" "Xem lỗi go phía trên; hoặc chạy menu mục 4 (cập nhật) để build bằng user thường"
 fi
 "$BIN_SRC" version >/dev/null || die "$BIN_SRC không chạy được trên máy này" "Build lại cho đúng kiến trúc (GOARCH)"
 

@@ -41,7 +41,7 @@ die() {
 	[[ $# -gt 1 ]] && printf '  Cách xử lý: %s\n' "$2" >&2
 	exit 1
 }
-trap 'die "Lệnh ở dòng $LINENO thất bại" "Xem thông báo phía trên"' ERR
+trap 'die "Lệnh ở dòng $LINENO thất bại: $BASH_COMMAND" "Xem thông báo phía trên"' ERR
 
 ARGS=("$@") # giữ lại để chuyển sang user khác nếu cần (vòng dưới dùng shift)
 while [[ $# -gt 0 ]]; do
@@ -193,7 +193,7 @@ if [[ $SKIP_TESTS -eq 0 ]]; then
 	fi
 	ok "Test qua"
 fi
-if ! (cd "$SERVER_DIR" && CGO_ENABLED=0 "$GO" build -trimpath -ldflags "-s -w -X main.version=$version" -o bin/scs-server ./cmd/scs-server); then
+if ! (cd "$SERVER_DIR" && CGO_ENABLED=0 "$GO" build -buildvcs=false -trimpath -ldflags "-s -w -X main.version=$version" -o bin/scs-server ./cmd/scs-server); then
 	restore
 	die "Build thất bại, KHÔNG cài; code đã trả về bản cũ"
 fi

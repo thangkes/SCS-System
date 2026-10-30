@@ -51,7 +51,7 @@ die() {
 	[[ $# -gt 1 ]] && printf '  Cách xử lý: %s\n' "$2" >&2
 	exit 1
 }
-trap 'die "Lệnh ở dòng $LINENO thất bại" "Xem thông báo phía trên"' ERR
+trap 'die "Lệnh ở dòng $LINENO thất bại: $BASH_COMMAND" "Xem thông báo phía trên"' ERR
 usage() { sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 
 while [[ $# -gt 0 ]]; do
@@ -152,7 +152,7 @@ if [[ ! -x "$BIN_SRC" ]]; then
 	GO="$(command -v go || echo /usr/local/go/bin/go)"
 	if [[ $MODE == install && -x "$GO" ]]; then
 		echo "  Chưa có $BIN_SRC, build bằng go..."
-		(cd "$AGENT_DIR" && CGO_ENABLED=0 "$GO" build -trimpath -ldflags "-s -w" -o "$BIN_SRC" ./cmd/scs-agent)
+		(cd "$AGENT_DIR" && CGO_ENABLED=0 "$GO" build -buildvcs=false -trimpath -ldflags "-s -w" -o "$BIN_SRC" ./cmd/scs-agent)
 	else
 		die "Không có binary $BIN_SRC" "Build trên máy khác: (cd agent && CGO_ENABLED=0 GOOS=linux go build -o bin/scs-agent ./cmd/scs-agent) rồi chép sang, hoặc dùng --binary"
 	fi

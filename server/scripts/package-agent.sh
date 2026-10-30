@@ -37,7 +37,7 @@ die() {
 	[[ $# -gt 1 ]] && printf '  Cách xử lý: %s\n' "$2" >&2
 	exit 1
 }
-trap 'die "Lệnh ở dòng $LINENO thất bại" "Xem thông báo phía trên"' ERR
+trap 'die "Lệnh ở dòng $LINENO thất bại: $BASH_COMMAND" "Xem thông báo phía trên"' ERR
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -74,7 +74,7 @@ pkg="$work/scs-agent"
 mkdir -p "$pkg/bin" "$pkg/scripts" "$pkg/deploy/systemd"
 
 echo "  Build scs-agent $version (linux/$ARCH)..."
-(cd "$AGENT_SRC" && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" "$GO" build -trimpath \
+(cd "$AGENT_SRC" && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" "$GO" build -buildvcs=false -trimpath \
 	-ldflags "-s -w -X main.version=$version" -o "$pkg/bin/scs-agent" ./cmd/scs-agent)
 chmod 755 "$pkg/bin/scs-agent"
 ok "Đã build binary ($(du -h "$pkg/bin/scs-agent" | cut -f1))"
