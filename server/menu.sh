@@ -16,6 +16,8 @@ set -Euo pipefail # không -e: một bước lỗi thì quay về menu, không t
 SERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SCRIPTS="$SERVER_DIR/scripts"
 ENV_FILE=/etc/scs-server/server.env
+# Phiên bản code của chính menu đang chạy, để biết menu đã nạp bản mới chưa sau khi cập nhật.
+MENU_VER="$(git -C "$SERVER_DIR" describe --tags --always --dirty 2>/dev/null || echo '?')"
 
 if [[ -t 1 ]]; then
 	C_B=$'\e[1m' C_DIM=$'\e[2m' C_GRN=$'\e[32m' C_YEL=$'\e[33m' C_RED=$'\e[31m' C_0=$'\e[0m'
@@ -105,20 +107,20 @@ cert_names() {
 		grep -oE '(IP Address|DNS):[^, ]+' | sed -E 's/^(IP Address|DNS)://' | grep -vxE '127\.0\.0\.1|::1' | tr '\n' ' ' | sed 's/ $//'
 }
 
-# ask_names [LAN] [WAN...]: hỏi địa chỉ ghi vào chứng chỉ server. Chỉ IP LAN là bắt buộc;
-# IP WAN / tên miền DDNS (agent từ Internet qua chuyển tiếp cổng) và VPN thêm sau bằng mục 7 được.
-# Kết quả: mảng NAME_ARGS (--lan-ip / --wan-ip / --dns ...).
+# ask_names [LAN] [THÊM] [HỎI_THÊM]: địa chỉ ghi vào chứng chỉ server và gửi cho agent làm dự phòng.
+# Chỉ IP LAN là bắt buộc. HỎI_THÊM=1 thì hỏi thêm IP WAN / tên miền / IP VPN (mặc định THÊM);
+# không thì giữ nguyên THÊM, không hỏi. Kết quả: mảng NAME_ARGS (--lan-ip / --wan-ip / --dns ...).
 ask_names() {
-	local lan ext x
+	local lan ext="${2:-}" x
 	NAME_ARGS=()
 	ask "IP LAN của server (nên đặt IP tĩnh hoặc giữ IP trên router)" "${1:-$(lan_ip || true)}"
 	lan="$REPLY"
 	valid_ip "$lan" || { echo "  ${C_RED}\"$lan\" không phải IP${C_0}"; return 1; }
 	NAME_ARGS+=(--lan-ip "$lan")
-	echo "  ${C_DIM}Agent gọi bằng địa chỉ nào cũng được (chỉ kiểm chứng chỉ do CA của server cấp). Các địa chỉ dưới${C_0}"
-	echo "  ${C_DIM}được gửi cho agent làm dự phòng, và ghi vào chứng chỉ để trình duyệt không báo sai tên.${C_0}"
-	ask "IP WAN, tên miền DDNS, IP VPN (tùy chọn, cách nhau dấu cách; '-' = không có)" "${2:-}"
-	ext="$REPLY"
+	if [[ "${3:-0}" == 1 ]]; then
+		ask "IP WAN, tên miền DDNS, IP VPN (cách nhau dấu cách; '-' = không có)" "$ext"
+		ext="$REPLY"
+	fi
 	[[ "$ext" == "-" ]] && ext=""
 	for x in $ext; do
 		if valid_ip "$x"; then
@@ -190,8 +192,8 @@ agent_servers_arg() {
 
 do_install() {
 	local args=()
-	echo "  Địa chỉ ghi vào chứng chỉ server."
-	echo "  ${C_DIM}Đã có CA từ lần cài trước thì địa chỉ chỉ dùng khi cấp lại chứng chỉ (mục 7).${C_0}"
+	echo "  ${C_DIM}Agent ở mọi lớp mạng gọi được server bằng IP này (không cần IP WAN). Cần mở cho agent ngoài${C_0}"
+	echo "  ${C_DIM}Internet thì sau này dùng mục 7.${C_0}"
 	ask_names || return 1
 	args+=("${NAME_ARGS[@]}")
 	agent_servers_arg || return 1
@@ -238,7 +240,9 @@ do_reissue() {
 	for x in $cur; do
 		if [[ -z "$lan" && "$x" =~ ^(10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.) ]]; then lan="$x"; else ext="${ext:+$ext }$x"; fi
 	done
-	ask_names "$lan" "$ext" || return 1
+	local more=0
+	if [[ -n "$ext" ]] || confirm "Thêm địa chỉ Internet (IP WAN / tên miền) cho agent ở ngoài mạng nội bộ?"; then more=1; fi
+	ask_names "$lan" "$ext" "$more" || return 1
 	agent_servers_arg || return 1
 	confirm "Cấp lại chứng chỉ server với: ${NAME_ARGS[*]} ?" || return 0
 	sudo bash "$SCRIPTS/install.sh" --reissue-cert "${NAME_ARGS[@]}" "${SERVERS_ARGS[@]}"
@@ -292,7 +296,7 @@ do_package() {
 # ---------------------------------------------------------------- menu
 while true; do
 	clear 2>/dev/null || true
-	printf '%s SCS-Server — menu cài đặt và vận hành%s\n\n' "$C_B" "$C_0"
+	printf '%s SCS-Server — menu cài đặt và vận hành%s  %s(menu %s)%s\n\n' "$C_B" "$C_0" "$C_DIM" "$MENU_VER" "$C_0"
 	status_line
 	cat <<EOF
 
