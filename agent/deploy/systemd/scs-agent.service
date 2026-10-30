@@ -1,0 +1,64 @@
+# SCS-Agent chạy như dịch vụ systemd trên máy tại điểm bán.
+# Cài bằng: sudo bash agent/scripts/install.sh --server https://<IP WAN>:<cổng> --ca ca.pem
+#
+#   /opt/scs-agent/scs-agent        binary (root sở hữu, dịch vụ không sửa được)
+#   /etc/scs-agent/agent.env        cấu hình (địa chỉ server, dịch vụ theo dõi)
+#   /etc/scs-agent/server-ca.pem    CA của server (agent chỉ tin CA này)
+#   /etc/scs-agent/key.pem          khóa riêng của máy, agent tự sinh lần đầu (quyền 600)
+#   /etc/scs-agent/cert.pem         chứng chỉ server cấp sau khi admin duyệt
+#   /var/lib/scs-agent              trạng thái, vị trí đọc log, hàng đợi khi mất mạng
+#
+# Xem log: journalctl -u scs-agent -f
+
+[Unit]
+Description=SCS-Agent (giám sát máy, gửi trạng thái về SCS-Server)
+Wants=network-online.target
+After=network-online.target time-sync.target
+# Chết bao nhiêu lần cũng bật lại, không bỏ cuộc.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=scs-agent
+Group=scs-agent
+# Đọc log hệ thống (auth.log, journald).
+SupplementaryGroups=adm systemd-journal
+ExecStart=/opt/scs-agent/scs-agent run -config /etc/scs-agent/agent.env
+Restart=always
+RestartSec=30
+TimeoutStopSec=20
+
+# Không làm chậm ứng dụng bán hàng chạy trên cùng máy.
+CPUQuota=10%
+MemoryMax=128M
+Nice=10
+IOSchedulingClass=idle
+UMask=0077
+
+# Quyền duy nhất: đọc serial phần cứng (/sys/class/dmi/id/*_serial chỉ root đọc được).
+AmbientCapabilities=CAP_DAC_READ_SEARCH
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+
+# Thu hẹp quyền: chỉ ghi được thư mục khóa và thư mục trạng thái của agent.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/etc/scs-agent /var/lib/scs-agent
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,5 @@
 # scs-server chạy như dịch vụ systemd: tự chạy khi máy khởi động, tự bật lại khi chết.
-# Cài bằng: sudo bash scripts/install-service.sh   (đừng chép tay, script tạo user và thư mục)
+# Cài bằng: sudo bash scripts/install.sh --wan-ip <IP WAN>   (đừng chép tay, script tạo user và thư mục)
 #
 #   /opt/scs-server/scs-server        binary (root sở hữu, dịch vụ không sửa được)
 #   /etc/scs-server/server.env        cấu hình + mật khẩu (user scs, quyền 600)

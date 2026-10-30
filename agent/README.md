@@ -25,6 +25,15 @@ Phải đúng quy ước, server đọc mã siêu thị và vị trí máy từ 
 
 Sai quy ước thì agent vẫn chạy, server gắn cảnh báo, admin xem rồi quyết khi duyệt.
 
+## Cài đặt
+
+```bash
+sudo bash scripts/install.sh --check --server https://<IP WAN>:<cổng> --ca agent-ca.pem   # chỉ kiểm tra
+sudo bash scripts/install.sh --server https://<IP WAN>:<cổng> --ca agent-ca.pem [--watch pos.service]
+```
+
+Xem [../INSTALL.md](../INSTALL.md) mục 2. Dịch vụ: `deploy/systemd/scs-agent.service`.
+
 ## Lệnh
 
 ```bash
@@ -72,7 +81,7 @@ thì để trống kèm lý do, không làm hỏng cả heartbeat.
 | A2 | Heartbeat, bù lệch giờ, giãn nhịp khi server bận | cần server M4 |
 | A3 | Quét log (journald + file), rule mặc định, hàng đợi trên đĩa, gửi lô | cần server M4 |
 | A4 | Kéo rule có chữ ký | cần server M7 |
-| A5 | Gói .deb, systemd, giới hạn quyền và tài nguyên | |
+| A5 | Cài đặt: script + systemd (giới hạn quyền, tài nguyên) xong; gói .deb để sau | một phần |
 | A6 | Watchdog, cập nhật, quay về bản cũ | cần server M7 |
 
 ## Build

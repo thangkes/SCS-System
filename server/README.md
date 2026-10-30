@@ -128,7 +128,7 @@ Test cấu trúc DB chạy trên DB riêng `scs_test`: `bash scripts/setup.sh --
 
 ```bash
 bash scripts/setup.sh --start          # lần đầu: cài Docker/Go, tạo .env, chạy Postgres + NATS
-sudo bash scripts/install-service.sh   # cài dịch vụ (chạy lại để cập nhật binary)
+sudo bash scripts/install.sh --wan-ip <IP WAN> [--vpn-ip <IP VPN>]   # cài dịch vụ + CA (chạy lại để cập nhật binary)
 scs-login-code                         # lấy mã đăng nhập web
 journalctl -u scs-server -f            # xem log
 ```
@@ -141,7 +141,7 @@ journalctl -u scs-server -f            # xem log
   trong log. Đổi client CA thì phải restart.
 - Log: SCS-Server ghi vào journald (tự xoay vòng); container Docker giữ tối đa 5 × 10 MB mỗi container.
 - Khởi động lại server thì mọi người đăng nhập lại (phiên nằm trong RAM) và mã đăng nhập đổi.
-- Gỡ dịch vụ: `sudo bash scripts/install-service.sh --uninstall` (giữ cấu hình và dữ liệu).
+- Gỡ dịch vụ: `sudo bash scripts/install.sh --uninstall` (giữ cấu hình và dữ liệu).
 
 ## Chống quá tải và tấn công trên cổng agent (6222)
 

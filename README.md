@@ -26,16 +26,20 @@ Code comments and docs are in Vietnamese.*
 - Gói tin có giờ và nonce (chống gửi lại), giao tiếp qua TLS 1.3, agent chỉ tin CA của server.
 - Dữ liệu lưu trong **PostgreSQL + TimescaleDB**, dữ liệu theo ngày giữ 60 ngày, ràng buộc nằm trong DB.
 
-## Bắt đầu nhanh (Ubuntu)
+## Cài đặt
+
+Hướng dẫn đầy đủ, tách riêng server và agent: **[INSTALL.md](INSTALL.md)**.
 
 ```bash
-cd server
-bash scripts/setup.sh --start --test     # cài Docker/Go, tạo .env, chạy Postgres + NATS, chạy test
-go run ./cmd/scs-server pki init -ip <IP WAN của server>
-SCS_INGEST_LISTEN=127.0.0.1:6222 go run ./cmd/scs-server all
+# Máy server
+bash server/scripts/setup.sh --start --test
+sudo bash server/scripts/install.sh --wan-ip <IP WAN> --vpn-ip <IP VPN>
+
+# Mỗi máy tại điểm bán (cần agent-ca.pem lấy từ server)
+sudo bash agent/scripts/install.sh --server https://<IP WAN>:<cổng> --ca agent-ca.pem
 ```
 
-Chi tiết: [server/README.md](server/README.md), [agent/README.md](agent/README.md).
+Chi tiết từng thành phần: [server/README.md](server/README.md), [agent/README.md](agent/README.md).
 
 ## Build
 

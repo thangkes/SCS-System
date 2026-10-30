@@ -517,7 +517,7 @@ summary() {
 		info "  (chưa có PKI nên cổng agent chỉ chạy ở loopback; cần thử từ máy khác thì đặt SCS_DEV_INSECURE=1 trong .env, prod cấm)"
 		info "- curl http://127.0.0.1:6222/readyz   và   curl -k https://127.0.0.1:7222/readyz"
 		info "- Vào web: https://<IP-server>:7222 (qua VPN hoặc trên máy server), lấy mã bằng: cd $SERVER_DIR && go run ./cmd/scs-server login-code"
-		info "- Chạy lâu dài, tự chạy khi khởi động lại máy: sudo bash $SERVER_DIR/scripts/install-service.sh"
+		info "- Chạy lâu dài, tự chạy khi khởi động lại máy: sudo bash $SERVER_DIR/scripts/install.sh --wan-ip <IP WAN>"
 	fi
 	printf '\n  Log: %s\n' "$LOG_FILE"
 

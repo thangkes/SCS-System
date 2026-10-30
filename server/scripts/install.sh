@@ -1,14 +1,21 @@
 #!/usr/bin/env bash
-# install-service.sh - cài scs-server thành dịch vụ systemd (tự chạy khi khởi động lại máy).
+# install.sh - cài SCS-Server thành dịch vụ systemd trên máy server (tự chạy khi khởi động lại máy).
 #
-# Cách dùng (cần sudo):
-#   sudo bash scripts/install-service.sh              cài hoặc cập nhật binary rồi khởi động lại dịch vụ
-#   sudo bash scripts/install-service.sh --uninstall  gỡ dịch vụ (GIỮ cấu hình và dữ liệu)
+# Cách dùng (cần sudo; chạy scripts/setup.sh trước để có Docker, Postgres, NATS và .env):
+#   sudo bash scripts/install.sh --wan-ip <IP WAN> [--vpn-ip <IP VPN>]   cài lần đầu, tạo luôn CA + chứng chỉ
+#   sudo bash scripts/install.sh                                         cập nhật binary, khởi động lại dịch vụ
+#   sudo bash scripts/install.sh --uninstall                             gỡ dịch vụ (GIỮ cấu hình, CA và dữ liệu)
+#
+# Tùy chọn:
+#   --wan-ip IP   IP WAN của server mà agent gọi tới (ghi vào chứng chỉ server), lặp lại được
+#   --vpn-ip IP   IP mà admin dùng để vào web quản trị qua VPN, lặp lại được
+#   --dns TÊN     tên miền ghi thêm vào chứng chỉ server (tùy chọn)
 #
 # Script làm:
 #   - tạo user hệ thống scs (không đăng nhập được)
 #   - chép bin/scs-server → /opt/scs-server/ (chưa có thì build bằng go)
 #   - lần đầu: chép server/.env → /etc/scs-server/server.env (scs, 600); đã có thì GIỮ NGUYÊN
+#   - chưa có CA: tạo CA nội bộ + chứng chỉ server vào /etc/scs-server/pki và điền SCS_TLS_*, SCS_CA_*
 #   - cài deploy/systemd/scs-server.service, bật tự chạy khi khởi động, khởi động ngay
 #   - cài lệnh scs-login-code để lấy mã đăng nhập web
 # Chạy lại nhiều lần được.
@@ -25,6 +32,8 @@ ENV_FILE=$ETC_DIR/server.env
 DATA_DIR=/var/lib/scs-server
 UNIT_DST=/etc/systemd/system/scs-server.service
 LOGIN_CMD=/usr/local/bin/scs-login-code
+PKI_DIR=$ETC_DIR/pki
+PKI_IPS=() PKI_DNS=() MODE=install
 
 if [[ -t 1 ]]; then
 	C_RED=$'\e[31m' C_GRN=$'\e[32m' C_YEL=$'\e[33m' C_0=$'\e[0m'
@@ -53,14 +62,26 @@ env_value() {
 [[ $EUID -eq 0 ]] || die "Cần chạy bằng root" "sudo bash $0 $*"
 command -v systemctl >/dev/null || die "Máy không dùng systemd" "Script chỉ hỗ trợ Ubuntu có systemd"
 
-if [[ "${1:-}" == "--uninstall" ]]; then
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--wan-ip | --vpn-ip) PKI_IPS+=("${2:-}"); shift 2 ;;
+		--dns) PKI_DNS+=("${2:-}"); shift 2 ;;
+		--uninstall) MODE=uninstall; shift ;;
+		-h | --help) sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		*) die "Tham số không hợp lệ: $1" "Xem: bash $0 --help" ;;
+	esac
+done
+for ip in "${PKI_IPS[@]}"; do
+	[[ "$ip" =~ ^[0-9.]+$ || "$ip" =~ ^[0-9a-fA-F:]+$ ]] || die "\"$ip\" không phải địa chỉ IP"
+done
+
+if [[ $MODE == uninstall ]]; then
 	systemctl disable --now scs-server 2>/dev/null || true
 	rm -f "$UNIT_DST" "$LOGIN_CMD"
 	systemctl daemon-reload
-	ok "Đã gỡ dịch vụ scs-server. Giữ lại: $ETC_DIR (cấu hình), $DATA_DIR (dữ liệu), $OPT_DIR (binary), user $SVC_USER"
+	ok "Đã gỡ dịch vụ scs-server. Giữ lại: $ETC_DIR (cấu hình, CA), $DATA_DIR (dữ liệu), $OPT_DIR (binary), user $SVC_USER"
 	exit 0
 fi
-[[ $# -eq 0 ]] || die "Tham số không hợp lệ: $*" "Chỉ có --uninstall"
 
 # ---- binary
 if [[ ! -x "$BIN_SRC" ]]; then
@@ -92,14 +113,50 @@ else
 	chmod 600 "$ENV_FILE"
 	ok "Giữ nguyên cấu hình đang có: $ENV_FILE"
 fi
+# ---- CA nội bộ + chứng chỉ server (agent gọi thẳng bằng IP WAN nên chứng chỉ phải ghi IP đó)
+set_env() { # set_env KEY VALUE: thay dòng KEY=... hoặc thêm vào cuối file
+	if grep -qE "^$1=" "$ENV_FILE"; then
+		sed -i -E "s|^$1=.*|$1=$2|" "$ENV_FILE"
+	else
+		printf '%s=%s\n' "$1" "$2" >>"$ENV_FILE"
+	fi
+}
+if [[ -n "$(env_value "$ENV_FILE" SCS_CA_CERT)" ]]; then
+	ok "Đã có CA: $(env_value "$ENV_FILE" SCS_CA_CERT)"
+	if [[ ${#PKI_IPS[@]} -gt 0 ]]; then
+		warn "Đã có CA nên bỏ qua --wan-ip/--vpn-ip. Đổi IP trong chứng chỉ server: xóa $PKI_DIR/server.pem, server.key rồi chạy $OPT_DIR/scs-server pki server -dir $PKI_DIR -ip ..."
+	fi
+elif [[ ${#PKI_IPS[@]} -eq 0 ]]; then
+	warn "Chưa có CA và chứng chỉ server: agent chưa kết nối được. Chạy lại: sudo bash $0 --wan-ip <IP WAN của server> [--vpn-ip <IP VPN>]"
+else
+	args=(-ip 127.0.0.1) # để kiểm tra được ngay trên máy server
+	for ip in "${PKI_IPS[@]}"; do args+=(-ip "$ip"); done
+	for d in "${PKI_DNS[@]}"; do args+=(-dns "$d"); done
+	"$OPT_DIR/scs-server" pki init "${args[@]}" -dir "$PKI_DIR" >/dev/null ||
+		die "Không tạo được CA" "Nếu $PKI_DIR đã có file từ lần chạy trước: kiểm tra rồi xóa thư mục đó và chạy lại"
+	chown -R "$SVC_USER:$SVC_USER" "$PKI_DIR"
+	chmod 700 "$PKI_DIR"
+	set_env SCS_TLS_CERT "$PKI_DIR/server.pem"
+	set_env SCS_TLS_KEY "$PKI_DIR/server.key"
+	set_env SCS_TLS_CLIENT_CA "$PKI_DIR/ca.pem"
+	set_env SCS_CA_CERT "$PKI_DIR/ca.pem"
+	set_env SCS_CA_KEY "$PKI_DIR/ca.key"
+	ok "Đã tạo CA và chứng chỉ server cho ${PKI_IPS[*]} (thư mục $PKI_DIR, khóa CA quyền 600)"
+fi
+# Bản CA để mang sang máy tại điểm bán (chỉ chứng chỉ, không phải khóa).
+CA_PEM="$(env_value "$ENV_FILE" SCS_CA_CERT)"
+if [[ -n "$CA_PEM" && -r "$CA_PEM" ]]; then
+	install -o root -g root -m 644 "$CA_PEM" "$ETC_DIR/agent-ca.pem"
+fi
+
 [[ "$(env_value "$ENV_FILE" SCS_ENV)" == prod ]] ||
 	warn "SCS_ENV trong $ENV_FILE chưa phải prod (đang chạy thử thì bỏ qua)"
-for key in SCS_TLS_CERT SCS_TLS_KEY SCS_TLS_CLIENT_CA SCS_STORAGE_ROOT; do
+for key in SCS_TLS_CERT SCS_TLS_KEY SCS_TLS_CLIENT_CA SCS_CA_CERT SCS_CA_KEY SCS_STORAGE_ROOT; do
 	val="$(env_value "$ENV_FILE" "$key")"
 	if [[ -n "$val" && "$val" != /* ]]; then
 		warn "$key=$val là đường dẫn tương đối, sẽ tính từ $DATA_DIR; nên dùng đường dẫn tuyệt đối"
 	fi
-	if [[ "$key" == SCS_TLS_* && -n "$val" && "$val" == /* ]] && ! sudo -u "$SVC_USER" test -r "$val"; then
+	if [[ "$key" != SCS_STORAGE_ROOT && -n "$val" && "$val" == /* ]] && ! sudo -u "$SVC_USER" test -r "$val"; then
 		warn "user $SVC_USER không đọc được $val ($key): dịch vụ sẽ không khởi động được"
 	fi
 done
@@ -129,7 +186,21 @@ else
 	journalctl -u scs-server -n 30 --no-pager >&2 || true
 	die "scs-server không chạy được" "Xem log phía trên; sửa $ENV_FILE rồi: sudo systemctl restart scs-server"
 fi
+if [[ -r "$ETC_DIR/agent-ca.pem" ]] && command -v curl >/dev/null; then
+	listen="$(env_value "$ENV_FILE" SCS_INGEST_LISTEN)"
+	port="${listen##*:}"
+	if curl -sS --max-time 5 --cacert "$ETC_DIR/agent-ca.pem" "https://127.0.0.1:${port:-6222}/healthz" | grep -q '"status":"ok"'; then
+		ok "Cổng agent ${port:-6222} trả lời qua HTTPS, chứng chỉ khớp CA"
+	else
+		warn "Chưa kiểm được cổng agent qua HTTPS (xem: journalctl -u scs-server -n 50)"
+	fi
+fi
 cat <<EOF
+
+  Cài agent trên từng máy tại điểm bán:
+    1. Chép $ETC_DIR/agent-ca.pem sang máy đó (chỉ là chứng chỉ, không bí mật).
+    2. sudo bash agent/scripts/install.sh --server https://<IP WAN>:<cổng chuyển tiếp> --ca agent-ca.pem
+    3. Vào web quản trị, trang "Chờ duyệt", đối chiếu mã khóa rồi bấm Duyệt.
 
   Xem log:          journalctl -u scs-server -f
   Trạng thái:       systemctl status scs-server
