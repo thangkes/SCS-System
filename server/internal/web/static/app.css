@@ -206,6 +206,8 @@ label { font-weight: 600; font-size: 13px; }
   background: var(--info-soft); color: var(--info); border: 1px solid color-mix(in srgb, var(--info) 25%, transparent);
 }
 .view { padding: 22px 28px 48px; outline: none; display: grid; gap: 18px; align-content: start; }
+/* Thẻ con của grid được co nhỏ hơn bảng bên trong: bảng tự cuộn ngang, cả trang không bị tràn. */
+.view > * { min-width: 0; }
 .scrim { display: none; }
 
 /* ---------- Thẻ, lưới ---------- */
@@ -394,3 +396,6 @@ tr.current td { background: var(--accent-soft); }
 .store-input { font: inherit; font-variant-numeric: tabular-nums; padding: 8px 10px; border-radius: 8px;
   border: 1px solid var(--line); background: var(--panel); color: var(--text); }
 .store-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Ô đánh dấu trên thanh công cụ (ví dụ: hiện cả cảnh báo đã xác nhận) */
+.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }

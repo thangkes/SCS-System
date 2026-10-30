@@ -7,9 +7,14 @@
 #   sudo bash scripts/install.sh --uninstall                             gỡ dịch vụ (GIỮ cấu hình, CA và dữ liệu)
 #
 # Tùy chọn:
-#   --wan-ip IP   IP WAN của server mà agent gọi tới (ghi vào chứng chỉ server), lặp lại được
-#   --vpn-ip IP   IP mà admin dùng để vào web quản trị qua VPN, lặp lại được
-#   --dns TÊN     tên miền ghi thêm vào chứng chỉ server (tùy chọn)
+#   --wan-ip IP          IP WAN của server mà agent gọi tới (ghi vào chứng chỉ server), lặp lại được
+#   --vpn-ip IP          IP mà admin dùng để vào web quản trị qua VPN, lặp lại được
+#   --lan-ip IP          IP LAN của server (máy trong mạng nội bộ vào web bằng IP này), lặp lại được
+#   --dns TÊN            tên miền ghi thêm vào chứng chỉ server (tùy chọn)
+#   --admin-allow DẢI    cho dải IP này vào web quản trị 7222 (ví dụ 192.168.1.0/24), lặp lại được;
+#                        thêm vào SCS_ADMIN_ALLOW (giữ localhost) và mở ufw cho đúng dải đó nếu ufw đang bật
+#   --reissue-cert       cấp lại chứng chỉ server theo các --wan-ip/--vpn-ip/--lan-ip (CA giữ nguyên,
+#                        agent không bị ảnh hưởng); dùng khi đổi IP hoặc thêm IP LAN
 #
 # Script làm:
 #   - tạo user hệ thống scs (không đăng nhập được)
@@ -36,7 +41,7 @@ DATA_DIR=/var/lib/scs-server
 UNIT_DST=/etc/systemd/system/scs-server.service
 LOGIN_CMD=/usr/local/bin/scs-login-code
 PKI_DIR=$ETC_DIR/pki
-PKI_IPS=() PKI_DNS=() MODE=install
+PKI_IPS=() PKI_DNS=() ADMIN_ALLOW=() MODE=install REISSUE=0
 
 if [[ -t 1 ]]; then
 	C_RED=$'\e[31m' C_GRN=$'\e[32m' C_YEL=$'\e[33m' C_0=$'\e[0m'
@@ -67,16 +72,25 @@ command -v systemctl >/dev/null || die "Máy không dùng systemd" "Script chỉ
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
-		--wan-ip | --vpn-ip) PKI_IPS+=("${2:-}"); shift 2 ;;
+		--wan-ip | --vpn-ip | --lan-ip) PKI_IPS+=("${2:-}"); shift 2 ;;
 		--dns) PKI_DNS+=("${2:-}"); shift 2 ;;
+		--admin-allow) ADMIN_ALLOW+=("${2:-}"); shift 2 ;;
+		--reissue-cert) REISSUE=1; shift ;;
 		--uninstall) MODE=uninstall; shift ;;
-		-h | --help) sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		-h | --help) sed -n '2,27p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		*) die "Tham số không hợp lệ: $1" "Xem: bash $0 --help" ;;
 	esac
 done
 for ip in "${PKI_IPS[@]}"; do
-	[[ "$ip" =~ ^[0-9.]+$ || "$ip" =~ ^[0-9a-fA-F:]+$ ]] || die "\"$ip\" không phải địa chỉ IP"
+	[[ "$ip" =~ ^[0-9]+([.][0-9]+){3}$ || "$ip" =~ ^[0-9a-fA-F]*:[0-9a-fA-F:]*$ ]] || die "\"$ip\" không phải địa chỉ IP"
 done
+for cidr in "${ADMIN_ALLOW[@]}"; do
+	[[ "$cidr" =~ ^[0-9]+([.][0-9]+){3}(/[0-9]{1,2})?$ || "$cidr" =~ ^[0-9a-fA-F]*:[0-9a-fA-F:]*(/[0-9]{1,3})?$ ]] ||
+		die "--admin-allow \"$cidr\" không phải IP hoặc dải CIDR (ví dụ 192.168.1.0/24)"
+	[[ "$cidr" == 0.0.0.0/0 || "$cidr" == ::/0 ]] &&
+		die "--admin-allow $cidr mở web quản trị cho cả Internet" "Chỉ cho dải LAN hoặc VPN, ví dụ 192.168.1.0/24"
+done
+[[ $REISSUE -eq 0 || ${#PKI_IPS[@]} -gt 0 ]] || die "--reissue-cert cần ít nhất một --wan-ip / --vpn-ip / --lan-ip"
 
 if [[ $MODE == uninstall ]]; then
 	systemctl disable --now scs-server 2>/dev/null || true
@@ -131,8 +145,25 @@ set_env() { # set_env KEY VALUE: thay dòng KEY=... hoặc thêm vào cuối fil
 }
 if [[ -n "$(env_value "$ENV_FILE" SCS_CA_CERT)" ]]; then
 	ok "Đã có CA: $(env_value "$ENV_FILE" SCS_CA_CERT)"
-	if [[ ${#PKI_IPS[@]} -gt 0 ]]; then
-		warn "Đã có CA nên bỏ qua --wan-ip/--vpn-ip. Đổi IP trong chứng chỉ server: xóa $PKI_DIR/server.pem, server.key rồi chạy $OPT_DIR/scs-server pki server -dir $PKI_DIR -ip ..."
+	if [[ $REISSUE -eq 1 ]]; then
+		# Cấp lại chứng chỉ server từ CA đang có: agent vẫn tin (cùng CA), server tự nạp file mới.
+		stamp="$(date +%Y%m%d-%H%M%S)"
+		for f in server.pem server.key; do
+			[[ -f "$PKI_DIR/$f" ]] && mv -f "$PKI_DIR/$f" "$PKI_DIR/$f.old-$stamp"
+		done
+		args=(-ip 127.0.0.1)
+		for ip in "${PKI_IPS[@]}"; do args+=(-ip "$ip"); done
+		for d in "${PKI_DNS[@]}"; do args+=(-dns "$d"); done
+		if ! "$OPT_DIR/scs-server" pki server "${args[@]}" -dir "$PKI_DIR" >/dev/null; then
+			for f in server.pem server.key; do
+				[[ -f "$PKI_DIR/$f.old-$stamp" ]] && mv -f "$PKI_DIR/$f.old-$stamp" "$PKI_DIR/$f"
+			done
+			die "Không cấp lại được chứng chỉ server (đã trả lại chứng chỉ cũ)"
+		fi
+		chown -R "$SVC_USER:$SVC_USER" "$PKI_DIR"
+		ok "Đã cấp lại chứng chỉ server cho 127.0.0.1 ${PKI_IPS[*]} (bản cũ: *.old-$stamp)"
+	elif [[ ${#PKI_IPS[@]} -gt 0 ]]; then
+		warn "Đã có CA nên bỏ qua các IP vừa nhập. Muốn ghi IP mới vào chứng chỉ server: thêm --reissue-cert (liệt kê đủ mọi IP: WAN, VPN, LAN)"
 	fi
 elif [[ ${#PKI_IPS[@]} -eq 0 ]]; then
 	warn "Chưa có CA và chứng chỉ server: agent chưa kết nối được. Chạy lại: sudo bash $0 --wan-ip <IP WAN của server> [--vpn-ip <IP VPN>]"
@@ -155,6 +186,26 @@ fi
 CA_PEM="$(env_value "$ENV_FILE" SCS_CA_CERT)"
 if [[ -n "$CA_PEM" && -r "$CA_PEM" ]]; then
 	install -o root -g root -m 644 "$CA_PEM" "$ETC_DIR/agent-ca.pem"
+fi
+
+# ---- ai được vào web quản trị (7222)
+if [[ ${#ADMIN_ALLOW[@]} -gt 0 ]]; then
+	allow="$(env_value "$ENV_FILE" SCS_ADMIN_ALLOW)"
+	allow="${allow:-127.0.0.0/8,::1}"
+	for cidr in "${ADMIN_ALLOW[@]}"; do
+		[[ ",$allow," == *",$cidr,"* ]] || allow="$allow,$cidr"
+	done
+	set_env SCS_ADMIN_ALLOW "$allow"
+	ok "Web quản trị nhận kết nối từ: $allow"
+	admin_listen="$(env_value "$ENV_FILE" SCS_ADMIN_LISTEN)"
+	admin_port="${admin_listen##*:}"
+	admin_port="${admin_port:-7222}"
+	if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
+		for cidr in "${ADMIN_ALLOW[@]}"; do
+			ufw allow from "$cidr" to any port "$admin_port" proto tcp comment "SCS web quan tri" >/dev/null
+		done
+		ok "ufw: đã mở cổng $admin_port cho ${ADMIN_ALLOW[*]}"
+	fi
 fi
 
 [[ "$(env_value "$ENV_FILE" SCS_ENV)" == prod ]] ||

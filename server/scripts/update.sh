@@ -161,8 +161,18 @@ confirm "Cập nhật lên $REF?" || exit 0
 step "2. Build và test"
 GO="$(command -v go || echo /usr/local/go/bin/go)"
 [[ -x "$GO" ]] || die "Không có go" "Chạy scripts/setup.sh để cài Go"
-git checkout --quiet --detach "$target"
-restore() { git checkout --quiet "$current"; }
+# Đang ở nhánh main và lên origin/main: chỉ tua tới (giữ nhánh, git pull về sau vẫn dùng được).
+# Lên tag hay commit cụ thể: chuyển hẳn tới đó (detached).
+branch="$(git symbolic-ref --quiet --short HEAD || true)"
+if [[ "$REF" == origin/main && "$branch" == main ]]; then
+	git merge --quiet --ff-only "$target" || die "Không tua nhánh main tới origin/main được" "Nhánh main trên máy có commit riêng? Xem: git log origin/main..main"
+	restore() { git reset --quiet --keep "$current"; }
+else
+	git checkout --quiet --detach "$target"
+	restore() {
+		if [[ -n "$branch" ]]; then git checkout --quiet "$branch"; else git checkout --quiet "$current"; fi
+	}
+fi
 version="$(git describe --tags --always)"
 if [[ $SKIP_TESTS -eq 0 ]]; then
 	if ! (cd "$SERVER_DIR" && "$GO" test ../common/... ./... >/tmp/scs-update-test.log 2>&1); then

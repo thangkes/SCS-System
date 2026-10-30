@@ -96,6 +96,8 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/devices/{id}/approve", admin(http.HandlerFunc(dev.approve)))
 	mux.Handle("POST /admin/v1/devices/{id}/reject", admin(http.HandlerFunc(dev.reject)))
 	mux.Handle("POST /admin/v1/devices/{id}/revoke", admin(http.HandlerFunc(dev.revoke)))
+	mux.Handle("GET /admin/v1/alerts", view(http.HandlerFunc(dev.alerts)))
+	mux.Handle("POST /admin/v1/alerts/{id}/ack", admin(http.HandlerFunc(dev.ackAlert)))
 	return wrap(d, httpx.RejectProxied(d.Log)(mux), httpx.AggregatedAccessLog(d.Log, slog.LevelInfo))
 }
 

@@ -110,6 +110,20 @@ func TestRegistryOnPostgres(t *testing.T) {
 	if r, _ := g.Enroll(ctx, tn1); r.Status != app.DeviceRevoked {
 		t.Fatalf("máy đã thu hồi hỏi lại phải thấy revoked, được %q", r.Status)
 	}
+	// Cảnh báo: liệt kê, xác nhận, xác nhận lần hai bị từ chối.
+	open, err := g.ListAlerts(ctx, false)
+	if err != nil || len(open) == 0 {
+		t.Fatalf("cảnh báo đang mở: %d %v", len(open), err)
+	}
+	if err := g.AckAlert(ctx, open[0].ID, "Quản trị"); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.AckAlert(ctx, open[0].ID, "Quản trị"); !errors.Is(err, app.ErrWrongState) {
+		t.Fatalf("xác nhận lần hai: %v", err)
+	}
+	if all, _ := g.ListAlerts(ctx, true); len(all) != len(open) {
+		t.Fatalf("state=all phải gồm cả cảnh báo đã xác nhận: %d/%d", len(all), len(open))
+	}
 	if _, err := g.Approve(ctx, 999999, "Quản trị", ""); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("máy không có: %v", err)
 	}

@@ -4,8 +4,12 @@ Hai phần cài riêng, trên hai loại máy khác nhau:
 
 | | Máy | Script | Làm một lần hay nhiều lần |
 |---|---|---|---|
-| **SCS-Server** | máy server trung tâm (Ubuntu ≥ 22.04) | `server/scripts/setup.sh` rồi `server/scripts/install.sh` | một lần |
-| **SCS-Agent** | từng máy Ubuntu tại điểm bán | `agent/scripts/install.sh` | mỗi máy một lần |
+| **SCS-Server** | máy server trung tâm (Ubuntu ≥ 22.04) | `bash server/menu.sh` | một lần |
+| **SCS-Agent** | từng máy Ubuntu tại điểm bán | `sudo bash agent/menu.sh` | mỗi máy một lần |
+
+Cách dùng chính là **menu**: chọn số, script hỏi những gì cần (IP, dải mạng, file CA) và gợi ý sẵn giá trị.
+Các script bên dưới menu (`scripts/*.sh`) vẫn dùng bằng cờ lệnh được khi cần tự động hóa hoặc cài hàng loạt;
+phần "Dùng cờ lệnh" ở từng mục bên dưới ghi lệnh tương đương.
 
 Thứ tự: **cài server trước**. Cài server xong mới có file `agent-ca.pem` (CA của server) để mang sang các máy agent.
 
@@ -15,7 +19,17 @@ Cả hai script đều chạy lại nhiều lần được: phần nào đã có
 
 ## 1. SCS-Server
 
-### 1.1 Chuẩn bị máy: Docker, Go, PostgreSQL + NATS
+```bash
+git clone https://github.com/thangkes/SCS-System.git
+bash SCS-System/server/menu.sh
+```
+
+Chạy bằng user thường (không dùng root). Lần đầu chọn lần lượt **1 → 2 → 3**:
+**1** kiểm tra điều kiện, **2** cài Docker/Go/PostgreSQL/NATS, **3** cài dịch vụ (hỏi IP WAN, IP LAN, dải mạng
+được vào web; gợi ý sẵn IP LAN và dải LAN của máy). Về sau: **4** cập nhật, **6** cho thêm dải mạng vào web,
+**8** lấy mã đăng nhập web, **9** xem trạng thái và log.
+
+### 1.1 Chuẩn bị máy: Docker, Go, PostgreSQL + NATS (dùng cờ lệnh)
 
 ```bash
 git clone https://github.com/thangkes/SCS-System.git
@@ -40,11 +54,16 @@ Script:
 - chép bản CA cho agent ra `/etc/scs-server/agent-ca.pem` (chỉ là chứng chỉ, không bí mật);
 - cài lệnh `scs-login-code` để lấy mã đăng nhập web.
 
-### 1.3 Mạng
+### 1.3 Mạng và vào web từ máy khác trong LAN
 
 - Router phía server **chuyển tiếp một cổng** ra ngoài (ví dụ `16222`) về cổng `6222` của máy server. Agent gọi `https://<IP WAN>:16222`.
-- Cổng web quản trị `7222` **không mở ra Internet**: chỉ vào qua VPN hoặc trên chính máy server
-  (danh sách IP được vào: `SCS_ADMIN_ALLOW` trong `server.env`, ví dụ thêm dải VPN `10.8.0.0/24`).
+- Cổng web quản trị `7222` **không mở ra Internet**: mặc định chỉ chính máy server vào được. Cho máy trong LAN hoặc VPN
+  vào: menu mục **6** (hoặc `sudo bash server/scripts/install.sh --admin-allow 192.168.1.0/24`); script thêm dải đó vào
+  `SCS_ADMIN_ALLOW` và mở ufw cho đúng dải nếu ufw đang bật.
+- Muốn trình duyệt không báo sai tên, chứng chỉ server phải ghi IP mà bạn gõ trên trình duyệt (IP LAN, IP VPN):
+  menu mục **7** cấp lại chứng chỉ với đủ các IP (CA giữ nguyên, agent không bị ảnh hưởng). Trình duyệt vẫn cảnh báo
+  "chưa tin cậy" vì CA là CA nội bộ: nhập file `/etc/scs-server/agent-ca.pem` vào kho chứng chỉ tin cậy của máy
+  admin để hết cảnh báo.
 
 ### 1.4 Sau khi cài
 
@@ -74,6 +93,14 @@ Khi chạy thật nên đặt `SCS_ENV=prod` trong `/etc/scs-server/server.env` 
 ---
 
 ## 2. SCS-Agent (mỗi máy tại điểm bán)
+
+```bash
+sudo bash agent/menu.sh
+```
+
+Chọn **1** kiểm tra trước (hostname, đồng hồ, kết nối tới server), rồi **2** cài: script hỏi địa chỉ server và file
+`agent-ca.pem` (tự tìm file đặt cạnh thư mục `agent/`). Về sau: **3** trạng thái đăng ký, **4** mã khóa máy để
+admin đối chiếu khi duyệt, **5** log.
 
 ### 2.1 Chuẩn bị
 

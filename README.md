@@ -31,12 +31,8 @@ Code comments and docs are in Vietnamese.*
 Hướng dẫn đầy đủ, tách riêng server và agent: **[INSTALL.md](INSTALL.md)**.
 
 ```bash
-# Máy server
-bash server/scripts/setup.sh --start --test
-sudo bash server/scripts/install.sh --wan-ip <IP WAN> --vpn-ip <IP VPN>
-
-# Mỗi máy tại điểm bán (cần agent-ca.pem lấy từ server)
-sudo bash agent/scripts/install.sh --server https://<IP WAN>:<cổng> --ca agent-ca.pem
+bash server/menu.sh          # máy server: menu cài đặt, cập nhật, vận hành (chạy bằng user thường)
+sudo bash agent/menu.sh      # mỗi máy tại điểm bán (cần agent-ca.pem lấy từ server)
 ```
 
 Chi tiết từng thành phần: [server/README.md](server/README.md), [agent/README.md](agent/README.md).

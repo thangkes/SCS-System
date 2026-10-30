@@ -22,6 +22,27 @@ type Registry interface {
 	Approve(ctx context.Context, deviceID int64, by, storeCode string) (Device, error)
 	Reject(ctx context.Context, deviceID int64, by string) error
 	Revoke(ctx context.Context, deviceID int64, by string) error
+
+	// ListAlerts: cảnh báo đang mở (includeAcked = false) hoặc cả đã xác nhận, mới nhất trước.
+	ListAlerts(ctx context.Context, includeAcked bool) ([]Alert, error)
+	// AckAlert: admin xác nhận đã xem cảnh báo (đóng cảnh báo).
+	AckAlert(ctx context.Context, alertID int64, by string) error
+}
+
+// Alert: một cảnh báo, chỉ hiện trên web quản trị.
+type Alert struct {
+	ID          int64           `json:"id"`
+	DeviceID    int64           `json:"device_id,omitempty"`
+	Hostname    string          `json:"hostname,omitempty"`
+	StoreCode   string          `json:"store_code,omitempty"`
+	Kind        string          `json:"kind"`
+	Severity    string          `json:"severity"`
+	CreatedAt   time.Time       `json:"created_at"`
+	LastAt      time.Time       `json:"last_at"`
+	Occurrences int             `json:"occurrences"`
+	Detail      json.RawMessage `json:"detail"`
+	AckedAt     time.Time       `json:"acked_at,omitzero"`
+	AckedBy     string          `json:"acked_by,omitempty"`
 }
 
 // Trạng thái máy trong kho.

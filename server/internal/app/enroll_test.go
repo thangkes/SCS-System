@@ -279,3 +279,39 @@ func TestDeviceAPI(t *testing.T) {
 		t.Fatalf("siêu thị phải nhận IP WAN của máy đầu tiên được duyệt: %s", body)
 	}
 }
+
+// Cảnh báo: máy mới sinh cảnh báo chờ duyệt (+ hostname sai); viewer xem được, chỉ admin xác nhận được.
+func TestAlertAPI(t *testing.T) {
+	d, _ := enrollDeps(t)
+	ing, adm := IngestHandler(d), AdminHandler(d)
+	postEnroll(ing, newTestAgent(t, "ubuntu-desktop").packet(t, nil), "203.0.113.5")
+	call := func(method, path string) (int, string) {
+		r := httptest.NewRequest(method, path, nil)
+		r.Header.Set("Authorization", "Bearer "+testToken)
+		w := httptest.NewRecorder()
+		adm.ServeHTTP(w, r)
+		return w.Code, w.Body.String()
+	}
+	code, body := call("GET", "/admin/v1/alerts")
+	if code != 200 || !strings.Contains(body, `"kind":"enroll_request"`) || !strings.Contains(body, `"kind":"hostname_invalid"`) ||
+		!strings.Contains(body, `"hostname":"ubuntu-desktop"`) {
+		t.Fatalf("danh sách cảnh báo: %d %s", code, body)
+	}
+	if code, _ := call("GET", "/admin/v1/alerts?state=lung-tung"); code != 400 {
+		t.Fatalf("state lạ phải 400, được %d", code)
+	}
+	if code, _ := call("POST", "/admin/v1/alerts/2/ack"); code != 200 {
+		t.Fatalf("xác nhận: %d", code)
+	}
+	if code, _ := call("POST", "/admin/v1/alerts/2/ack"); code != 409 {
+		t.Fatalf("xác nhận lần hai phải 409, được %d", code)
+	}
+	if code, _ := call("POST", "/admin/v1/alerts/99/ack"); code != 404 {
+		t.Fatalf("cảnh báo không có phải 404, được %d", code)
+	}
+	_, open := call("GET", "/admin/v1/alerts")
+	_, all := call("GET", "/admin/v1/alerts?state=all")
+	if strings.Contains(open, "hostname_invalid") || !strings.Contains(all, `"acked_by":"API token"`) {
+		t.Fatalf("đã xác nhận thì không còn trong danh sách đang mở:\n%s\n%s", open, all)
+	}
+}

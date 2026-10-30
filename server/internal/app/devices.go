@@ -141,3 +141,39 @@ func actor(r *http.Request) string {
 	}
 	return "admin"
 }
+
+// alerts: GET /admin/v1/alerts?state=open|all (mặc định open: cảnh báo chưa xác nhận).
+func (a deviceAPI) alerts(w http.ResponseWriter, r *http.Request) {
+	if !a.ready(w) {
+		return
+	}
+	state := r.URL.Query().Get("state")
+	if state != "" && state != "open" && state != "all" {
+		httpx.WriteError(w, http.StatusBadRequest, "state không hợp lệ")
+		return
+	}
+	list, err := a.d.Registry.ListAlerts(r.Context(), state == "all")
+	if err != nil {
+		a.d.Log.Error("đọc danh sách cảnh báo thất bại", "err", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
+		return
+	}
+	if list == nil {
+		list = []Alert{}
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "alerts": list})
+}
+
+// ackAlert: POST /admin/v1/alerts/{id}/ack (admin xác nhận đã xem, cảnh báo đóng lại).
+func (a deviceAPI) ackAlert(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.id(w, r)
+	if !ok {
+		return
+	}
+	by := actor(r)
+	if a.fail(w, a.d.Registry.AckAlert(r.Context(), id, by), "xác nhận cảnh báo") {
+		return
+	}
+	a.d.Log.Info("đã xác nhận cảnh báo", "by", by, "alert", id)
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}

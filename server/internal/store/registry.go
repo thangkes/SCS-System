@@ -299,3 +299,66 @@ func nullInt(n int) any {
 	}
 	return n
 }
+
+func (g *Registry) ListAlerts(ctx context.Context, includeAcked bool) ([]app.Alert, error) {
+	rows, err := g.pool.Query(ctx, `
+		SELECT a.id, coalesce(a.device_id, 0), coalesce(d.hostname, ''), coalesce(a.store_code, d.store_code, ''),
+		       a.kind, a.severity, a.created_at, a.last_at, a.occurrences, a.detail, a.acked_at, coalesce(a.acked_by, '')
+		FROM alerts a LEFT JOIN devices d ON d.id = a.device_id
+		WHERE $1 OR a.acked_at IS NULL
+		ORDER BY a.last_at DESC
+		LIMIT 500`, includeAcked)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []app.Alert
+	for rows.Next() {
+		var a app.Alert
+		var acked *time.Time
+		var detail []byte
+		if err := rows.Scan(&a.ID, &a.DeviceID, &a.Hostname, &a.StoreCode, &a.Kind, &a.Severity, &a.CreatedAt,
+			&a.LastAt, &a.Occurrences, &detail, &acked, &a.AckedBy); err != nil {
+			return nil, err
+		}
+		a.Detail = detail
+		if acked != nil {
+			a.AckedAt = *acked
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (g *Registry) AckAlert(ctx context.Context, id int64, by string) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		var acked *time.Time
+		var deviceID *int64
+		e := tx.QueryRow(ctx, `SELECT acked_at, device_id FROM alerts WHERE id = $1 FOR UPDATE`, id).Scan(&acked, &deviceID)
+		switch {
+		case errors.Is(e, pgx.ErrNoRows):
+			return app.ErrNotFound
+		case e != nil:
+			return e
+		case acked != nil:
+			return app.ErrWrongState
+		}
+		if _, err := tx.Exec(ctx, `UPDATE alerts SET acked_at = now(), acked_by = $2 WHERE id = $1`, id, by); err != nil {
+			return err
+		}
+		var dev int64
+		if deviceID != nil {
+			dev = *deviceID
+		}
+		_, err := tx.Exec(ctx, `INSERT INTO audit (actor, action, device_id, detail) VALUES ($1, 'alert.ack', $2, $3)`,
+			by, nullInt64(dev), fmt.Sprintf(`{"alert_id":%d}`, id))
+		return err
+	})
+}
+
+func nullInt64(n int64) any {
+	if n == 0 {
+		return nil
+	}
+	return n
+}

@@ -9,7 +9,7 @@
 
   // Người đang đăng nhập, lấy từ /auth/me: { id, name, role }.
   let me = null;
-  let pendingCount = 0; // số máy chờ duyệt (dữ liệu thật)
+  let pendingCount = 0; // số máy chờ duyệt
   const isAdmin = () => !!me && me.role === 'admin';
 
   // ---------------------------------------------------------------- tiện ích
@@ -49,74 +49,12 @@
 
   // ---------------------------------------------------------------- dữ liệu mẫu
   // Sinh cố định theo seed để lần nào mở cũng giống nhau. Chỉ dùng khi admin API chưa có.
-  const demo = (() => {
-    let seed = 20261029;
-    const rnd = () => { seed |= 0; seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
-    const pick = (a) => a[Math.floor(rnd() * a.length)];
-    const hex = (n) => Array.from({ length: n }, () => Math.floor(rnd() * 16).toString(16)).join('');
-    const now = Date.now();
-    const regions = ['HCM', 'HCM', 'HCM', 'Đồng Nai', 'Bình Dương', 'Long An', 'Cần Thơ', 'Tây Ninh'];
-    const roles = ['pos', 'pos', 'pos', 'kho', 'quay'];
-
-    const stores = Array.from({ length: 28 }, (_, i) => ({ code: `${10001 + i}`, region: pick(regions) }));
-    const devices = [];
-    stores.forEach((st) => {
-      const n = 2 + Math.floor(rnd() * 3);
-      for (let j = 1; j <= n; j++) {
-        const r = rnd();
-        const status = r < 0.86 ? 'online' : r < 0.97 ? 'offline' : 'locked';
-        const lastMin = status === 'online' ? rnd() * 5 : 20 + rnd() * 600;
-        devices.push({
-          id: `${st.code}-${String(j).padStart(2, '0')}`,
-          store: st.code, region: st.region,
-          hostname: `${st.code.toLowerCase()}-${pick(roles)}${j}`,
-          status, last: new Date(now - lastMin * 60000),
-          version: rnd() < 0.8 ? '1.0.3' : '1.0.2',
-          rules: rnd() < 0.9 ? '2026.10.27-03' : '2026.10.20-01',
-          ip: `113.161.${Math.floor(rnd() * 255)}.${Math.floor(rnd() * 255)}`,
-          fp: hex(64), machineId: hex(32),
-          board: `PF${hex(6).toUpperCase()}`, serial: rnd() < 0.15 ? '' : `SN${hex(8).toUpperCase()}`,
-          mac: Array.from({ length: 6 }, () => hex(2)).join(':'),
-          enrolled: new Date(now - (30 + rnd() * 200) * 86400000),
-        });
-      }
-    });
-
-    const rules = [
-      { id: 'SSH-FAIL-01', sev: 'medium', text: 'Failed password for root from 10.20.3.15 port 52114 ssh2' },
-      { id: 'RAID-DEGRADED-01', sev: 'critical', text: 'md0: DegradedArray event detected' },
-      { id: 'POS-SVC-DOWN-01', sev: 'high', text: 'pos.service: Failed with result \'exit-code\'' },
-      { id: 'USB-ADD-01', sev: 'low', text: 'usb 1-2: New USB device found, idVendor=0781' },
-      { id: 'DISK-FULL-01', sev: 'high', text: '/var: 96% used' },
-    ];
-    const alerts = Array.from({ length: 46 }, () => {
-      const d = pick(devices); const r = pick(rules);
-      return { device: d.id, store: d.store, rule: r.id, sev: r.sev, text: r.text, count: 1 + Math.floor(rnd() * 9), time: new Date(now - rnd() * 86400000) };
-    }).sort((a, b) => b.time - a.time);
-
-
-    // Số máy online theo từng giờ trong 24 giờ qua.
-    const total = devices.length;
-    const hourly = Array.from({ length: 24 }, (_, i) => {
-      const h = (new Date(now).getHours() - 23 + i + 24) % 24;
-      const closed = h >= 23 || h < 6; // cửa hàng đóng cửa ban đêm
-      const v = closed ? total * (0.35 + rnd() * 0.1) : total * (0.9 + rnd() * 0.08);
-      return { h, v: Math.round(v) };
-    });
-
-    return { stores, devices, alerts, hourly, hex };
-  })();
 
   const SEV = {
     critical: ['pill-bad', 'Nghiêm trọng'],
     high: ['pill-warn', 'Cao'],
     medium: ['pill-info', 'Trung bình'],
     low: ['', 'Thấp'],
-  };
-  const STATUS = {
-    online: ['pill-ok', 'Online'],
-    offline: ['pill-bad', 'Offline'],
-    locked: ['pill-warn', 'Bị khóa'],
   };
   const pill = ([cls, label]) => `<span class="pill ${cls}">${esc(label)}</span>`;
 
@@ -129,7 +67,6 @@
     $('#page-title').textContent = t;
     document.title = `${t} · SCS`;
   }
-  function setDemo(on) { $('#demo-banner').hidden = !on; }
 
   function toast(msg) {
     const el = document.createElement('div');
@@ -174,62 +111,118 @@
     d.setAttribute('aria-hidden', 'true');
   }
 
-  // Thao tác ghi chưa có API: báo rõ, không giả vờ đã làm.
-  const notYet = (what) => toast(`${what}: chưa làm (mốc M6), dữ liệu không thay đổi.`);
 
   // Thuộc tính cho nút ghi: quyền Chỉ xem thì khóa nút (server cũng chặn bằng 403).
   const adminOnly = () => (isAdmin() ? '' : ' disabled title="Cần quyền Admin"');
 
+  // ---------------------------------------------------------------- gọi API
+  // Đọc JSON; lỗi thì ném Error mang câu báo của server.
+  async function getJSON(path) {
+    const r = await api(path);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `lỗi ${r.status}`);
+    return j;
+  }
+
+  async function postJSON(path, body) {
+    const r = await api(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : '',
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `lỗi ${r.status}`);
+    return j;
+  }
+
+  function showLoadError(page, err) {
+    page.innerHTML = `<div class="card soon">${ICON.warn}<h2>Không tải được dữ liệu</h2><p>${esc(err.message)}</p></div>`;
+  }
+
+  const KIND = {
+    enroll_request: 'Máy mới chờ duyệt',
+    hostname_invalid: 'Hostname sai quy ước',
+    wan_ip_mismatch: 'IP khác IP WAN của siêu thị',
+    fingerprint_changed: 'Phần cứng / hệ điều hành thay đổi',
+    position_conflict: 'Trùng vị trí TN trong siêu thị',
+    offline: 'Mất liên lạc',
+    event: 'Sự kiện log',
+  };
+
+  // alertText: diễn giải phần chi tiết của cảnh báo thành một câu.
+  function alertText(a) {
+    const d = a.detail || {};
+    switch (a.kind) {
+      case 'enroll_request': return [d.ip && `Gửi từ IP ${d.ip}`, d.key_id && `mã khóa ${d.key_id}`].filter(Boolean).join(', ');
+      case 'hostname_invalid': return d.error || '';
+      case 'wan_ip_mismatch': return d.got ? `Gửi từ ${d.got}, IP WAN của siêu thị là ${d.expected}` : '';
+      default: return Object.entries(d).map(([k, v]) => `${k}: ${v}`).join(', ');
+    }
+  }
+
+  function setAlertCount(alerts) {
+    $('#nav-alerts').textContent = alerts.length || '';
+  }
+
+  async function refreshAlertCount() {
+    try { setAlertCount((await getJSON('/admin/v1/alerts')).alerts); } catch { /* bỏ qua */ }
+  }
+
   // ---------------------------------------------------------------- trang: Tổng quan
-  function pageOverview() {
-    setTitle('Tổng quan'); setDemo(true);
-    const d = demo.devices;
-    const online = d.filter((x) => x.status === 'online').length;
-    const offline = d.filter((x) => x.status === 'offline').length;
-    const crit = demo.alerts.filter((a) => a.sev === 'critical').length;
+  async function pageOverview() {
+    setTitle('Tổng quan');
+    const page = view;
+    page.innerHTML = '<p class="hint">Đang tải…</p>';
+    let approved, pending, alerts;
+    try {
+      [approved, pending, alerts] = await Promise.all([
+        getJSON('/admin/v1/devices?status=approved').then((j) => j.devices),
+        getJSON('/admin/v1/devices?status=pending').then((j) => j.devices),
+        getJSON('/admin/v1/alerts').then((j) => j.alerts),
+      ]);
+    } catch (err) {
+      if (page === view) showLoadError(page, err);
+      return;
+    }
+    if (page !== view) return;
+    setPendingCount(pending.length);
+    setAlertCount(alerts);
 
+    const serious = alerts.filter((a) => a.severity === 'high' || a.severity === 'critical').length;
     const byStore = {};
-    d.forEach((x) => { (byStore[x.store] ||= { store: x.store, region: x.region, total: 0, off: 0, crit: 0 }).total++; if (x.status !== 'online') byStore[x.store].off++; });
-    demo.alerts.forEach((a) => { if (a.sev === 'critical' && byStore[a.store]) byStore[a.store].crit++; });
-    const attention = Object.values(byStore).filter((s) => s.off || s.crit).sort((a, b) => (b.crit * 3 + b.off) - (a.crit * 3 + a.off)).slice(0, 6);
+    approved.forEach((d) => {
+      const s = (byStore[d.store_code] ||= { store: d.store_code, count: 0, pos: [] });
+      s.count++;
+      if (d.tn) s.pos.push(`TN${d.tn}`);
+    });
+    const stores = Object.values(byStore).sort((a, b) => a.store.localeCompare(b.store));
 
-    view.innerHTML = `
+    page.innerHTML = `
       <div class="grid-kpi">
-        ${kpi('Tổng số máy', fmtNum(d.length), `${demo.stores.length} cửa hàng`)}
-        ${kpi('Online', fmtNum(online), `${Math.round(online / d.length * 100)}% heartbeat trong 5 phút`, 'is-ok')}
-        ${kpi('Offline', fmtNum(offline), 'không heartbeat quá 15 phút', offline ? 'is-bad' : '')}
-        ${kpi('Chờ duyệt', fmtNum(pendingCount), 'yêu cầu đăng ký mới (số thật)', pendingCount ? 'is-warn' : '')}
-        ${kpi('Cảnh báo nghiêm trọng', fmtNum(crit), 'trong 24 giờ', crit ? 'is-bad' : '')}
+        ${kpi('Máy đang hoạt động', fmtNum(approved.length), `${fmtNum(stores.length)} siêu thị`)}
+        ${kpi('Chờ duyệt', fmtNum(pending.length), 'yêu cầu đăng ký mới', pending.length ? 'is-warn' : '')}
+        ${kpi('Cảnh báo đang mở', fmtNum(alerts.length), `${fmtNum(serious)} mức cao / nghiêm trọng`, serious ? 'is-bad' : (alerts.length ? 'is-warn' : ''))}
+        ${kpi('Online / offline', '—', 'có khi agent gửi heartbeat (đang làm)')}
       </div>
 
       <div class="grid-2">
         <div class="card">
-          <div class="card-head"><h2>Máy online 24 giờ qua</h2>
-            <div class="right legend"><span><i></i>Giờ mở cửa</span><span><i class="low"></i>Ban đêm</span></div></div>
-          <div class="card-body"><svg class="chart" id="chart" role="img" aria-label="Số máy online theo giờ"></svg></div>
+          <div class="card-head"><h2>Cảnh báo mới</h2><div class="right"><a href="#/canh-bao" class="btn btn-sm">Xem tất cả</a></div></div>
+          <ul class="list">${alerts.slice(0, 6).map(alertItem).join('') || '<li><div class="grow empty">Không có cảnh báo đang mở.</div></li>'}</ul>
         </div>
         <div class="card">
-          <div class="card-head"><h2>Cảnh báo mới</h2><div class="right"><a href="#/canh-bao" class="btn btn-sm">Xem tất cả</a></div></div>
-          <ul class="list">${demo.alerts.slice(0, 6).map(alertItem).join('')}</ul>
+          <div class="card-head"><h2>Siêu thị</h2><span class="sub">Máy đang hoạt động theo siêu thị</span></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Siêu thị</th><th class="num">Số máy</th><th class="hide-sm">Vị trí</th></tr></thead>
+            <tbody>${stores.map((s) => `
+              <tr class="clickable" data-store="${esc(s.store)}">
+                <td class="strong">${esc(s.store)}</td><td class="num">${s.count}</td>
+                <td class="hide-sm mono">${esc(s.pos.sort().join(', ') || '—')}</td>
+              </tr>`).join('') || '<tr><td colspan="3" class="empty">Chưa có máy nào được duyệt.</td></tr>'}
+            </tbody></table></div>
         </div>
-      </div>
-
-      <div class="card">
-        <div class="card-head"><h2>Cửa hàng cần chú ý</h2><span class="sub">Có máy offline hoặc cảnh báo nghiêm trọng</span></div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Cửa hàng</th><th class="hide-sm">Khu vực</th><th class="num">Số máy</th><th class="num">Offline / khóa</th><th class="num">Nghiêm trọng</th></tr></thead>
-          <tbody>${attention.map((s) => `
-            <tr class="clickable" data-store="${esc(s.store)}">
-              <td class="strong">${esc(s.store)}</td><td class="hide-sm">${esc(s.region)}</td>
-              <td class="num">${s.total}</td>
-              <td class="num">${s.off ? `<span class="pill pill-bad no-dot">${s.off}</span>` : '0'}</td>
-              <td class="num">${s.crit ? `<span class="pill pill-bad no-dot">${s.crit}</span>` : '0'}</td>
-            </tr>`).join('') || `<tr><td colspan="5" class="empty">Không có cửa hàng nào cần chú ý.</td></tr>`}
-          </tbody></table></div>
       </div>`;
-
-    drawChart($('#chart'), demo.hourly, d.length);
-    $$('tr[data-store]', view).forEach((tr) => tr.addEventListener('click', () => {
+    $$('tr[data-store]', page).forEach((tr) => tr.addEventListener('click', () => {
       location.hash = `#/may?q=${encodeURIComponent(tr.dataset.store)}`;
     }));
   }
@@ -239,50 +232,29 @@
   }
 
   function alertItem(a) {
-    return `<li>${pill(SEV[a.sev])}<div class="grow"><div class="title">${esc(a.rule)} · ${esc(a.device)}</div><div class="desc mono">${esc(a.text)}</div></div><span class="time">${esc(ago(a.time))}</span></li>`;
-  }
-
-  function drawChart(svg, data, max) {
-    const NS = 'http://www.w3.org/2000/svg';
-    const W = 600, H = 190, padL = 30, padB = 22, padT = 8;
-    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
-    svg.setAttribute('preserveAspectRatio', 'none');
-    const el = (tag, attrs, text) => { const n = document.createElementNS(NS, tag); for (const k in attrs) n.setAttribute(k, attrs[k]); if (text != null) n.textContent = text; svg.append(n); return n; };
-    const plotH = H - padB - padT, plotW = W - padL;
-    [0, 0.5, 1].forEach((f) => {
-      const y = padT + plotH * (1 - f);
-      el('line', { x1: padL, x2: W, y1: y, y2: y, class: 'grid-line' });
-      el('text', { x: 0, y: y + 3 }, Math.round(max * f));
-    });
-    const bw = plotW / data.length;
-    data.forEach((p, i) => {
-      const h = Math.max(2, plotH * (p.v / max));
-      const night = p.h >= 23 || p.h < 6;
-      el('rect', { x: padL + i * bw + 2, y: padT + plotH - h, width: bw - 4, height: h, rx: 2, class: night ? 'bar low' : 'bar' })
-        .append(Object.assign(document.createElementNS(NS, 'title'), { textContent: `${p.h}:00 · ${p.v} máy online` }));
-      if (i % 3 === 0) el('text', { x: padL + i * bw + bw / 2, y: H - 6, 'text-anchor': 'middle' }, `${p.h}h`);
-    });
+    return `<li>${pill(SEV[a.severity] || SEV.low)}<div class="grow"><div class="title">${esc(KIND[a.kind] || a.kind)} · <span class="mono">${esc(a.hostname || a.store_code || '—')}</span></div><div class="desc">${esc(alertText(a))}</div></div><span class="time">${esc(ago(new Date(a.last_at)))}</span></li>`;
   }
 
   // ---------------------------------------------------------------- trang: Máy
-  function pageDevices(params) {
-    setTitle('Máy'); setDemo(true);
-    const state = { q: params.get('q') || '', status: params.get('status') || '', page: 0 };
+  async function pageDevices(params) {
+    setTitle('Máy');
+    const page = view;
+    const state = { q: params.get('q') || '', status: params.get('status') || 'approved', page: 0, list: [] };
     const PAGE = 15;
 
-    view.innerHTML = `
+    page.innerHTML = `
       <div class="card">
         <div class="toolbar">
-          <input type="search" id="dev-q" placeholder="Tìm mã máy, cửa hàng, hostname, IP…" value="${esc(state.q)}" aria-label="Tìm máy">
+          <input type="search" id="dev-q" placeholder="Tìm hostname, siêu thị, IP, mã khóa…" value="${esc(state.q)}" aria-label="Tìm máy">
           <select id="dev-status" aria-label="Lọc trạng thái">
-            <option value="">Mọi trạng thái</option><option value="online">Online</option>
-            <option value="offline">Offline</option><option value="locked">Bị khóa</option>
+            <option value="approved">Đang hoạt động</option><option value="revoked">Đã thu hồi</option>
+            <option value="rejected">Đã từ chối</option>
           </select>
           <span class="count" id="dev-count"></span>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Máy</th><th>Trạng thái</th><th>Heartbeat cuối</th><th class="hide-sm">Agent</th><th class="hide-sm">Bộ rule</th><th class="hide-sm">IP WAN</th></tr></thead>
-          <tbody id="dev-rows"></tbody>
+          <thead><tr><th>Máy</th><th>Siêu thị</th><th>Vị trí</th><th>Liên lạc lần cuối</th><th class="hide-sm">IP</th><th class="hide-sm">Agent</th></tr></thead>
+          <tbody id="dev-rows"><tr><td colspan="6" class="empty">Đang tải…</td></tr></tbody>
         </table></div>
         <div class="pager"><span id="dev-range"></span><div class="btns">
           <button class="btn btn-sm" id="dev-prev">Trước</button><button class="btn btn-sm" id="dev-next">Sau</button></div></div>
@@ -291,9 +263,8 @@
 
     const render = () => {
       const q = state.q.trim().toLowerCase();
-      const rows = demo.devices.filter((d) =>
-        (!state.status || d.status === state.status) &&
-        (!q || [d.id, d.store, d.hostname, d.ip].some((v) => v.toLowerCase().includes(q))));
+      const rows = state.list.filter((d) => !q ||
+        [d.hostname, d.store_code, d.last_ip, d.enroll_ip, d.key_id].some((v) => (v || '').toLowerCase().includes(q)));
       const pages = Math.max(1, Math.ceil(rows.length / PAGE));
       state.page = Math.min(state.page, pages - 1);
       const slice = rows.slice(state.page * PAGE, state.page * PAGE + PAGE);
@@ -302,114 +273,164 @@
       $('#dev-prev').disabled = state.page === 0;
       $('#dev-next').disabled = state.page >= pages - 1;
       $('#dev-rows').innerHTML = slice.map((d) => `
-        <tr class="clickable" data-id="${esc(d.id)}">
-          <td><span class="strong">${esc(d.id)}</span><span class="sub">${esc(d.hostname)}</span></td>
-          <td>${pill(STATUS[d.status])}</td>
-          <td>${esc(ago(d.last))}</td>
-          <td class="hide-sm mono">${esc(d.version)}</td>
-          <td class="hide-sm mono">${esc(d.rules)}</td>
-          <td class="hide-sm mono">${esc(d.ip)}</td>
-        </tr>`).join('') || `<tr><td colspan="6" class="empty">Không có máy nào khớp bộ lọc.</td></tr>`;
+        <tr class="clickable" data-id="${d.id}">
+          <td><span class="strong mono">${esc(d.hostname)}</span><span class="sub mono">${esc(d.key_id)}</span></td>
+          <td>${esc(d.store_code || '—')}</td>
+          <td class="mono">${esc(d.tn ? `TN${d.tn}${d.role ? ' · ' + d.role : ''}` : '—')}</td>
+          <td>${d.last_seen ? esc(ago(new Date(d.last_seen))) : '—'}</td>
+          <td class="hide-sm mono">${esc(d.last_ip || d.enroll_ip)}</td>
+          <td class="hide-sm mono">${esc(d.agent_version || '—')}</td>
+        </tr>`).join('') || `<tr><td colspan="6" class="empty">${state.list.length ? 'Không có máy nào khớp tìm kiếm.' : 'Không có máy nào.'}</td></tr>`;
+    };
+
+    const load = async () => {
+      try {
+        state.list = (await getJSON(`/admin/v1/devices?status=${encodeURIComponent(state.status)}`)).devices;
+      } catch (err) {
+        if (page === view) showLoadError(page, err);
+        return;
+      }
+      if (page === view) render();
     };
 
     $('#dev-q').addEventListener('input', (e) => { state.q = e.target.value; state.page = 0; render(); });
-    $('#dev-status').addEventListener('change', (e) => { state.status = e.target.value; state.page = 0; render(); });
+    $('#dev-status').addEventListener('change', (e) => { state.status = e.target.value; state.page = 0; load(); });
     $('#dev-prev').addEventListener('click', () => { state.page--; render(); });
     $('#dev-next').addEventListener('click', () => { state.page++; render(); });
     $('#dev-rows').addEventListener('click', (e) => {
       const tr = e.target.closest('tr[data-id]');
-      if (tr) showDevice(demo.devices.find((d) => d.id === tr.dataset.id));
+      if (tr) showDevice(state.list.find((d) => String(d.id) === tr.dataset.id), load);
     });
-    render();
+    load();
   }
 
-  function showDevice(d) {
-    if (!d) return;
-    const events = [
-      { t: d.last, text: 'Heartbeat gần nhất' },
-      { t: new Date(d.last - 2 * 86400000), text: `Cập nhật agent lên ${d.version} (vòng 2)` },
-      { t: new Date(d.last - 9 * 86400000), text: `Nhận bộ rule ${d.rules}` },
-      { t: d.enrolled, text: 'Đăng ký, cấp chứng chỉ (hạn 90 ngày)' },
-    ];
-    openDrawer(d.id, `
-      <div class="drawer-actions">${pill(STATUS[d.status])}<span class="pill no-dot">${esc(d.store)} · ${esc(d.region)}</span></div>
-      <section><h3>Thông tin</h3><dl class="kv">
-        <dt>Hostname</dt><dd>${esc(d.hostname)}</dd>
-        <dt>Heartbeat cuối</dt><dd>${esc(fmtTime(d.last))} (${esc(ago(d.last))})</dd>
-        <dt>Phiên bản agent</dt><dd class="mono">${esc(d.version)}</dd>
-        <dt>Bộ rule</dt><dd class="mono">${esc(d.rules)}</dd>
-        <dt>Ngày đăng ký</dt><dd>${esc(d.enrolled.toLocaleDateString('vi-VN'))}</dd>
-      </dl></section>
-      <section><h3>Fingerprint</h3><dl class="kv">
-        <dt>Mã băm</dt><dd class="mono">${esc(d.fp)}</dd>
-        <dt>machine-id</dt><dd class="mono">${esc(d.machineId)}</dd>
-        <dt>Serial mainboard</dt><dd class="mono">${esc(d.board)}</dd>
-        <dt>Serial hệ thống</dt><dd class="mono">${d.serial ? esc(d.serial) : '<span class="pill pill-warn no-dot">Không có (serial mặc định của hãng)</span>'}</dd>
-        <dt>MAC chính</dt><dd class="mono">${esc(d.mac)}</dd>
-      </dl></section>
-      <section><h3>IP WAN đã duyệt</h3><dl class="kv">
-        <dt>Line chính</dt><dd class="mono">${esc(d.ip)}</dd>
-      </dl></section>
-      <section><h3>Lịch sử</h3><ul class="timeline">${events.map((e) => `<li><div>${esc(e.text)}<div class="time">${esc(fmtTime(e.t))}</div></div></li>`).join('')}</ul></section>
-      <section><h3>Thao tác</h3><div class="drawer-actions">
-        <button class="btn btn-sm" data-dev-action="lock"${adminOnly()}>${d.status === 'locked' ? 'Mở khóa máy' : 'Khóa máy'}</button>
-        <button class="btn btn-sm btn-danger" data-dev-action="revoke"${adminOnly()}>Thu hồi chứng chỉ</button>
-      </div></section>`);
+  const DEV_STATUS = {
+    approved: ['pill-ok', 'Đang hoạt động'],
+    pending: ['pill-warn', 'Chờ duyệt'],
+    rejected: ['', 'Đã từ chối'],
+    revoked: ['pill-bad', 'Đã thu hồi'],
+  };
 
-    $('#drawer-body').querySelectorAll('[data-dev-action]').forEach((b) => b.addEventListener('click', async () => {
-      const revoke = b.dataset.devAction === 'revoke';
-      const ok = await confirmBox(
-        revoke ? 'Thu hồi chứng chỉ?' : (d.status === 'locked' ? 'Mở khóa máy?' : 'Khóa máy?'),
-        `<p>${revoke
-          ? `Máy <strong>${esc(d.id)}</strong> sẽ không gửi được dữ liệu nữa; muốn dùng lại thì máy đăng ký lại và chờ admin duyệt.`
-          : `Máy <strong>${esc(d.id)}</strong> ${d.status === 'locked' ? 'sẽ được nhận dữ liệu trở lại.' : 'sẽ bị từ chối dữ liệu cho tới khi mở khóa.'}`}</p>`,
-        revoke ? 'Thu hồi' : 'Xác nhận', revoke);
-      if (ok) notYet(revoke ? 'Thu hồi chứng chỉ' : 'Khóa/mở khóa máy');
+  function showDevice(d, reload) {
+    if (!d) return;
+    const when = (t) => (t ? `${fmtTime(new Date(t))} (${ago(new Date(t))})` : '—');
+    openDrawer(d.hostname, `
+      <div class="drawer-actions">${pill(DEV_STATUS[d.status] || ['', d.status])}${d.store_code ? `<span class="pill no-dot">Siêu thị ${esc(d.store_code)}</span>` : ''}</div>
+      <section><h3>Thông tin</h3><dl class="kv">
+        <dt>Hostname</dt><dd class="mono">${esc(d.hostname)}</dd>
+        <dt>Quy ước tên</dt><dd>${d.hostname_ok ? 'Đúng' : `<span class="pill pill-warn no-dot">Sai</span> ${esc(d.hostname_error || '')}`}</dd>
+        <dt>Vị trí</dt><dd class="mono">${esc(d.tn ? `TN${d.tn}${d.role ? ' · ' + d.role : ''}` : '—')}</dd>
+        <dt>Hệ điều hành</dt><dd>${esc(d.os_version || '—')}</dd>
+        <dt>Agent</dt><dd class="mono">${esc(d.agent_version || '—')}</dd>
+        <dt>Liên lạc lần cuối</dt><dd>${esc(when(d.last_seen))}</dd>
+      </dl></section>
+      <section><h3>Nhận dạng</h3><dl class="kv">
+        <dt>Mã khóa</dt><dd class="mono">${esc(d.key_id)}</dd>
+        <dt>Fingerprint</dt><dd class="mono">${esc(d.fingerprint)}</dd>
+      </dl></section>
+      <section><h3>Mạng</h3><dl class="kv">
+        <dt>IP lúc đăng ký</dt><dd class="mono">${esc(d.enroll_ip)}</dd>
+        <dt>IP lần cuối</dt><dd class="mono">${esc(d.last_ip || '—')}</dd>
+        <dt>IP WAN siêu thị</dt><dd class="mono">${esc(d.store_wan_ip || '—')}</dd>
+      </dl></section>
+      <section><h3>Lịch sử</h3><dl class="kv">
+        <dt>Gửi đăng ký</dt><dd>${esc(when(d.requested_at))}</dd>
+        <dt>${d.status === 'approved' ? 'Duyệt' : 'Quyết định'}</dt><dd>${esc(when(d.decided_at))}${d.decided_by ? ` · ${esc(d.decided_by)}` : ''}</dd>
+      </dl></section>
+      ${d.status === 'approved' ? `<section><h3>Thao tác</h3><div class="drawer-actions">
+        <button class="btn btn-sm btn-danger" data-dev-action="revoke"${adminOnly()}>Thu hồi máy</button>
+      </div></section>` : ''}`);
+
+    $('#drawer-body').querySelectorAll('[data-dev-action="revoke"]').forEach((b) => b.addEventListener('click', async () => {
+      const ok = await confirmBox('Thu hồi máy này?',
+        `<p>Máy <strong class="mono">${esc(d.hostname)}</strong> sẽ không được gửi dữ liệu nữa. Muốn dùng lại phải cài lại agent (khóa mới) và duyệt lại.</p>`,
+        'Thu hồi', true);
+      if (!ok) return;
+      b.disabled = true;
+      try {
+        await postJSON(`/admin/v1/devices/${d.id}/revoke`);
+        toast(`Đã thu hồi ${d.hostname}`);
+        closeDrawer();
+        if (reload) reload();
+      } catch (err) {
+        b.disabled = false;
+        toast(`Không thu hồi được: ${err.message}`);
+      }
     }));
   }
 
   // ---------------------------------------------------------------- trang: Cảnh báo
-  function pageAlerts() {
-    setTitle('Cảnh báo'); setDemo(true);
-    let sev = '';
-    view.innerHTML = `
+  async function pageAlerts() {
+    setTitle('Cảnh báo');
+    const page = view;
+    const state = { sev: '', all: false, list: [] };
+    page.innerHTML = `
       <div class="card">
         <div class="toolbar">
           <div class="chips" id="sev-chips">
             <button class="chip active" data-sev="">Tất cả</button>
             ${Object.entries(SEV).map(([k, [, l]]) => `<button class="chip" data-sev="${k}">${esc(l)}</button>`).join('')}
           </div>
+          <label class="check"><input type="checkbox" id="al-all"> Hiện cả cảnh báo đã xác nhận</label>
           <span class="count" id="al-count"></span>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Mức</th><th>Rule</th><th>Máy</th><th class="hide-sm">Nội dung</th><th class="num">Số lần</th><th>Thời gian</th></tr></thead>
-          <tbody id="al-rows"></tbody></table></div>
+          <thead><tr><th>Mức</th><th>Loại</th><th>Máy</th><th class="hide-sm">Chi tiết</th><th class="num hide-sm">Số lần</th><th>Lần cuối</th><th></th></tr></thead>
+          <tbody id="al-rows"><tr><td colspan="7" class="empty">Đang tải…</td></tr></tbody></table></div>
       </div>`;
+
     const render = () => {
-      const rows = demo.alerts.filter((a) => !sev || a.sev === sev);
-      $('#al-count').textContent = `${rows.length} cảnh báo trong 24 giờ`;
+      const rows = state.list.filter((a) => !state.sev || a.severity === state.sev);
+      $('#al-count').textContent = `${fmtNum(rows.length)} cảnh báo${state.all ? '' : ' đang mở'}`;
       $('#al-rows').innerHTML = rows.map((a) => `
-        <tr class="clickable" data-id="${esc(a.device)}">
-          <td>${pill(SEV[a.sev])}</td><td class="mono">${esc(a.rule)}</td>
-          <td><span class="strong">${esc(a.device)}</span></td>
-          <td class="hide-sm mono">${esc(a.text)}</td><td class="num">${a.count}</td>
-          <td>${esc(ago(a.time))}</td>
-        </tr>`).join('') || `<tr><td colspan="6" class="empty">Không có cảnh báo.</td></tr>`;
+        <tr>
+          <td>${pill(SEV[a.severity] || SEV.low)}</td>
+          <td>${esc(KIND[a.kind] || a.kind)}</td>
+          <td><span class="strong mono">${esc(a.hostname || '—')}</span>${a.store_code ? `<span class="sub">Siêu thị ${esc(a.store_code)}</span>` : ''}</td>
+          <td class="hide-sm">${esc(alertText(a))}</td>
+          <td class="num hide-sm">${a.occurrences}</td>
+          <td>${esc(ago(new Date(a.last_at)))}</td>
+          <td>${a.acked_at
+            ? `<span class="sub">Đã xác nhận · ${esc(a.acked_by)}</span>`
+            : `<button class="btn btn-sm" data-ack="${a.id}"${adminOnly()}>Xác nhận</button>`}</td>
+        </tr>`).join('') || `<tr><td colspan="7" class="empty">Không có cảnh báo${state.all ? '' : ' đang mở'}.</td></tr>`;
     };
+
+    const load = async () => {
+      try {
+        state.list = (await getJSON(`/admin/v1/alerts${state.all ? '?state=all' : ''}`)).alerts;
+      } catch (err) {
+        if (page === view) showLoadError(page, err);
+        return;
+      }
+      if (page !== view) return;
+      if (!state.all) setAlertCount(state.list);
+      render();
+    };
+
     $('#sev-chips').addEventListener('click', (e) => {
       const b = e.target.closest('[data-sev]'); if (!b) return;
-      sev = b.dataset.sev;
+      state.sev = b.dataset.sev;
       $$('.chip', $('#sev-chips')).forEach((c) => c.classList.toggle('active', c === b));
       render();
     });
-    $('#al-rows').addEventListener('click', (e) => {
-      const tr = e.target.closest('tr[data-id]');
-      if (tr) showDevice(demo.devices.find((d) => d.id === tr.dataset.id));
+    $('#al-all').addEventListener('change', (e) => { state.all = e.target.checked; load(); });
+    $('#al-rows').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-ack]'); if (!b || b.disabled) return;
+      b.disabled = true;
+      try {
+        await postJSON(`/admin/v1/alerts/${b.dataset.ack}/ack`);
+        toast('Đã xác nhận cảnh báo');
+        load();
+      } catch (err) {
+        b.disabled = false;
+        toast(`Không xác nhận được: ${err.message}`);
+      }
     });
-    render();
+    load();
   }
 
-  // ---------------------------------------------------------------- trang: Chờ duyệt (dữ liệu thật)
+  // ---------------------------------------------------------------- trang: Chờ duyệt
   function setPendingCount(n) {
     pendingCount = n;
     $('#nav-pending').textContent = n || '';
@@ -423,7 +444,7 @@
   }
 
   async function pagePending() {
-    setTitle('Chờ duyệt'); setDemo(false);
+    setTitle('Chờ duyệt');
     const page = view;
     page.innerHTML = '<p class="hint">Đang tải…</p>';
     let list = [];
@@ -510,9 +531,9 @@
     });
   }
 
-  // ---------------------------------------------------------------- trang: Hệ thống (dữ liệu thật)
+  // ---------------------------------------------------------------- trang: Hệ thống
   async function pageSystem() {
-    setTitle('Hệ thống'); setDemo(false);
+    setTitle('Hệ thống');
     view.innerHTML = `
       <div class="status-grid" id="sys-grid"><div class="card status"><p>Đang kiểm tra…</p></div></div>
       <div class="card">
@@ -605,7 +626,7 @@
 
   // ---------------------------------------------------------------- trang: sắp có
   function pageSoon(title, text) {
-    setTitle(title); setDemo(false);
+    setTitle(title);
     view.innerHTML = `<div class="card soon">${ICON.clock}<h2>${esc(title)}</h2><p>${esc(text)}</p></div>`;
   }
 
@@ -668,7 +689,7 @@
     $('#me-role').textContent = isAdmin() ? 'Admin' : 'Chỉ xem';
     $('#me-role').className = `pill no-dot ${isAdmin() ? 'pill-ok' : 'pill-info'}`;
     refreshPendingCount();
-    $('#nav-alerts').textContent = demo.alerts.filter((a) => a.sev === 'critical').length || '';
+    refreshAlertCount();
     try {
       const h = await (await api('/healthz')).json();
       $('#server-version').textContent = `SCS-Server ${h.version}`;
