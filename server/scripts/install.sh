@@ -99,7 +99,12 @@ if ! id "$SVC_USER" >/dev/null 2>&1; then
 fi
 install -d -o root -g root -m 755 "$OPT_DIR" "$ETC_DIR"
 install -d -o "$SVC_USER" -g "$SVC_USER" -m 700 "$DATA_DIR"
-install -o root -g root -m 755 "$BIN_SRC" "$OPT_DIR/scs-server"
+# Giữ bản đang chạy làm scs-server.prev để quay về được (update.sh --rollback).
+if [[ -x "$OPT_DIR/scs-server" ]] && ! cmp -s "$BIN_SRC" "$OPT_DIR/scs-server"; then
+	cp -p "$OPT_DIR/scs-server" "$OPT_DIR/scs-server.prev"
+fi
+install -o root -g root -m 755 "$BIN_SRC" "$OPT_DIR/scs-server.new"
+mv -f "$OPT_DIR/scs-server.new" "$OPT_DIR/scs-server"
 [[ -f "$SERVER_DIR/README.md" ]] && install -o root -g root -m 644 "$SERVER_DIR/README.md" "$OPT_DIR/README.md"
 ok "Binary: $OPT_DIR/scs-server ($("$OPT_DIR/scs-server" version))"
 

@@ -54,6 +54,20 @@ journalctl -u scs-server -f        # xem log
 sudo bash scripts/install.sh --uninstall   # gỡ dịch vụ (giữ cấu hình, CA, dữ liệu)
 ```
 
+### 1.5 Cập nhật server
+
+```bash
+cd ~/SCS-System
+bash server/scripts/update.sh --check      # xem có bản mới không
+bash server/scripts/update.sh              # cập nhật lên tag phát hành mới nhất (chưa có tag thì lên main)
+bash server/scripts/update.sh --ref v0.2.0 # lên đúng một bản
+bash server/scripts/update.sh --rollback   # quay về binary trước lần cập nhật gần nhất
+```
+
+Chạy bằng user thường (tự gọi sudo khi cài). Script kéo code, chạy test, build; bản mới có đổi cấu trúc DB thì
+**sao lưu DB** vào `server/data/backup/` trước; cài xong kiểm `/readyz`, không lên trong 60 giây thì **tự quay về
+binary cũ**. Thư mục code có thay đổi chưa commit thì từ chối chạy.
+
 Khi chạy thật nên đặt `SCS_ENV=prod` trong `/etc/scs-server/server.env` (bắt buộc đủ TLS, CA, mật khẩu DB) rồi
 `sudo systemctl restart scs-server`.
 
