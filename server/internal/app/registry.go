@@ -33,6 +33,65 @@ type Registry interface {
 	AgentAuth(ctx context.Context, deviceID int64) (AgentAuth, error)
 	// Seen ghi lần cuối máy gọi về, IP và phiên bản agent.
 	Seen(ctx context.Context, deviceID int64, ip netip.Addr, agentVersion string) error
+
+	// Bản agent: thêm (đã có thì bỏ qua), liệt kê, lấy một bản.
+	AddRelease(ctx context.Context, r Release) error
+	ListReleases(ctx context.Context) ([]Release, error)
+	GetRelease(ctx context.Context, version, arch string) (Release, error)
+	// Phát hành: bản cho nhóm thử / mọi máy ("" = dừng phát hành nhóm đó). Bản phải có trong kho.
+	GetRollout(ctx context.Context) (Rollout, error)
+	SetRollout(ctx context.Context, ring, version, by string) error
+	SetTestRing(ctx context.Context, deviceID int64, on bool, by string) error
+	// AgentPlan: bản agent (theo nhóm của máy, đúng kiến trúc; nil = giữ bản đang chạy) và cấu hình
+	// đã gộp (máy > siêu thị > chung) cho một máy.
+	AgentPlan(ctx context.Context, deviceID int64, arch string) (AgentPlan, error)
+	// Cấu hình agent theo từng cấp. SetConfig với WatchServices nil = bỏ ghi đè (kế thừa cấp trên).
+	ListConfigs(ctx context.Context) ([]ConfigEntry, error)
+	SetConfig(ctx context.Context, c ConfigEntry) error
+}
+
+// Release: một bản agent cho một kiến trúc, đã ký bằng khóa phát hành.
+type Release struct {
+	Version   string    `json:"version"`
+	Arch      string    `json:"arch"`
+	SHA256    string    `json:"sha256"`
+	Size      int64     `json:"size"`
+	Sig       string    `json:"-"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// Rollout: bản đang phát hành cho nhóm thử và cho mọi máy ("" = chưa phát hành).
+type Rollout struct {
+	Test string `json:"test"`
+	All  string `json:"all"`
+}
+
+// Nhóm phát hành.
+const (
+	RingTest = "test"
+	RingAll  = "all"
+)
+
+// Cấp cấu hình agent.
+const (
+	ScopeGlobal = "global"
+	ScopeStore  = "store"
+	ScopeDevice = "device"
+)
+
+// ConfigEntry: cấu hình agent ở một cấp. WatchServices nil = kế thừa cấp trên.
+type ConfigEntry struct {
+	Scope         string    `json:"scope"`
+	Key           string    `json:"key"`
+	WatchServices []string  `json:"watch_services"`
+	UpdatedAt     time.Time `json:"updated_at,omitzero"`
+	UpdatedBy     string    `json:"updated_by,omitempty"`
+}
+
+// AgentPlan: những gì một máy cần chạy.
+type AgentPlan struct {
+	Release       *Release
+	WatchServices []string
 }
 
 // AgentAuth: thông tin để xác thực gói tin của một máy.
@@ -123,6 +182,7 @@ type Device struct {
 	DecidedBy     string    `json:"decided_by,omitempty"`
 	LastSeen      time.Time `json:"last_seen,omitzero"`
 	LastIP        string    `json:"last_ip,omitempty"`
+	TestRing      bool      `json:"test_ring"` // thuộc nhóm thử: nhận bản agent mới trước
 }
 
 // KeyID: 16 ký tự hex đầu của SHA-256 khóa công khai (giống identity.Key.ID phía agent).

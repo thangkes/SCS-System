@@ -38,6 +38,8 @@ type EnrollResponse struct {
 // HeartbeatBody: gửi mỗi 5 phút.
 type HeartbeatBody struct {
 	UptimeS         int64          `json:"uptime_s"`
+	Arch            string         `json:"arch,omitempty"`           // amd64 | arm64: server chọn đúng bản agent
+	ConfigVersion   string         `json:"config_version,omitempty"` // AgentConfig.Version agent đang dùng
 	RuleSetVersion  string         `json:"rule_set_version"`
 	LogQueuePending int            `json:"log_queue_pending"`
 	Capabilities    []string       `json:"capabilities,omitempty"` // module agent đang có
@@ -122,18 +124,32 @@ type LogEvent struct {
 // Response: phản hồi chung của server cho heartbeat và log_batch. Server không gửi lệnh:
 // chỉ báo đã nhận, nhịp gọi tiếp, và phiên bản rule / bản cập nhật để agent tự kéo về.
 type Response struct {
-	OK             bool        `json:"ok"`
-	NextPollS      int         `json:"next_poll_s,omitempty"`
-	RuleSetVersion string      `json:"rule_set_version,omitempty"`
-	Update         *UpdateInfo `json:"update,omitempty"`
-	ServerTime     time.Time   `json:"server_time"` // để agent bù khi đồng hồ lệch
-	Error          string      `json:"error,omitempty"`
+	OK             bool         `json:"ok"`
+	NextPollS      int          `json:"next_poll_s,omitempty"`
+	RuleSetVersion string       `json:"rule_set_version,omitempty"`
+	Update         *UpdateInfo  `json:"update,omitempty"`
+	Config         *AgentConfig `json:"config,omitempty"`
+	ServerTime     time.Time    `json:"server_time"` // để agent bù khi đồng hồ lệch
+	Error          string       `json:"error,omitempty"`
 	// Servers: danh sách địa chỉ server (LAN, IP WAN, tên miền...) theo thứ tự ưu tiên. Agent lưu
 	// lại và thử lần lượt khi địa chỉ đang dùng không kết nối được. Rỗng = giữ danh sách đang có.
 	Servers []string `json:"servers,omitempty"`
 }
 
+// UpdateInfo: bản agent máy này cần chạy (khác bản đang chạy thì agent tải về). Sig là chữ ký
+// Ed25519 (base64) bằng khóa phát hành của server trên ReleaseSigningInput; agent kiểm bằng khóa
+// công khai đóng sẵn trong gói cài trước khi chạy bản mới.
 type UpdateInfo struct {
 	Version string `json:"version"`
-	Ring    int    `json:"ring"`
+	Arch    string `json:"arch"`
+	SHA256  string `json:"sha256"`
+	Size    int64  `json:"size"`
+	Sig     string `json:"sig"`
+}
+
+// AgentConfig: cấu hình nghiệp vụ server gửi xuống (đặt trên web: chung, theo siêu thị, theo máy).
+// Version là mã băm nội dung: agent gửi lại trong heartbeat, server chỉ gửi khi khác.
+type AgentConfig struct {
+	Version       string   `json:"version"`
+	WatchServices []string `json:"watch_services"`
 }

@@ -4,6 +4,7 @@ package app
 
 import (
 	"context"
+	"crypto/ed25519"
 	"log/slog"
 	"net/http"
 
@@ -24,6 +25,8 @@ type Deps struct {
 	Auth        *auth.Manager // đăng nhập web quản trị; chỉ cần cho AdminHandler
 	Registry    Registry      // kho máy (PostgreSQL); nil = chưa sẵn sàng
 	CA          *pki.CA       // CA cấp chứng chỉ agent; nil = chưa cấu hình SCS_CA_CERT/KEY
+	// ReleaseKey ký bản agent server phát hành; nil = chưa có SCS_RELEASE_KEY (không phát hành).
+	ReleaseKey ed25519.PrivateKey
 }
 
 // Body tối đa: payload đã ký được mã hóa base64 (~4/3) cộng phần JSON bọc ngoài.
@@ -77,7 +80,7 @@ func IngestHandler(d Deps) http.Handler {
 	mux.Handle("POST /v1/logs", route(cert, ingestBody.logs, logs, httpx.NotImplemented("M4")))
 	mux.Handle("POST /v1/cert/renew", route(cert, ingestBody.renew, agent, httpx.NotImplemented("M3")))
 	mux.Handle("GET /v1/rules/{version}", route(cert, ingestBody.get, agent, httpx.NotImplemented("M7")))
-	mux.Handle("GET /v1/updates/{version}", route(cert, ingestBody.get, agent, httpx.NotImplemented("M7")))
+	mux.Handle("GET /v1/updates/{version}", route(cert, ingestBody.get, agent, updateHandler(d)))
 	return wrap(d, mux, httpx.PublicAccessLog(d.Log))
 }
 
@@ -98,6 +101,12 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/devices/{id}/revoke", admin(http.HandlerFunc(dev.revoke)))
 	mux.Handle("GET /admin/v1/alerts", view(http.HandlerFunc(dev.alerts)))
 	mux.Handle("POST /admin/v1/alerts/{id}/ack", admin(http.HandlerFunc(dev.ackAlert)))
+	ag := agentAPI{d}
+	mux.Handle("GET /admin/v1/agent/releases", view(http.HandlerFunc(ag.releases)))
+	mux.Handle("POST /admin/v1/agent/rollout", admin(http.HandlerFunc(ag.rollout)))
+	mux.Handle("POST /admin/v1/devices/{id}/test-ring", admin(http.HandlerFunc(ag.testRing)))
+	mux.Handle("GET /admin/v1/agent/config", view(http.HandlerFunc(ag.configs)))
+	mux.Handle("POST /admin/v1/agent/config", admin(http.HandlerFunc(ag.setConfig)))
 	return wrap(d, httpx.RejectProxied(d.Log)(mux), httpx.AggregatedAccessLog(d.Log, slog.LevelInfo))
 }
 

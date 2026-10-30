@@ -142,7 +142,7 @@ func audit(ctx context.Context, tx pgx.Tx, actor, action string, deviceID int64,
 	}
 	d, _ := json.Marshal(detail)
 	_, err := tx.Exec(ctx, `INSERT INTO audit (actor, action, device_id, store_code, detail) VALUES ($1, $2, $3, $4, $5)`,
-		actor, action, deviceID, nullStr(store), d)
+		actor, action, nullInt64(deviceID), nullStr(store), d)
 	return err
 }
 
@@ -164,7 +164,7 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		SELECT d.id, d.hostname, d.hostname_ok, coalesce(d.hostname_error, ''), coalesce(d.store_code, ''),
 		       coalesce(d.tn_no, 0), coalesce(d.tn_role, ''), d.status, d.public_key, d.fingerprint,
 		       d.os_version, d.agent_version, host(d.enroll_ip), coalesce(host(s.wan_ip), ''),
-		       d.requested_at, d.decided_at, coalesce(d.decided_by, ''), d.last_seen, coalesce(host(d.last_ip), '')
+		       d.requested_at, d.decided_at, coalesce(d.decided_by, ''), d.last_seen, coalesce(host(d.last_ip), ''), d.test_ring
 		FROM devices d LEFT JOIN stores s ON s.code = d.store_code
 		WHERE d.status = $1
 		ORDER BY d.requested_at DESC
@@ -180,7 +180,7 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		var decided, seen *time.Time
 		if err := rows.Scan(&dv.ID, &dv.Hostname, &dv.HostnameOK, &dv.HostnameError, &dv.StoreCode, &dv.TN, &dv.Role,
 			&dv.Status, &pub, &dv.Fingerprint, &dv.OSVersion, &dv.AgentVersion, &dv.EnrollIP, &dv.StoreWANIP,
-			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP); err != nil {
+			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing); err != nil {
 			return nil, err
 		}
 		dv.KeyID = app.KeyID(pub)
@@ -381,4 +381,183 @@ func (g *Registry) Seen(ctx context.Context, id int64, ip netip.Addr, agentVersi
 	_, err := g.pool.Exec(ctx, `UPDATE devices SET last_seen = now(), last_ip = $2, agent_version = $3 WHERE id = $1`,
 		id, ip.String(), agentVersion)
 	return err
+}
+
+// ---------------------------------------------------------------- bản agent, phát hành, cấu hình
+
+func (g *Registry) AddRelease(ctx context.Context, r app.Release) error {
+	_, err := g.pool.Exec(ctx, `
+		INSERT INTO agent_releases (version, arch, sha256, size, sig) VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (version, arch) DO NOTHING`, r.Version, r.Arch, r.SHA256, r.Size, r.Sig)
+	return err
+}
+
+func (g *Registry) ListReleases(ctx context.Context) ([]app.Release, error) {
+	rows, err := g.pool.Query(ctx, `
+		SELECT version, arch, sha256, size, sig, created_at FROM agent_releases
+		ORDER BY created_at DESC, version DESC, arch LIMIT 200`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []app.Release
+	for rows.Next() {
+		var r app.Release
+		if err := rows.Scan(&r.Version, &r.Arch, &r.SHA256, &r.Size, &r.Sig, &r.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (g *Registry) GetRelease(ctx context.Context, version, arch string) (app.Release, error) {
+	var r app.Release
+	err := g.pool.QueryRow(ctx, `
+		SELECT version, arch, sha256, size, sig, created_at FROM agent_releases WHERE version = $1 AND arch = $2`,
+		version, arch).Scan(&r.Version, &r.Arch, &r.SHA256, &r.Size, &r.Sig, &r.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return r, app.ErrNotFound
+	}
+	return r, err
+}
+
+func (g *Registry) GetRollout(ctx context.Context) (app.Rollout, error) {
+	var ro app.Rollout
+	rows, err := g.pool.Query(ctx, `SELECT ring, coalesce(version, '') FROM agent_rollout`)
+	if err != nil {
+		return ro, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ring, v string
+		if err := rows.Scan(&ring, &v); err != nil {
+			return ro, err
+		}
+		if ring == app.RingTest {
+			ro.Test = v
+		} else {
+			ro.All = v
+		}
+	}
+	return ro, rows.Err()
+}
+
+func (g *Registry) SetRollout(ctx context.Context, ring, version, by string) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		if version != "" {
+			var n int
+			if err := tx.QueryRow(ctx, `SELECT count(*) FROM agent_releases WHERE version = $1`, version).Scan(&n); err != nil {
+				return err
+			}
+			if n == 0 {
+				return app.ErrNotFound
+			}
+		}
+		tag, err := tx.Exec(ctx, `UPDATE agent_rollout SET version = $2, updated_at = now(), updated_by = $3 WHERE ring = $1`,
+			ring, nullStr(version), by)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return app.ErrNotFound
+		}
+		return audit(ctx, tx, by, "agent.rollout", 0, "", map[string]any{"ring": ring, "version": version})
+	})
+}
+
+func (g *Registry) SetTestRing(ctx context.Context, id int64, on bool, by string) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE devices SET test_ring = $2 WHERE id = $1`, id, on)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return app.ErrNotFound
+		}
+		return audit(ctx, tx, by, "device.test_ring", id, "", map[string]any{"on": on})
+	})
+}
+
+func (g *Registry) AgentPlan(ctx context.Context, id int64, arch string) (app.AgentPlan, error) {
+	var plan app.AgentPlan
+	var store *string
+	var testRing bool
+	err := g.pool.QueryRow(ctx, `SELECT store_code, test_ring FROM devices WHERE id = $1`, id).Scan(&store, &testRing)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return plan, app.ErrNotFound
+	}
+	if err != nil {
+		return plan, err
+	}
+	ro, err := g.GetRollout(ctx)
+	if err != nil {
+		return plan, err
+	}
+	target := ro.All
+	if testRing && ro.Test != "" {
+		target = ro.Test
+	}
+	if target != "" {
+		r, err := g.GetRelease(ctx, target, arch)
+		switch {
+		case err == nil:
+			plan.Release = &r
+		case !errors.Is(err, app.ErrNotFound):
+			return plan, err
+		}
+	}
+	// Cấu hình: lấy cấp cụ thể nhất có giá trị (máy > siêu thị > chung).
+	storeKey := ""
+	if store != nil {
+		storeKey = *store
+	}
+	err = g.pool.QueryRow(ctx, `
+		SELECT watch_services FROM agent_config
+		WHERE watch_services IS NOT NULL AND (
+			(scope = 'device' AND scope_key = $1) OR (scope = 'store' AND scope_key = $2) OR scope = 'global')
+		ORDER BY CASE scope WHEN 'device' THEN 0 WHEN 'store' THEN 1 ELSE 2 END
+		LIMIT 1`, fmt.Sprint(id), storeKey).Scan(&plan.WatchServices)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return plan, err
+	}
+	return plan, nil
+}
+
+func (g *Registry) ListConfigs(ctx context.Context) ([]app.ConfigEntry, error) {
+	rows, err := g.pool.Query(ctx, `
+		SELECT scope, scope_key, watch_services, updated_at, updated_by FROM agent_config
+		ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'store' THEN 1 ELSE 2 END, scope_key LIMIT 5000`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []app.ConfigEntry
+	for rows.Next() {
+		var c app.ConfigEntry
+		if err := rows.Scan(&c.Scope, &c.Key, &c.WatchServices, &c.UpdatedAt, &c.UpdatedBy); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+func (g *Registry) SetConfig(ctx context.Context, c app.ConfigEntry) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		var err error
+		if c.WatchServices == nil {
+			_, err = tx.Exec(ctx, `DELETE FROM agent_config WHERE scope = $1 AND scope_key = $2`, c.Scope, c.Key)
+		} else {
+			_, err = tx.Exec(ctx, `
+				INSERT INTO agent_config (scope, scope_key, watch_services, updated_by) VALUES ($1, $2, $3, $4)
+				ON CONFLICT (scope, scope_key) DO UPDATE SET watch_services = EXCLUDED.watch_services,
+					updated_at = now(), updated_by = EXCLUDED.updated_by`, c.Scope, c.Key, c.WatchServices, c.UpdatedBy)
+		}
+		if err != nil {
+			return err
+		}
+		return audit(ctx, tx, c.UpdatedBy, "agent.config", 0, "",
+			map[string]any{"scope": c.Scope, "key": c.Key, "watch_services": c.WatchServices})
+	})
 }

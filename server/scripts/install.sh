@@ -128,10 +128,24 @@ elif [[ ! -x "$BIN_SRC" ]]; then
 	[[ -x "$GO" ]] || die "Chưa có $BIN_SRC và không có go để build" "Chạy scripts/setup.sh trước, hoặc build trên máy khác rồi chép vào bin/"
 	echo "Build scs-server..."
 	# -buildvcs=false: chạy bằng root trên repo của user khác thì git từ chối ("dubious ownership").
-	(cd "$SERVER_DIR" && CGO_ENABLED=0 "$GO" build -buildvcs=false -trimpath -ldflags "-s -w" -o "$BIN_SRC" ./cmd/scs-server) ||
+	repo="$(cd "$SERVER_DIR/.." && pwd)"
+	build_ver="$(git -c safe.directory="$repo" -C "$repo" describe --tags --always 2>/dev/null || echo dev)"
+	(cd "$SERVER_DIR" && CGO_ENABLED=0 "$GO" build -buildvcs=false -trimpath -ldflags "-s -w -X main.version=$build_ver" -o "$BIN_SRC" ./cmd/scs-server) ||
 		die "Build scs-server thất bại" "Xem lỗi go phía trên; hoặc chạy menu mục 4 (cập nhật) để build bằng user thường"
 fi
 "$BIN_SRC" version >/dev/null || die "$BIN_SRC không chạy được trên máy này" "Build lại cho đúng kiến trúc (GOARCH)"
+
+# ---- bản agent đi kèm: server phát hành cho các agent đã duyệt (trang "Agent" trên web)
+AGENT_BIN="$SERVER_DIR/bin/agent"
+srv_ver="$("$BIN_SRC" version)"
+if [[ "$BIN_SRC" != "$OPT_DIR/scs-server" && "$(cat "$AGENT_BIN/VERSION" 2>/dev/null)" != "$srv_ver" && -d "$SERVER_DIR/../agent" ]]; then
+	if bash "$SERVER_DIR/scripts/build-agent.sh" "$srv_ver"; then
+		# Build bằng root trong thư mục code của user khác: trả quyền để lần cập nhật sau ghi đè được.
+		chown -R --reference="$SERVER_DIR" "$SERVER_DIR/bin"
+	else
+		warn "Không build được bản agent đi kèm: server chạy bình thường nhưng chưa phát hành được agent"
+	fi
+fi
 
 # ---- user, thư mục
 if ! id "$SVC_USER" >/dev/null 2>&1; then
@@ -238,6 +252,25 @@ else
 	set_env SCS_CA_KEY "$PKI_DIR/ca.key"
 	ok "Đã tạo CA và chứng chỉ server cho ${PKI_IPS[*]} (thư mục $PKI_DIR, khóa CA quyền 600)"
 fi
+# Khóa phát hành: ký các bản agent server phân phối; khóa công khai đóng vào gói cài agent.
+if [[ -d "$PKI_DIR" ]]; then
+	if [[ ! -f "$PKI_DIR/release.key" ]]; then
+		"$OPT_DIR/scs-server" pki release -dir "$PKI_DIR" >/dev/null || die "Không tạo được khóa phát hành"
+		chown "$SVC_USER:$SVC_USER" "$PKI_DIR/release.key" "$PKI_DIR/release.pub"
+		ok "Đã tạo khóa phát hành bản agent: $PKI_DIR/release.key"
+	fi
+	set_env SCS_RELEASE_KEY "$PKI_DIR/release.key"
+	install -o root -g root -m 644 "$PKI_DIR/release.pub" "$ETC_DIR/agent-release.pub"
+fi
+[[ -n "$(env_value "$ENV_FILE" SCS_AGENT_DIST)" ]] || set_env SCS_AGENT_DIST "$OPT_DIR/agent"
+[[ -n "$(env_value "$ENV_FILE" SCS_AGENT_RELEASES)" ]] || set_env SCS_AGENT_RELEASES "$DATA_DIR/agent-releases"
+if [[ -f "$AGENT_BIN/VERSION" ]]; then
+	install -d -o root -g root -m 755 "$OPT_DIR/agent"
+	rm -f "$OPT_DIR/agent"/scs-agent-linux-* "$OPT_DIR/agent/VERSION"
+	install -o root -g root -m 644 "$AGENT_BIN"/VERSION "$AGENT_BIN"/scs-agent-linux-* "$OPT_DIR/agent/"
+	ok "Bản agent đi kèm: $(cat "$AGENT_BIN/VERSION") (server nhập vào kho phát hành khi khởi động)"
+fi
+
 # Bản CA để mang sang máy tại điểm bán (chỉ chứng chỉ, không phải khóa).
 CA_PEM="$(env_value "$ENV_FILE" SCS_CA_CERT)"
 if [[ -n "$CA_PEM" && -r "$CA_PEM" ]]; then

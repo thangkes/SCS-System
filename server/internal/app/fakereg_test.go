@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"net/netip"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -11,11 +12,14 @@ import (
 // fakeRegistry: kho máy trong bộ nhớ, làm theo đúng quy tắc của bản PostgreSQL
 // (internal/store) để test handler mà không cần DB.
 type fakeRegistry struct {
-	mu      sync.Mutex
-	devices []*fakeDevice
-	stores  map[string]string // mã siêu thị → IP WAN
-	serials map[int64]string
-	alerts  []Alert
+	mu       sync.Mutex
+	devices  []*fakeDevice
+	stores   map[string]string // mã siêu thị → IP WAN
+	serials  map[int64]string
+	alerts   []Alert
+	releases []Release
+	rollout  Rollout
+	configs  map[string]ConfigEntry // scope + "/" + key
 }
 
 type fakeDevice struct {
@@ -24,7 +28,7 @@ type fakeDevice struct {
 }
 
 func newFakeRegistry() *fakeRegistry {
-	return &fakeRegistry{stores: map[string]string{}, serials: map[int64]string{}}
+	return &fakeRegistry{stores: map[string]string{}, serials: map[int64]string{}, configs: map[string]ConfigEntry{}}
 }
 
 func (f *fakeRegistry) Enroll(_ context.Context, r EnrollRequest) (EnrollResult, error) {
@@ -198,4 +202,127 @@ func (f *fakeRegistry) AckAlert(_ context.Context, id int64, by string) error {
 		}
 	}
 	return ErrNotFound
+}
+
+func (f *fakeRegistry) AddRelease(_ context.Context, r Release) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, x := range f.releases {
+		if x.Version == r.Version && x.Arch == r.Arch {
+			return nil
+		}
+	}
+	r.CreatedAt = time.Now()
+	f.releases = append(f.releases, r)
+	return nil
+}
+
+func (f *fakeRegistry) ListReleases(context.Context) ([]Release, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]Release(nil), f.releases...), nil
+}
+
+func (f *fakeRegistry) GetRelease(_ context.Context, version, arch string) (Release, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, x := range f.releases {
+		if x.Version == version && x.Arch == arch {
+			return x, nil
+		}
+	}
+	return Release{}, ErrNotFound
+}
+
+func (f *fakeRegistry) GetRollout(context.Context) (Rollout, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.rollout, nil
+}
+
+func (f *fakeRegistry) SetRollout(_ context.Context, ring, version, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if version != "" {
+		found := false
+		for _, x := range f.releases {
+			found = found || x.Version == version
+		}
+		if !found {
+			return ErrNotFound
+		}
+	}
+	switch ring {
+	case RingTest:
+		f.rollout.Test = version
+	case RingAll:
+		f.rollout.All = version
+	default:
+		return ErrNotFound
+	}
+	return nil
+}
+
+func (f *fakeRegistry) SetTestRing(_ context.Context, id int64, on bool, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	d := f.find(id)
+	if d == nil {
+		return ErrNotFound
+	}
+	d.TestRing = on
+	return nil
+}
+
+func (f *fakeRegistry) AgentPlan(ctx context.Context, id int64, arch string) (AgentPlan, error) {
+	f.mu.Lock()
+	d := f.find(id)
+	ro := f.rollout
+	var watch []string
+	if d != nil {
+		for _, k := range []string{ScopeDevice + "/" + strconv.FormatInt(id, 10), ScopeStore + "/" + d.StoreCode, ScopeGlobal + "/"} {
+			if c, ok := f.configs[k]; ok && c.WatchServices != nil {
+				watch = c.WatchServices
+				break
+			}
+		}
+	}
+	f.mu.Unlock()
+	if d == nil {
+		return AgentPlan{}, ErrNotFound
+	}
+	plan := AgentPlan{WatchServices: watch}
+	target := ro.All
+	if d.TestRing && ro.Test != "" {
+		target = ro.Test
+	}
+	if target != "" {
+		if r, err := f.GetRelease(ctx, target, arch); err == nil {
+			plan.Release = &r
+		}
+	}
+	return plan, nil
+}
+
+func (f *fakeRegistry) ListConfigs(context.Context) ([]ConfigEntry, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []ConfigEntry
+	for _, c := range f.configs {
+		out = append(out, c)
+	}
+	return out, nil
+}
+
+func (f *fakeRegistry) SetConfig(_ context.Context, c ConfigEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k := c.Scope + "/" + c.Key
+	if c.WatchServices == nil {
+		delete(f.configs, k)
+	} else {
+		c.UpdatedAt = time.Now()
+		f.configs[k] = c
+	}
+	return nil
 }

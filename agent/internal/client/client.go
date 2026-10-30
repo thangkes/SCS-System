@@ -269,6 +269,49 @@ func (c *Client) Ping(ctx context.Context) (string, error) {
 	return "", errors.Join(errs...)
 }
 
+// Download GET path (cần chứng chỉ máy) và trả nội dung, tối đa max byte. Thử lần lượt các địa
+// chỉ như Send; server trả lỗi thì dừng. Bản tải lớn nên không dùng giới hạn 60 giây của Send.
+func (c *Client) Download(ctx context.Context, path string, max int64) ([]byte, error) {
+	c.mu.Lock()
+	bases, start, hc := append([]string(nil), c.bases...), c.cur, c.http
+	c.mu.Unlock()
+	dl := &http.Client{Transport: hc.Transport, Timeout: 15 * time.Minute}
+	var lastErr error
+	for i := range bases {
+		base := bases[(start+i)%len(bases)]
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("User-Agent", "scs-agent/"+c.version)
+		resp, err := dl.Do(req)
+		if err != nil {
+			lastErr = err
+			if ctx.Err() != nil {
+				return nil, err
+			}
+			continue
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			var e struct {
+				Error string `json:"error"`
+			}
+			json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&e)
+			return nil, &HTTPError{Status: resp.StatusCode, Message: e.Error}
+		}
+		data, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+		if err != nil {
+			return nil, err
+		}
+		if int64(len(data)) > max {
+			return nil, fmt.Errorf("file tải về lớn hơn %d byte", max)
+		}
+		return data, nil
+	}
+	return nil, lastErr
+}
+
 // learnClock: header Date của server (độ phân giải 1 giây) so với giờ máy ở giữa lúc gửi và
 // nhận. Chỉ chỉnh khi lệch quá 2 giây để không dao động vì làm tròn.
 func (c *Client) learnClock(date string, sent, recv time.Time) {

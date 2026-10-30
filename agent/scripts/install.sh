@@ -219,6 +219,17 @@ if [[ "$(readlink -f "$CA_FILE")" != "$ETC_DIR/server-ca.pem" ]]; then
 fi
 ok "CA của server: $ETC_DIR/server-ca.pem"
 
+# Khóa phát hành của server: agent chỉ chạy bản cập nhật có chữ ký đúng khóa này. Đặt ở /opt (root
+# sở hữu, dịch vụ không sửa được), khác thư mục trạng thái nơi bản cập nhật được tải về.
+if [[ -r "$AGENT_DIR/release.pub" ]] && grep -q "BEGIN PUBLIC KEY" "$AGENT_DIR/release.pub"; then
+	install -o root -g root -m 644 "$AGENT_DIR/release.pub" "$OPT_DIR/release.pub"
+fi
+if [[ -f "$OPT_DIR/release.pub" ]]; then
+	ok "Khóa phát hành: $OPT_DIR/release.pub (agent tự nhận bản mới từ server sau khi được duyệt)"
+else
+	warn "Không có khóa phát hành (gói cũ): agent chạy bình thường nhưng không tự cập nhật; đóng gói lại ở server (menu mục 11)"
+fi
+
 [[ -f "$ETC_DIR/agent.env" ]] && cp -p "$ETC_DIR/agent.env" "$ETC_DIR/agent.env.bak"
 if [[ -z "$WATCH" && -r "$ETC_DIR/agent.env.bak" ]]; then
 	WATCH="$(sed -n 's/^SCS_WATCH_SERVICES=//p' "$ETC_DIR/agent.env.bak" | tail -n1)"

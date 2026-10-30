@@ -268,7 +268,7 @@ do_uninstall() {
 }
 
 do_package() {
-	local last="$SERVER_DIR/data/dist/last-server.txt" def="" watch arch
+	local last="$SERVER_DIR/data/dist/last-server.txt" def="" arch
 	[[ -r "$last" ]] && def="$(head -n1 "$last")"
 	if [[ -z "$def" ]]; then
 		local port
@@ -276,18 +276,17 @@ do_package() {
 		port="${port##*:}"
 		def="https://$(lan_ip || echo 127.0.0.1):${port:-6222}"
 	fi
-	echo "  Gói gồm binary agent, script cài, CA của server và địa chỉ server đặt sẵn: máy tại điểm bán"
-	echo "  chỉ cần giải nén rồi chạy cài, không phải nhập gì."
+	echo "  Gói là bản agent khung: binary, script cài, CA và khóa phát hành của server, địa chỉ server."
+	echo "  Máy tại điểm bán chỉ cần giải nén rồi chạy cài. Duyệt xong, agent tự nhận cấu hình và bản mới"
+	echo "  từ server (trang \"Agent\" trên web), không phải đóng gói hay cài lại."
 	echo "  ${C_DIM}Trong mạng nội bộ: https://<IP LAN>:6222. Từ Internet: https://<IP WAN hoặc tên miền>:<cổng chuyển tiếp về 6222>.${C_0}"
 	ask "Địa chỉ agent gọi tới" "$def"
 	[[ "$REPLY" =~ ^https://[^/:@[:space:]]+:[0-9]{1,5}/?$ ]] ||
 		{ echo "  ${C_RED}Phải có dạng https://<IP>:<cổng>, ví dụ https://192.168.1.10:6222${C_0}"; return 1; }
 	local server="$REPLY"
-	ask "Dịch vụ mặc định cần báo trạng thái, cách nhau dấu phẩy (bỏ trống nếu không có)" ""
-	watch="$REPLY"
 	ask "Kiến trúc máy tại điểm bán (amd64 / arm64)" "amd64"
 	arch="$REPLY"
-	if bash "$SCRIPTS/package-agent.sh" --server "$server" --watch "$watch" --arch "$arch"; then
+	if bash "$SCRIPTS/package-agent.sh" --server "$server" --arch "$arch"; then
 		mkdir -p "$(dirname "$last")"
 		printf '%s\n' "$server" >"$last"
 	fi

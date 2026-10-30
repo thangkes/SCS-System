@@ -338,8 +338,22 @@
         <dt>${d.status === 'approved' ? 'Duyệt' : 'Quyết định'}</dt><dd>${esc(when(d.decided_at))}${d.decided_by ? ` · ${esc(d.decided_by)}` : ''}</dd>
       </dl></section>
       ${d.status === 'approved' ? `<section><h3>Thao tác</h3><div class="drawer-actions">
+        <button class="btn btn-sm" data-dev-action="test-ring"${adminOnly()}>${d.test_ring ? 'Bỏ khỏi nhóm thử' : 'Thêm vào nhóm thử'}</button>
         <button class="btn btn-sm btn-danger" data-dev-action="revoke"${adminOnly()}>Thu hồi máy</button>
-      </div></section>` : ''}`);
+      </div><p class="hint">${d.test_ring ? 'Máy đang trong nhóm thử: nhận bản agent mới trước các máy khác.' : 'Máy trong nhóm thử nhận bản agent mới trước để kiểm tra.'}</p></section>` : ''}`);
+
+    $('#drawer-body').querySelectorAll('[data-dev-action="test-ring"]').forEach((b) => b.addEventListener('click', async () => {
+      b.disabled = true;
+      try {
+        await postJSON(`/admin/v1/devices/${d.id}/test-ring`, { on: !d.test_ring });
+        toast(d.test_ring ? `Đã bỏ ${d.hostname} khỏi nhóm thử` : `Đã thêm ${d.hostname} vào nhóm thử`);
+        closeDrawer();
+        if (reload) reload();
+      } catch (err) {
+        b.disabled = false;
+        toast(`Không đổi được: ${err.message}`);
+      }
+    }));
 
     $('#drawer-body').querySelectorAll('[data-dev-action="revoke"]').forEach((b) => b.addEventListener('click', async () => {
       const ok = await confirmBox('Thu hồi máy này?',
@@ -624,6 +638,140 @@
     dot.title = ok ? 'Hệ thống sẵn sàng' : 'Có phụ thuộc chưa sẵn sàng';
   }
 
+  // ---------------------------------------------------------------- trang: Agent (cập nhật + cấu hình)
+  // Bản agent server giữ, phát hành cho nhóm thử rồi cho tất cả; cấu hình agent theo cấp
+  // (chung / siêu thị / máy). Agent nhận cả hai qua heartbeat (5 phút).
+  const splitList = (s) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
+
+  async function pageAgent() {
+    setTitle('Agent: cập nhật và cấu hình');
+    const page = view;
+    page.innerHTML = '<p class="hint">Đang tải…</p>';
+    let rel, cfg, devices;
+    try {
+      [rel, cfg, devices] = await Promise.all([
+        getJSON('/admin/v1/agent/releases'),
+        getJSON('/admin/v1/agent/config'),
+        getJSON('/admin/v1/devices?status=approved').then((j) => j.devices),
+      ]);
+    } catch (err) {
+      if (page === view) showLoadError(page, err);
+      return;
+    }
+    if (page !== view) return;
+
+    const ro = rel.rollout || {};
+    const running = {};
+    devices.forEach((d) => { const v = d.agent_version || '—'; running[v] = (running[v] || 0) + 1; });
+    const testers = devices.filter((d) => d.test_ring);
+    const globalCfg = cfg.configs.find((c) => c.scope === 'global');
+    const overrides = cfg.configs.filter((c) => c.scope !== 'global');
+    const hostOf = (id) => devices.find((d) => String(d.id) === String(id))?.hostname || `máy #${id}`;
+    const ringPill = (v) => (v ? `<span class="pill pill-ok no-dot mono">${esc(v)}</span>` : '<span class="pill no-dot">Chưa phát hành</span>');
+
+    page.innerHTML = `
+      ${rel.signing ? '' : `<div class="card soon">${ICON.warn}<h2>Server chưa có khóa phát hành</h2><p>Chạy menu server mục 3 (cài lại dịch vụ) để tạo khóa; chưa có khóa thì không phát hành được bản agent.</p></div>`}
+      <div class="card">
+        <div class="card-head"><h2>Đang phát hành</h2><span class="sub">Máy nhóm thử theo bản "Nhóm thử" nếu có, các máy khác theo bản "Tất cả máy"</span></div>
+        <dl class="kv">
+          <dt>Nhóm thử (${fmtNum(testers.length)} máy)</dt><dd>${ringPill(ro.test)} ${ro.test ? `<button class="btn btn-sm" data-ring-stop="test"${adminOnly()}>Dừng</button>` : ''}</dd>
+          <dt>Tất cả máy</dt><dd>${ringPill(ro.all)} ${ro.all ? `<button class="btn btn-sm" data-ring-stop="all"${adminOnly()}>Dừng</button>` : ''}</dd>
+        </dl>
+        <p class="hint">Dừng phát hành thì máy giữ bản đang chạy. Bản mới khởi động lỗi 3 lần liền thì agent tự quay về bản cài ban đầu.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Bản agent trên server</h2><span class="sub">Mỗi lần cập nhật server (menu mục 4) có thêm bản agent cùng phiên bản</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Phiên bản</th><th class="hide-sm">Kiến trúc</th><th>Đang chạy</th><th class="hide-sm">Có từ</th><th></th></tr></thead>
+          <tbody>${rel.releases.map((r) => `
+            <tr><td class="mono strong">${esc(r.version)}</td>
+              <td class="hide-sm mono">${esc(r.arches.join(', '))}</td>
+              <td>${fmtNum(running[r.version] || 0)} máy</td>
+              <td class="hide-sm">${esc(fmtTime(new Date(r.created_at)))}</td>
+              <td><div class="btns">
+                <button class="btn btn-sm" data-rollout="test" data-version="${esc(r.version)}"${adminOnly()}${ro.test === r.version ? ' disabled' : ''}>Phát hành nhóm thử</button>
+                <button class="btn btn-sm btn-primary" data-rollout="all" data-version="${esc(r.version)}"${adminOnly()}${ro.all === r.version ? ' disabled' : ''}>Phát hành tất cả</button>
+              </div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Chưa có bản agent nào. Cập nhật server (menu mục 4) để có bản đầu tiên.</td></tr>'}
+          </tbody></table></div>
+        <p class="hint">Phiên bản đang chạy trên các máy: ${Object.entries(running).map(([v, n]) => `<span class="mono">${esc(v)}</span> × ${fmtNum(n)}`).join(', ') || '—'}</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Nhóm thử</h2><span class="sub">Đánh dấu trong chi tiết máy (trang Máy)</span></div>
+        <p>${testers.map((d) => `<span class="pill no-dot mono">${esc(d.hostname)}</span>`).join(' ') || 'Chưa có máy nào trong nhóm thử.'}</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Cấu hình agent</h2><span class="sub">Máy &gt; siêu thị &gt; chung. Agent nhận trong vòng 5 phút</span></div>
+        <div class="form-grid">
+          <label class="field full">Dịch vụ cần báo trạng thái, dùng chung cho mọi máy
+            <input id="cfg-global" placeholder="pos.service, printer.service" value="${esc((globalCfg?.watch_services || []).join(', '))}"${adminOnly()}>
+            <small>Tên dịch vụ systemd, cách nhau dấu phẩy. Để trống và lưu = không theo dõi dịch vụ nào.</small></label>
+        </div>
+        <div class="form-actions"><button class="btn btn-primary btn-sm" id="cfg-global-save"${adminOnly()}>Lưu cấu hình chung</button></div>
+        <h3>Ghi đè theo siêu thị / máy</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Áp cho</th><th>Dịch vụ</th><th class="hide-sm">Sửa lúc</th><th></th></tr></thead>
+          <tbody>${overrides.map((c) => `
+            <tr><td>${c.scope === 'store' ? `Siêu thị <span class="mono">${esc(c.key)}</span>` : `Máy <span class="mono">${esc(hostOf(c.key))}</span>`}</td>
+              <td class="mono">${esc((c.watch_services || []).join(', ') || '(không theo dõi)')}</td>
+              <td class="hide-sm">${esc(c.updated_at ? fmtTime(new Date(c.updated_at)) : '')}${c.updated_by ? ` · ${esc(c.updated_by)}` : ''}</td>
+              <td><button class="btn btn-sm btn-danger" data-cfg-del="${esc(c.scope)}" data-key="${esc(c.key)}"${adminOnly()}>Bỏ ghi đè</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Chưa có ghi đè nào.</td></tr>'}
+          </tbody></table></div>
+        <div class="form-grid">
+          <label class="field">Áp cho
+            <select id="ov-scope"${adminOnly()}><option value="store">Siêu thị (mã)</option><option value="device">Máy (hostname)</option></select></label>
+          <label class="field">Mã siêu thị / hostname
+            <input id="ov-key" placeholder="12345 hoặc 12345-TN1-PRI"${adminOnly()}></label>
+          <label class="field full">Dịch vụ
+            <input id="ov-watch" placeholder="pos.service"${adminOnly()}></label>
+        </div>
+        <div class="form-actions"><button class="btn btn-sm" id="ov-save"${adminOnly()}>Thêm / sửa ghi đè</button></div>
+      </div>`;
+
+    const saveCfg = async (scope, key, watch, okMsg) => {
+      try {
+        await postJSON('/admin/v1/agent/config', { scope, key, watch_services: watch });
+        toast(okMsg);
+        pageAgent();
+      } catch (err) { toast(`Không lưu được: ${err.message}`); }
+    };
+
+    page.addEventListener('click', async (e) => {
+      const ro2 = e.target.closest('[data-rollout]');
+      if (ro2 && !ro2.disabled) {
+        const ring = ro2.dataset.rollout, v = ro2.dataset.version;
+        const ok = await confirmBox(ring === 'test' ? 'Phát hành cho nhóm thử?' : 'Phát hành cho tất cả máy?',
+          `<p>Bản <strong class="mono">${esc(v)}</strong> sẽ được ${ring === 'test' ? `${fmtNum(testers.length)} máy nhóm thử` : 'mọi máy đã duyệt'} tải về ở lần heartbeat tới (tối đa khoảng 5 phút), kiểm chữ ký rồi tự khởi động lại.</p>`,
+          'Phát hành', ring === 'all');
+        if (!ok) return;
+        try { await postJSON('/admin/v1/agent/rollout', { ring, version: v }); toast(`Đã phát hành ${v}`); pageAgent(); }
+        catch (err) { toast(`Không phát hành được: ${err.message}`); }
+        return;
+      }
+      const stop = e.target.closest('[data-ring-stop]');
+      if (stop && !stop.disabled) {
+        try { await postJSON('/admin/v1/agent/rollout', { ring: stop.dataset.ringStop, version: '' }); toast('Đã dừng phát hành'); pageAgent(); }
+        catch (err) { toast(`Không dừng được: ${err.message}`); }
+        return;
+      }
+      const del = e.target.closest('[data-cfg-del]');
+      if (del && !del.disabled) { saveCfg(del.dataset.cfgDel, del.dataset.key, null, 'Đã bỏ ghi đè'); return; }
+      if (e.target.closest('#cfg-global-save')) {
+        saveCfg('global', '', splitList($('#cfg-global').value), 'Đã lưu cấu hình chung');
+        return;
+      }
+      if (e.target.closest('#ov-save')) {
+        const scope = $('#ov-scope').value;
+        let key = $('#ov-key').value.trim();
+        if (scope === 'device') {
+          const d = devices.find((x) => x.hostname.toLowerCase() === key.toLowerCase());
+          if (!d) { toast('Không có máy đang hoạt động với hostname này'); return; }
+          key = String(d.id);
+        } else if (!/^[0-9]{1,10}$/.test(key)) { toast('Mã siêu thị chỉ gồm chữ số'); return; }
+        saveCfg(scope, key, splitList($('#ov-watch').value), 'Đã lưu ghi đè');
+      }
+    });
+  }
+
   // ---------------------------------------------------------------- trang: sắp có
   function pageSoon(title, text) {
     setTitle(title);
@@ -638,7 +786,7 @@
     'cho-duyet': pagePending,
     'he-thong': pageSystem,
     rule: () => pageSoon('Rule quét log', 'Soạn, ký và gán bộ rule cho từng nhóm máy. Sẽ làm ở mốc M7.'),
-    'cap-nhat': () => pageSoon('Cập nhật agent', 'Phát hành bản agent mới theo vòng (lab → 1% → 10% → toàn bộ) và theo dõi tỷ lệ lỗi. Sẽ làm ở mốc M7.'),
+    'cap-nhat': pageAgent,
   };
 
   function route() {

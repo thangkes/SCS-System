@@ -16,31 +16,59 @@ import (
 // heartbeatEvery: nhịp agent gọi về (agent tự cộng trừ ngẫu nhiên để không dồn cùng lúc).
 const heartbeatEvery = 5 * time.Minute
 
-// heartbeatHandler xử lý POST /v1/heartbeat của máy đã duyệt (requireClientCert đã kiểm
-// chứng chỉ do CA ký). Kiểm thêm: chứng chỉ đúng máy và là chứng chỉ mới nhất đã cấp, gói tin
-// ký bằng khóa của máy, giờ không lệch. Trả nhịp gọi tiếp và danh sách địa chỉ server.
+// authDevice: máy gọi bằng chứng chỉ client (requireClientCert đã kiểm do CA ký) phải còn được
+// duyệt và chứng chỉ phải là chứng chỉ mới nhất đã cấp. Trả mã máy; lỗi thì đã trả lời.
+func authDevice(d Deps, w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, _, ok := authDeviceKey(d, w, r)
+	return id, ok
+}
+
+func authDeviceKey(d Deps, w http.ResponseWriter, r *http.Request) (int64, AgentAuth, bool) {
+	if d.Registry == nil {
+		httpx.WriteError(w, http.StatusServiceUnavailable, "server chưa sẵn sàng")
+		return 0, AgentAuth{}, false
+	}
+	var cert *x509.Certificate
+	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		cert = r.TLS.PeerCertificates[0]
+	}
+	if cert == nil {
+		httpx.WriteError(w, http.StatusUnauthorized, "cần chứng chỉ client hợp lệ")
+		return 0, AgentAuth{}, false
+	}
+	id, err := strconv.ParseInt(cert.Subject.CommonName, 10, 64)
+	if err != nil || id <= 0 {
+		httpx.WriteError(w, http.StatusUnauthorized, "chứng chỉ không mang mã máy")
+		return 0, AgentAuth{}, false
+	}
+	a, err := d.Registry.AgentAuth(r.Context(), id)
+	switch {
+	case errors.Is(err, ErrNotFound):
+		httpx.WriteError(w, http.StatusForbidden, "máy không có trong danh sách")
+		return 0, a, false
+	case err != nil:
+		d.Log.Error("đọc thông tin máy thất bại", "err", err, "device", id)
+		httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
+		return 0, a, false
+	}
+	if a.Status != DeviceApproved {
+		httpx.WriteError(w, http.StatusForbidden, "máy đã bị thu hồi hoặc chưa được duyệt")
+		return 0, a, false
+	}
+	if a.CertSerial == "" || pki.SerialHex(cert.SerialNumber) != a.CertSerial {
+		httpx.WriteError(w, http.StatusForbidden, "chứng chỉ đã được thay bằng chứng chỉ mới hơn")
+		return 0, a, false
+	}
+	return id, a, true
+}
+
+// heartbeatHandler xử lý POST /v1/heartbeat của máy đã duyệt. Ngoài authDevice còn kiểm gói tin
+// ký bằng khóa của máy, đúng mã máy, giờ không lệch. Trả nhịp gọi tiếp, danh sách địa chỉ server,
+// bản agent máy cần chạy (theo nhóm phát hành) và cấu hình agent (khi khác bản agent đang dùng).
 //
 // Bản này chỉ ghi lần cuối thấy; lưu trạng thái máy (MachineStatus) ở mốc M4.
 func heartbeatHandler(d Deps) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if d.Registry == nil {
-			httpx.WriteError(w, http.StatusServiceUnavailable, "server chưa sẵn sàng")
-			return
-		}
-		var cert *x509.Certificate
-		if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
-			cert = r.TLS.PeerCertificates[0]
-		}
-		if cert == nil {
-			httpx.WriteError(w, http.StatusUnauthorized, "cần chứng chỉ client hợp lệ")
-			return
-		}
-		id, err := strconv.ParseInt(cert.Subject.CommonName, 10, 64)
-		if err != nil || id <= 0 {
-			httpx.WriteError(w, http.StatusUnauthorized, "chứng chỉ không mang mã máy")
-			return
-		}
-
 		var s protocol.Signed
 		if err := json.NewDecoder(r.Body).Decode(&s); err != nil {
 			httpx.WriteError(w, http.StatusBadRequest, "gói tin không đọc được")
@@ -51,10 +79,6 @@ func heartbeatHandler(d Deps) http.Handler {
 			httpx.WriteError(w, http.StatusBadRequest, "gói tin sai định dạng")
 			return
 		}
-		if env.DeviceID != cert.Subject.CommonName {
-			httpx.WriteError(w, http.StatusForbidden, "mã máy trong gói khác chứng chỉ")
-			return
-		}
 		if skew := time.Since(env.TS); skew > maxClockSkew || skew < -maxClockSkew {
 			httpx.WriteError(w, http.StatusBadRequest, "giờ trong gói lệch quá 5 phút so với server")
 			return
@@ -63,23 +87,12 @@ func heartbeatHandler(d Deps) http.Handler {
 			httpx.WriteError(w, http.StatusBadRequest, "phiên bản không hợp lệ")
 			return
 		}
-
-		a, err := d.Registry.AgentAuth(r.Context(), id)
-		switch {
-		case errors.Is(err, ErrNotFound):
-			httpx.WriteError(w, http.StatusForbidden, "máy không có trong danh sách")
-			return
-		case err != nil:
-			d.Log.Error("đọc thông tin máy thất bại", "err", err, "device", id)
-			httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
+		id, a, ok := authDeviceKey(d, w, r)
+		if !ok {
 			return
 		}
-		if a.Status != DeviceApproved {
-			httpx.WriteError(w, http.StatusForbidden, "máy đã bị thu hồi hoặc chưa được duyệt")
-			return
-		}
-		if a.CertSerial == "" || pki.SerialHex(cert.SerialNumber) != a.CertSerial {
-			httpx.WriteError(w, http.StatusForbidden, "chứng chỉ đã được thay bằng chứng chỉ mới hơn")
+		if env.DeviceID != strconv.FormatInt(id, 10) {
+			httpx.WriteError(w, http.StatusForbidden, "mã máy trong gói khác chứng chỉ")
 			return
 		}
 		if err := s.Verify(a.PublicKey); err != nil {
@@ -97,9 +110,29 @@ func heartbeatHandler(d Deps) http.Handler {
 			httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
 			return
 		}
-		httpx.WriteJSON(w, http.StatusOK, protocol.Response{
+		resp := protocol.Response{
 			OK: true, NextPollS: int(heartbeatEvery / time.Second), ServerTime: time.Now().UTC(),
 			Servers: d.Cfg.AgentServers,
-		})
+		}
+		// Bản agent và cấu hình: đọc lỗi thì heartbeat vẫn thành công, lần sau gửi.
+		arch := body.Arch
+		if !protocol.ValidArch(arch) {
+			arch = ""
+		}
+		if plan, err := d.Registry.AgentPlan(r.Context(), id, arch); err != nil {
+			d.Log.Error("đọc bản agent / cấu hình cho máy thất bại", "err", err, "device", id)
+		} else {
+			if rel := plan.Release; rel != nil && rel.Version != env.AgentVersion {
+				resp.Update = &protocol.UpdateInfo{Version: rel.Version, Arch: rel.Arch, SHA256: rel.SHA256,
+					Size: rel.Size, Sig: rel.Sig}
+			}
+			// Chưa đặt cấu hình ở cấp nào thì không gửi: agent giữ cấu hình đang có.
+			if plan.WatchServices != nil {
+				if c := configOf(plan.WatchServices); c.Version != body.ConfigVersion {
+					resp.Config = &c
+				}
+			}
+		}
+		httpx.WriteJSON(w, http.StatusOK, resp)
 	})
 }

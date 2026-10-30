@@ -55,6 +55,12 @@ type Config struct {
 	// (ví dụ https://192.168.1.10:6222,https://ten.ddns.net:16222). Gửi cho agent đã duyệt; agent
 	// thử lần lượt khi địa chỉ đang dùng không kết nối được. Rỗng = agent chỉ dùng địa chỉ lúc cài.
 	AgentServers []string
+	// ReleaseKey (SCS_RELEASE_KEY): khóa ký bản agent (scs-server pki release). Trống = không phát
+	// hành bản agent. AgentDist (SCS_AGENT_DIST): thư mục bản agent đi kèm bản server này
+	// (install.sh chép vào), server nhập vào kho AgentReleases (SCS_AGENT_RELEASES) lúc khởi động.
+	ReleaseKey    string
+	AgentDist     string
+	AgentReleases string
 }
 
 type DB struct {
@@ -119,6 +125,9 @@ func Load() (*Config, error) {
 
 		ControlSocket: get("SCS_CONTROL_SOCKET", "data/run/control.sock"),
 		AgentServers:  getServers("SCS_AGENT_SERVERS", &errs),
+		ReleaseKey:    get("SCS_RELEASE_KEY", ""),
+		AgentDist:     get("SCS_AGENT_DIST", "/opt/scs-server/agent"),
+		AgentReleases: get("SCS_AGENT_RELEASES", "data/agent-releases"),
 	}
 	errs = append(errs, c.validate()...)
 	if len(errs) > 0 {

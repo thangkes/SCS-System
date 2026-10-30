@@ -30,6 +30,9 @@ type Config struct {
 	// WatchServices: dịch vụ systemd cần báo trạng thái trong heartbeat (ví dụ dịch vụ POS).
 	WatchServices []string
 	LogLevel      string
+	// ReleasePub: khóa công khai phát hành của server (root sở hữu, đóng trong gói cài). Agent chỉ
+	// chạy bản cập nhật có chữ ký đúng khóa này; không có file thì không tự cập nhật.
+	ReleasePub string
 }
 
 // Load đọc file cấu hình (path rỗng = DefaultFile, không có file thì dùng mặc định) rồi biến môi trường.
@@ -63,6 +66,8 @@ func Load(path string) (*Config, error) {
 		KeyDir:   get("SCS_KEY_DIR", "/etc/scs-agent"),
 		StateDir: get("SCS_STATE_DIR", "/var/lib/scs-agent"),
 		LogLevel: get("SCS_LOG_LEVEL", "info"),
+
+		ReleasePub: get("SCS_RELEASE_PUB", "/opt/scs-agent/release.pub"),
 	}
 	for _, s := range strings.Split(get("SCS_WATCH_SERVICES", ""), ",") {
 		if s = strings.TrimSpace(s); s != "" {
@@ -77,6 +82,9 @@ func Load(path string) (*Config, error) {
 
 // Tên dịch vụ systemd hợp lệ; không cho bắt đầu bằng "-" để không thành tham số của systemctl.
 var serviceName = regexp.MustCompile(`^[A-Za-z0-9@_.:\\][A-Za-z0-9@_.:\\-]{0,127}$`)
+
+// ValidServiceName: tên dịch vụ systemd hợp lệ (dùng cả cho cấu hình server gửi xuống).
+func ValidServiceName(s string) bool { return serviceName.MatchString(s) }
 
 func (c *Config) validate() error {
 	var errs []error

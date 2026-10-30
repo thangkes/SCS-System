@@ -399,3 +399,4 @@ tr.current td { background: var(--accent-soft); }
 
 /* Ô đánh dấu trên thanh công cụ (ví dụ: hiện cả cảnh báo đã xác nhận) */
 .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); cursor: pointer; }
+.btns { display: flex; gap: 6px; flex-wrap: wrap; }

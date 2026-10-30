@@ -1,5 +1,6 @@
-// Package heartbeat: máy đã duyệt gọi về server mỗi vài phút để báo còn sống và nhận cấu hình
-// server gửi xuống (nhịp gọi, danh sách địa chỉ server). Trạng thái máy gửi kèm ở mốc A2.
+// Package heartbeat: máy đã duyệt gọi về server mỗi vài phút để báo còn sống và nhận những gì
+// server gửi xuống: nhịp gọi, danh sách địa chỉ server, cấu hình agent, bản agent cần chạy.
+// Trạng thái máy gửi kèm ở mốc A2.
 package heartbeat
 
 import (
@@ -8,12 +9,15 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"runtime"
 	"slices"
 	"time"
 
 	"github.com/thangkes/SCS-System/agent/internal/client"
+	"github.com/thangkes/SCS-System/agent/internal/config"
 	"github.com/thangkes/SCS-System/agent/internal/identity"
 	"github.com/thangkes/SCS-System/agent/internal/sysinfo"
+	"github.com/thangkes/SCS-System/agent/internal/update"
 	"github.com/thangkes/SCS-System/common/protocol"
 )
 
@@ -26,24 +30,33 @@ var (
 	BackoffMax = 30 * time.Minute
 )
 
+// ErrRestart: đã tải bản agent mới, cần khởi động lại để chạy bản đó (systemd tự bật lại).
+var ErrRestart = errors.New("đã tải bản agent mới, khởi động lại để chạy")
+
 // Deps là những gì vòng heartbeat cần.
 type Deps struct {
-	Log      *slog.Logger
-	Client   *client.Client
-	StateDir string
-	State    identity.State
+	Log        *slog.Logger
+	Client     *client.Client
+	StateDir   string
+	State      identity.State
+	Version    string // phiên bản agent đang chạy
+	ReleasePub string // khóa công khai phát hành (kiểm bản cập nhật)
 }
 
-// Run gửi heartbeat tới khi ctx bị hủy. Server báo máy bị thu hồi (403) thì ghi log và
-// giãn nhịp tối đa, không thoát (systemd không khởi động lại liên tục).
+// Run gửi heartbeat tới khi ctx bị hủy, hoặc trả ErrRestart khi đã tải xong bản agent mới.
+// Server báo máy bị thu hồi (403) thì ghi log và giãn nhịp tối đa, không thoát (systemd không
+// khởi động lại liên tục).
 func Run(ctx context.Context, d Deps) error {
 	st := d.State
 	start := time.Now()
 	backoff := BackoffMin
 	lastServer := d.Client.Current()
+	marked := false
+	failedUpdate := "" // bản tải / kiểm lỗi lần trước: không thử lại liên tục mỗi heartbeat
 	for {
 		comps, _ := sysinfo.Components()
-		body := protocol.HeartbeatBody{UptimeS: int64(time.Since(start) / time.Second), RuleSetVersion: st.RuleSetVersion}
+		body := protocol.HeartbeatBody{UptimeS: int64(time.Since(start) / time.Second), RuleSetVersion: st.RuleSetVersion,
+			Arch: runtime.GOARCH, ConfigVersion: st.ConfigVersion}
 		var resp protocol.Response
 		err := d.Client.Send(ctx, "/v1/heartbeat", protocol.TypeHeartbeat, st.DeviceID, comps.Hash(), body, &resp)
 
@@ -69,13 +82,26 @@ func Run(ctx context.Context, d Deps) error {
 			if resp.NextPollS > 0 {
 				wait = min(max(time.Duration(resp.NextPollS)*time.Second, MinEvery), MaxEvery)
 			}
-			if list := protocol.CleanServers(resp.Servers); len(list) > 0 && !slices.Equal(list, st.Servers) {
-				st.Servers = list
-				d.Client.SetServers(list)
+			if !marked { // bản này chạy được: không bị bản khung coi là hỏng
+				if err := update.MarkGood(d.StateDir, d.Version); err != nil {
+					d.Log.Warn("không ghi được trạng thái bản cập nhật", "err", err)
+				}
+				marked = true
+			}
+			if st2, changed := apply(d, st, resp); changed {
+				st = st2
 				if err := identity.SaveState(d.StateDir, st); err != nil {
-					d.Log.Error("không lưu được danh sách server", "err", err)
+					d.Log.Error("không lưu được cấu hình server gửi xuống", "err", err)
+				}
+			}
+			if u := resp.Update; u != nil && u.Version != d.Version && u.Version != failedUpdate {
+				d.Log.Info("server yêu cầu chạy bản agent khác, đang tải", "tu", d.Version, "sang", u.Version)
+				if err := update.Apply(ctx, d.Client, *u, d.StateDir, d.ReleasePub); err != nil {
+					failedUpdate = u.Version
+					d.Log.Error("không cập nhật được bản agent", "version", u.Version, "err", err)
 				} else {
-					d.Log.Info("đã nhận danh sách địa chỉ server", "dia_chi", d.Client.Servers())
+					d.Log.Info("đã tải và kiểm chữ ký bản agent mới, khởi động lại để chạy", "version", u.Version)
+					return ErrRestart
 				}
 			}
 		}
@@ -89,6 +115,29 @@ func Run(ctx context.Context, d Deps) error {
 		case <-time.After(jitter(wait)):
 		}
 	}
+}
+
+// apply: lưu danh sách địa chỉ và cấu hình server gửi xuống; trả state mới và có thay đổi không.
+func apply(d Deps, st identity.State, resp protocol.Response) (identity.State, bool) {
+	changed := false
+	if list := protocol.CleanServers(resp.Servers); len(list) > 0 && !slices.Equal(list, st.Servers) {
+		st.Servers = list
+		d.Client.SetServers(list)
+		d.Log.Info("đã nhận danh sách địa chỉ server", "dia_chi", d.Client.Servers())
+		changed = true
+	}
+	if c := resp.Config; c != nil && c.Version != st.ConfigVersion {
+		watch := make([]string, 0, len(c.WatchServices))
+		for _, s := range c.WatchServices {
+			if config.ValidServiceName(s) && len(watch) < protocol.MaxServices {
+				watch = append(watch, s)
+			}
+		}
+		st.ConfigVersion, st.WatchServices = c.Version, watch
+		d.Log.Info("đã nhận cấu hình agent từ server", "dich_vu_theo_doi", watch)
+		changed = true
+	}
+	return st, changed
 }
 
 // jitter: ±20% để các máy không gọi về cùng một lúc.

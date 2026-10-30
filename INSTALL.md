@@ -99,7 +99,8 @@ bash server/scripts/update.sh --rollback   # quay về binary trước lần c�
 
 Chạy bằng user thường hoặc root (tự gọi sudo khi cài). Script kéo code, chạy test, build; bản mới có đổi cấu trúc DB thì
 **sao lưu DB** vào `server/data/backup/` trước; cài xong kiểm `/readyz`, không lên trong 60 giây thì **tự quay về
-binary cũ**. Thư mục code có thay đổi chưa commit thì từ chối chạy.
+binary cũ**. Thư mục code có thay đổi chưa commit thì từ chối chạy. Mỗi lần cập nhật cũng build **bản agent cùng
+phiên bản** (amd64, arm64); server nhập vào kho, admin phát hành trên web (mục 2).
 
 Khi chạy thật nên đặt `SCS_ENV=prod` trong `/etc/scs-server/server.env` (bắt buộc đủ TLS, CA, mật khẩu DB) rồi
 `sudo systemctl restart scs-server`.
@@ -108,12 +109,24 @@ Khi chạy thật nên đặt `SCS_ENV=prod` trong `/etc/scs-server/server.env` 
 
 ## 2. SCS-Agent (mỗi máy tại điểm bán)
 
-### 2.1 Tạo gói cài trên máy server (một lần, làm lại khi có bản agent mới)
+**Cách hoạt động:** máy tại điểm bán chỉ cài một lần **bản agent khung** (đóng gói trên server). Bản khung đăng ký
+với server và chờ admin duyệt. Duyệt xong, agent nhận qua heartbeat (5 phút một lần):
 
-Menu server mục **11** (hoặc `bash server/scripts/package-agent.sh --server https://<IP WAN>:<cổng>`). Script build
-agent từ code hiện tại và gói thành **một file** `server/data/dist/scs-agent-<phiên bản>-linux-amd64.tar.gz`
-(kèm file `.sha256`), gồm: binary `scs-agent`, script cài, unit systemd, menu, **CA của server** và **địa chỉ server
-đặt sẵn**. Gói không chứa bí mật (CA chỉ là chứng chỉ công khai; script từ chối nếu lỡ đưa file khóa vào).
+- **cấu hình** đặt trên web, trang **Agent** (dịch vụ cần theo dõi: chung, theo siêu thị, theo máy);
+- **bản agent cần chạy**: mỗi lần cập nhật server (menu mục 4) có thêm bản agent cùng phiên bản; admin bấm
+  **Phát hành nhóm thử** (các máy đánh dấu "nhóm thử" trong chi tiết máy) rồi **Phát hành tất cả**. Agent tải bản
+  mới, kiểm **chữ ký của khóa phát hành** (khóa công khai đóng trong gói, root sở hữu), rồi tự khởi động lại chạy bản
+  đó. Bản mới khởi động 3 lần mà chưa gửi được heartbeat thì agent quay về bản khung và không tải lại bản đó.
+
+Không phải đóng gói hay cài lại khi có bản mới hoặc đổi cấu hình.
+
+### 2.1 Tạo gói cài trên máy server (một lần)
+
+Menu server mục **11** (hoặc `bash server/scripts/package-agent.sh --server https://<IP LAN>:6222`). Gói thành
+**một file** `server/data/dist/scs-agent-<phiên bản>-linux-amd64.tar.gz` (kèm file `.sha256`), gồm: binary
+`scs-agent` (đúng bản server đang giữ), script cài, unit systemd, menu, **CA của server**, **khóa công khai phát hành**
+và **địa chỉ server đặt sẵn**. Gói không chứa bí mật (chỉ chứng chỉ và khóa công khai; script từ chối nếu lỡ đưa file
+khóa riêng vào).
 
 ### 2.2 Cài trên máy tại điểm bán
 
@@ -174,7 +187,7 @@ và nhận chứng chỉ sau khi được duyệt.
 scs-agent status                   # trạng thái đăng ký và thông tin máy sẽ gửi
 sudo scs-agent fingerprint         # hostname, thành phần nhận dạng máy, mã khóa
 journalctl -u scs-agent -f         # xem log
-sudo bash agent/scripts/install.sh                      # cập nhật binary (giữ cấu hình, khóa máy)
+scs-agent ping                     # kiểm kết nối và chứng chỉ server
 sudo bash agent/scripts/install.sh --uninstall          # gỡ dịch vụ, GIỮ khóa máy (cài lại không phải duyệt lại)
 sudo bash agent/scripts/install.sh --uninstall --purge  # gỡ hết, máy phải đăng ký và duyệt lại
 ```

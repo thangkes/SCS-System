@@ -142,6 +142,14 @@ func run(args []string, stdout, stderr io.Writer) int {
 	} else if cmd == "ingest" || cmd == "all" {
 		log.Warn("chưa khai SCS_CA_CERT/SCS_CA_KEY: máy đã duyệt sẽ không nhận được chứng chỉ (tạo bằng: scs-server pki init -ip <IP WAN>)")
 	}
+	if cfg.ReleaseKey != "" {
+		if base.ReleaseKey, err = pki.LoadReleaseKey(cfg.ReleaseKey); err != nil {
+			log.Error("không khởi động được", "err", err)
+			return 1
+		}
+	} else if cmd == "ingest" || cmd == "all" {
+		log.Warn("chưa khai SCS_RELEASE_KEY: server không phát hành bản agent (tạo bằng: scs-server pki release)")
+	}
 	runners, err := build(cmd, cfg, log, base)
 	if err != nil {
 		log.Error("không khởi động được", "err", err)
@@ -149,6 +157,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	runners = append(runners, migrator.Run)
+	if cmd == "ingest" || cmd == "all" {
+		runners = append(runners, app.ImportAgentDist(app.Deps{Cfg: cfg, Log: log.With("role", "release"),
+			Registry: base.Registry, ReleaseKey: base.ReleaseKey}))
+	}
 	if err := runAll(ctx, runners); err != nil {
 		log.Error("dừng do lỗi", "err", err)
 		return 1
@@ -234,7 +246,7 @@ func httpServer(role, addr string, cfg *config.Config, mode httpx.ClientAuth,
 		Name: role,
 		Addr: addr,
 		Handler: handler(app.Deps{Cfg: cfg, Log: l, Version: version, ReadyChecks: base.ReadyChecks,
-			Auth: am, Registry: base.Registry, CA: base.CA}),
+			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey}),
 		TLS: tlsCfg,
 		Log: l,
 	}

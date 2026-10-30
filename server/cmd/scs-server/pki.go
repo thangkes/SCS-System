@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -29,6 +30,9 @@ func (l *listFlag) Set(v string) error {
 //	init    tạo CA mới + chứng chỉ server. Không ghi đè file đã có.
 //	server  cấp chứng chỉ server mới từ CA đã có (đổi IP WAN). Xóa server.pem/server.key cũ trước.
 func runPKI(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "release" {
+		return runRelease(args[1:], stdout, stderr)
+	}
 	if len(args) == 0 || (args[0] != "init" && args[0] != "server") {
 		fmt.Fprintln(stderr, "cách dùng: scs-server pki init|server -ip <IP WAN> [-ip <IP VPN>] [-dns <tên>] [-dir data/pki]")
 		return 2
@@ -114,5 +118,34 @@ Thêm vào .env (hoặc /etc/scs-server/server.env) rồi khởi động lại s
   SCS_CA_KEY=%s
 `, abs(*dir), strings.Join(append(append([]string{}, ipArgs...), dns...), ", "),
 		abs(srvCert), abs(srvKey), abs(caCert), abs(caCert), abs(caKey))
+	return 0
+}
+
+// runRelease: scs-server pki release [-dir data/pki] — tạo khóa phát hành (ký bản agent) nếu chưa có.
+// Đã có thì giữ nguyên: đổi khóa thì các agent đã cài không nhận cập nhật nữa.
+func runRelease(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("pki release", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	dir := fs.String("dir", "data/pki", "thư mục chứa khóa")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	keyPath, pubPath := filepath.Join(*dir, "release.key"), filepath.Join(*dir, "release.pub")
+	if _, err := os.Stat(keyPath); err == nil {
+		fmt.Fprintf(stdout, "Đã có khóa phát hành: %s (giữ nguyên)\n", keyPath)
+		return 0
+	}
+	keyPEM, pubPEM, err := pki.NewReleaseKey()
+	if err == nil {
+		err = pki.WriteFile(keyPath, keyPEM, true)
+	}
+	if err == nil {
+		err = pki.WriteFile(pubPath, pubPEM, false)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "lỗi:", err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "Đã tạo khóa phát hành: %s (quyền 600) và %s (đóng vào gói cài agent)\n", keyPath, pubPath)
 	return 0
 }

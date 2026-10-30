@@ -7,7 +7,9 @@
 # Tùy chọn:
 #   --server URL    địa chỉ agent gọi tới (IP WAN của server : cổng chuyển tiếp về 6222), đóng sẵn vào gói
 #   --ca FILE       CA của server (mặc định /etc/scs-server/agent-ca.pem do install.sh tạo)
-#   --watch LIST    dịch vụ systemd mặc định cần báo trạng thái (ví dụ pos.service)
+#   --release-pub F khóa công khai phát hành (mặc định /etc/scs-server/agent-release.pub)
+#   --watch LIST    dịch vụ systemd cần báo trạng thái tới khi nhận cấu hình từ server (thường bỏ
+#                   trống: đặt trên web, trang "Agent", agent nhận sau khi được duyệt)
 #   --arch ARCH     amd64 (mặc định) hoặc arm64
 #   --out DIR       thư mục chứa gói (mặc định server/data/dist)
 #
@@ -24,7 +26,7 @@ set -Eeuo pipefail
 SERVER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_DIR="$(cd "$SERVER_DIR/.." && pwd)"
 AGENT_SRC="$REPO_DIR/agent"
-SERVER="" CA_FILE=/etc/scs-server/agent-ca.pem WATCH="" ARCH=amd64 OUT_DIR="$SERVER_DIR/data/dist"
+SERVER="" CA_FILE=/etc/scs-server/agent-ca.pem RELEASE_PUB=/etc/scs-server/agent-release.pub WATCH="" ARCH=amd64 OUT_DIR="$SERVER_DIR/data/dist"
 
 if [[ -t 1 ]]; then
 	C_RED=$'\e[31m' C_GRN=$'\e[32m' C_B=$'\e[1m' C_0=$'\e[0m'
@@ -43,6 +45,7 @@ while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--server) SERVER="${2:-}"; shift 2 ;;
 		--ca) CA_FILE="${2:-}"; shift 2 ;;
+		--release-pub) RELEASE_PUB="${2:-}"; shift 2 ;;
 		--watch) WATCH="${2:-}"; shift 2 ;;
 		--arch) ARCH="${2:-}"; shift 2 ;;
 		--out) OUT_DIR="${2:-}"; shift 2 ;;
@@ -62,28 +65,40 @@ case "$ARCH" in amd64 | arm64) ;; *) die "--arch chỉ nhận amd64 hoặc arm64
 for s in ${WATCH//,/ }; do
 	[[ "$s" =~ ^[A-Za-z0-9@_.:][A-Za-z0-9@_.:-]*$ ]] || die "--watch: \"$s\" không phải tên dịch vụ systemd hợp lệ"
 done
-GO="$(command -v go || echo /usr/local/go/bin/go)"
-[[ -x "$GO" ]] || die "Không có go để build agent" "Chạy scripts/setup.sh (menu mục 2) để cài Go"
-
-# ---- build
-version="$(git -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null || echo dev)"
-name="scs-agent-$version-linux-$ARCH"
+# ---- binary: bản khung cài lần đầu. Dùng đúng bản agent server đang giữ để phát hành (server/bin/agent,
+# do menu mục 4 build); chưa có thì build từ code hiện tại.
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 pkg="$work/scs-agent"
 mkdir -p "$pkg/bin" "$pkg/scripts" "$pkg/deploy/systemd"
-
-echo "  Build scs-agent $version (linux/$ARCH)..."
-(cd "$AGENT_SRC" && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" "$GO" build -buildvcs=false -trimpath \
-	-ldflags "-s -w -X main.version=$version" -o "$pkg/bin/scs-agent" ./cmd/scs-agent)
-chmod 755 "$pkg/bin/scs-agent"
-ok "Đã build binary ($(du -h "$pkg/bin/scs-agent" | cut -f1))"
+dist="$SERVER_DIR/bin/agent"
+if [[ -f "$dist/VERSION" && -f "$dist/scs-agent-linux-$ARCH" ]]; then
+	version="$(cat "$dist/VERSION")"
+	install -m 755 "$dist/scs-agent-linux-$ARCH" "$pkg/bin/scs-agent"
+	ok "Dùng bản agent $version của server ($dist)"
+else
+	GO="$(command -v go || echo /usr/local/go/bin/go)"
+	[[ -x "$GO" ]] || die "Không có go để build agent" "Chạy scripts/setup.sh (menu mục 2) để cài Go"
+	version="$(git -C "$REPO_DIR" describe --tags --always --dirty 2>/dev/null || echo dev)"
+	echo "  Build scs-agent $version (linux/$ARCH)..."
+	(cd "$AGENT_SRC" && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" "$GO" build -buildvcs=false -trimpath \
+		-ldflags "-s -w -X main.version=$version" -o "$pkg/bin/scs-agent" ./cmd/scs-agent)
+	chmod 755 "$pkg/bin/scs-agent"
+	ok "Đã build binary ($(du -h "$pkg/bin/scs-agent" | cut -f1))"
+fi
+name="scs-agent-$version-linux-$ARCH"
 
 # ---- ghép gói
 install -m 755 "$AGENT_SRC/scripts/install.sh" "$pkg/scripts/install.sh"
 install -m 755 "$AGENT_SRC/menu.sh" "$pkg/menu.sh"
 install -m 644 "$AGENT_SRC/deploy/systemd/scs-agent.service" "$pkg/deploy/systemd/scs-agent.service"
 install -m 644 "$CA_FILE" "$pkg/agent-ca.pem"
+if [[ -r "$RELEASE_PUB" ]] && grep -q "BEGIN PUBLIC KEY" "$RELEASE_PUB"; then
+	install -m 644 "$RELEASE_PUB" "$pkg/release.pub"
+	ok "Kèm khóa phát hành: agent tự nhận bản mới từ server sau khi được duyệt"
+else
+	echo "  ! Không có $RELEASE_PUB (cài lại server bằng menu mục 3 để tạo): agent trong gói sẽ KHÔNG tự cập nhật" >&2
+fi
 cat >"$pkg/bundle.env" <<EOF
 # Giá trị đóng sẵn khi tạo gói (scs-server: scripts/package-agent.sh). install.sh dùng làm mặc định.
 SCS_SERVER=$SERVER
@@ -103,6 +118,7 @@ Trước khi cài nên đặt hostname đúng quy ước: <mã siêu thị>-TN1-
   sudo hostnamectl set-hostname 12345-TN1-PRI
 
 Cài xong script in MÃ KHÓA MÁY; admin vào web quản trị, trang "Chờ duyệt", đối chiếu mã rồi bấm Duyệt.
+Sau khi duyệt, agent tự nhận cấu hình và bản mới từ server (trang "Agent" trên web), không phải cài lại.
 EOF
 
 mkdir -p "$OUT_DIR"

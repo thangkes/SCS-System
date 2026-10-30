@@ -198,6 +198,12 @@ if ! (cd "$SERVER_DIR" && CGO_ENABLED=0 "$GO" build -buildvcs=false -trimpath -l
 	die "Build thất bại, KHÔNG cài; code đã trả về bản cũ"
 fi
 ok "Đã build scs-server $version"
+# Bản agent cùng phiên bản (amd64 + arm64): install.sh chép sang /opt/scs-server/agent, server nhập
+# vào kho phát hành; admin bấm phát hành trên web thì agent đã duyệt tự tải về.
+if ! bash "$SERVER_DIR/scripts/build-agent.sh" "$version"; then
+	restore
+	die "Build agent thất bại, KHÔNG cài; code đã trả về bản cũ"
+fi
 
 # ---------------------------------------------------------------- 3. sao lưu DB (khi đổi cấu trúc)
 if [[ $migrations_changed -eq 1 ]]; then

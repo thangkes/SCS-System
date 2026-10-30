@@ -24,6 +24,7 @@ import (
 	"github.com/thangkes/SCS-System/agent/internal/heartbeat"
 	"github.com/thangkes/SCS-System/agent/internal/identity"
 	"github.com/thangkes/SCS-System/agent/internal/sysinfo"
+	"github.com/thangkes/SCS-System/agent/internal/update"
 	"github.com/thangkes/SCS-System/common/fleet"
 )
 
@@ -114,6 +115,8 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		log.Error("không khởi động được", "err", err)
 		return 1
 	}
+	// Bản khung: có bản cập nhật đã kiểm chữ ký thì chuyển sang chạy bản đó (không quay lại đây).
+	update.Launch(log, cfg.StateDir, cfg.ReleasePub, version)
 	if _, err := fleet.ParseHostname(sysinfo.Hostname()); err != nil {
 		// Vẫn chạy: server ghi nhận và gắn cảnh báo, admin quyết định khi duyệt.
 		log.Warn("hostname sai quy ước, admin sẽ thấy cảnh báo khi duyệt máy", "err", err)
@@ -152,7 +155,11 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 	switch st.Status {
 	case identity.StatusApproved:
 		log.Info("đã được duyệt, bắt đầu gửi heartbeat", "device_id", st.DeviceID, "dia_chi", c.Servers())
-		heartbeat.Run(ctx, heartbeat.Deps{Log: log, Client: c, StateDir: cfg.StateDir, State: st})
+		err := heartbeat.Run(ctx, heartbeat.Deps{Log: log, Client: c, StateDir: cfg.StateDir, State: st,
+			Version: version, ReleasePub: cfg.ReleasePub})
+		if errors.Is(err, heartbeat.ErrRestart) {
+			return 0 // systemd bật lại (Restart=always), bản khung chuyển sang bản vừa tải
+		}
 	case identity.StatusRejected:
 		log.Error("máy bị từ chối hoặc thu hồi; muốn dùng lại: xóa khóa máy, cài lại agent và chờ duyệt lại")
 	}
@@ -231,12 +238,24 @@ func printStatus(stdout, stderr io.Writer, cfg *config.Config) int {
 	if len(st.Servers) > 0 {
 		fmt.Fprintf(stdout, "Địa chỉ dự phòng  : %s (server gửi xuống)\n", strings.Join(st.Servers, ", "))
 	}
-	fmt.Fprintf(stdout, "Dịch vụ theo dõi  : %s\n", orDash(strings.Join(cfg.WatchServices, ", ")))
+	watch, from := cfg.WatchServices, "agent.env"
+	if st.WatchServices != nil {
+		watch, from = st.WatchServices, "server gửi xuống"
+	}
+	fmt.Fprintf(stdout, "Dịch vụ theo dõi  : %s (%s)\n", orDash(strings.Join(watch, ", ")), from)
+	fmt.Fprintf(stdout, "Phiên bản agent   : %s\n", version)
+	if cur, err := update.Load(cfg.StateDir); err == nil && cur.Version != "" {
+		state := "chờ khởi động lại"
+		if cur.Good {
+			state = "đang chạy tốt"
+		}
+		fmt.Fprintf(stdout, "Bản cập nhật      : %s (%s)\n", cur.Version, state)
+	}
 	fmt.Fprintf(stdout, "Trạng thái đăng ký: %s\n", st.Status)
 	if st.DeviceID != "" {
 		fmt.Fprintf(stdout, "Mã máy (device_id): %s\n", st.DeviceID)
 	}
-	b, _ := json.MarshalIndent(sysinfo.Status(cfg.WatchServices), "", "  ")
+	b, _ := json.MarshalIndent(sysinfo.Status(watch), "", "  ")
 	fmt.Fprintf(stdout, "\nTrạng thái máy sẽ gửi trong heartbeat:\n%s\n", b)
 	return 0
 }
