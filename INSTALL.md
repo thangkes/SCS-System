@@ -191,3 +191,24 @@ scs-agent ping                     # kiểm kết nối và chứng chỉ server
 sudo bash agent/scripts/install.sh --uninstall          # gỡ dịch vụ, GIỮ khóa máy (cài lại không phải duyệt lại)
 sudo bash agent/scripts/install.sh --uninstall --purge  # gỡ hết, máy phải đăng ký và duyệt lại
 ```
+
+---
+
+## 3. Rule quét log
+
+Chi tiết cách viết rule: [docs/huong-dan-viet-rule.md](docs/huong-dan-viet-rule.md). Tóm tắt trên server đã cài:
+
+```bash
+mkdir -p ~/scs-rules
+cp ~/SCS-System/server/rules/mau-co-ban.yaml ~/scs-rules/cong-ty.yaml   # chỉ lần đầu; đổi name: cong-ty
+/opt/scs-server/scs-server rules check ~/scs-rules/cong-ty.yaml
+sudo /opt/scs-server/scs-server rules build ~/scs-rules/cong-ty.yaml -key /etc/scs-server/pki/release.key -o ~/cong-ty.json
+```
+
+Trên máy agent: `sudo scs-agent rules -install cong-ty.json`, rồi `sudo scs-agent rules` để xem bộ đang dùng.
+
+- **Để rule của bạn ngoài thư mục code** (`~/scs-rules/`). Sửa file trong `~/SCS-System/server/rules/` thì cập nhật
+  server (menu mục 4) bị từ chối vì "Thư mục code có thay đổi chưa commit".
+- Dòng log mẫu dán vào `tests` phải che tên tài khoản, tên máy, IP, tên miền thật.
+- Hiện tại bộ rule cài tay và chỉ chạy thử được bằng `scs-agent rules -log`; agent tự đọc log và server tự phát
+  bộ rule qua heartbeat là các mốc sau (A3, M7).

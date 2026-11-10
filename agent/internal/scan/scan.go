@@ -46,7 +46,7 @@ func Install(stateDir, pubPath string, data []byte) (*rules.Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := writeAtomic(BundlePath(stateDir), data); err != nil {
+	if err := writeAtomic(stateDir, BundlePath(stateDir), data); err != nil {
 		return nil, err
 	}
 	return e, nil
@@ -71,8 +71,11 @@ func open(data []byte, pubPath string) (*rules.Engine, error) {
 	return rules.Compile(s)
 }
 
-func writeAtomic(path string, data []byte) error {
+func writeAtomic(stateDir, path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	if err := sameOwner(stateDir, filepath.Dir(path)); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".rules-*")
@@ -89,6 +92,9 @@ func writeAtomic(path string, data []byte) error {
 		return err
 	}
 	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := sameOwner(stateDir, tmp.Name()); err != nil {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)

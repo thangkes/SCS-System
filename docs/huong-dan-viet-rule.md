@@ -55,11 +55,35 @@ Code:
 ## 2. Quy trình 6 bước
 
 1. **Lấy log mẫu thật** từ một máy agent (xem [mục 5](#5-chọn-nguồn-log-file-hay-journald)), chép về máy server. Nhớ lấy cả dòng *nên khớp* và dòng *trông giống nhưng không được khớp*.
-2. **Viết rule** vào file YAML trong `server/rules/` (sao chép một rule có sẵn trong `mau-co-ban.yaml` rồi sửa là nhanh nhất).
+2. **Viết rule** vào file YAML trong **thư mục rule riêng của bạn** (ví dụ `~/scs-rules/`, xem bên dưới). Sao chép một rule có sẵn trong `mau-co-ban.yaml` rồi sửa là nhanh nhất.
 3. **Thêm tests**: dán vài dòng log thật vào `tests.match` và `tests.no_match`.
-4. **Kiểm**: `scs-server rules check server/rules/ten-bo.yaml` (cú pháp, giới hạn, tests).
-5. **Chạy thử trên log mẫu**: `scs-server rules test server/rules/ten-bo.yaml -log mau.log`. Xem rule có báo quá nhiều hay quá ít không, chỉnh `aggregate` / `exclude`.
+4. **Kiểm**: `scs-server rules check ~/scs-rules/ten-bo.yaml` (cú pháp, giới hạn, tests).
+5. **Chạy thử trên log mẫu**: `scs-server rules test ~/scs-rules/ten-bo.yaml -log mau.log`. Xem rule có báo quá nhiều hay quá ít không, chỉnh `aggregate` / `exclude`.
 6. **Tăng `version`, ký và đưa xuống agent**: `scs-server rules build ... -o ...json`, rồi (hiện tại) cài tay trên máy agent bằng `scs-agent rules -install`. Sau này server tự phát cho agent qua heartbeat, xem [mục 15](#15-hiện-trạng-đã-có--chưa-có).
+
+### Để file rule ở đâu (để cập nhật server không bị vướng)
+
+**Không sửa file trong thư mục code** `~/SCS-System/server/rules/`. Thư mục đó là bộ rule **mẫu** đi kèm code:
+
+- `update.sh` (menu mục **4**) **từ chối cập nhật** khi có file trong thư mục code bị sửa mà chưa commit (báo "Thư mục code có thay đổi chưa commit").
+- File mới bạn tự thêm vào đó không chặn cập nhật, nhưng nếu bản sau có file mẫu trùng tên thì `git` không kéo về được.
+- Bộ mẫu có thể được sửa ở bản mới; giữ bộ của bạn riêng thì không bị đè.
+
+Cách làm, chỉ một lần trên máy server:
+
+```bash
+mkdir -p ~/scs-rules
+cp ~/SCS-System/server/rules/mau-co-ban.yaml ~/scs-rules/cong-ty.yaml
+nano ~/scs-rules/cong-ty.yaml        # đổi dòng name: thành  name: cong-ty  rồi sửa / thêm rule
+```
+
+Sau mỗi lần cập nhật server, xem bộ mẫu có rule mới đáng chép sang không:
+
+```bash
+diff ~/SCS-System/server/rules/mau-co-ban.yaml ~/scs-rules/cong-ty.yaml
+```
+
+Nên giữ bản sao `~/scs-rules/` ở nơi khác (hoặc tự `git init` trong thư mục đó) để xem lại ai sửa gì, khi nào.
 
 ## 3. Cấu trúc file rule
 
@@ -212,7 +236,19 @@ Gợi ý con số:
 
 ## 9. Viết tests cho rule
 
-Mỗi rule nên có ít nhất **một dòng phải khớp và một dòng không được khớp**, đều là dòng log **thật** lấy từ máy (che IP / tên người nếu cần, giữ nguyên định dạng).
+Mỗi rule nên có ít nhất **một dòng phải khớp và một dòng không được khớp**, đều là dòng log **thật** lấy từ máy, giữ nguyên định dạng.
+
+**Che thông tin thật trước khi dán vào tests.** Dòng log thật thường có tên máy, tên tài khoản, IP, tên miền của hệ thống. File rule được lưu lại, chép đi nhiều nơi (và bộ mẫu trong thư mục code được đưa lên GitHub), nên thay bằng giá trị chung, giữ nguyên định dạng:
+
+| Thông tin thật | Thay bằng |
+|---|---|
+| tên tài khoản (`Accepted password for <tên>`, `/home/<tên>`) | `user`, `/home/user` |
+| tên máy ở đầu dòng | theo quy ước `12345-TN1-PRI` |
+| IP máy thật | `10.0.5.20`, `192.168.1.10` (hoặc IP trong dải tài liệu `192.0.2.x`) |
+| tên miền | `ten.ddns.net`, `example.com` |
+| mật khẩu, khóa, mã khách hàng | xóa hẳn khỏi dòng |
+
+Regex không phụ thuộc vào các giá trị này (xem [mục 6](#6-viết-regex-cho-match--exclude)), nên đổi xong tests vẫn đúng.
 
 ```yaml
     tests:
@@ -254,6 +290,32 @@ scs-server rules build server/rules/mau-co-ban.yaml -key /etc/scs-server/pki/rel
 
 Đường dẫn khóa phát hành đúng là giá trị `SCS_RELEASE_KEY` trong `/etc/scs-server/server.env` (đọc khóa cần quyền của user dịch vụ, chạy bằng `sudo -u scs`). Chạy `rules check` / `rules test` không cần khóa.
 
+### Trên server Ubuntu đã cài (đường dẫn thật)
+
+Lệnh `scs-server` không nằm trong PATH; binary đã cài ở `/opt/scs-server/scs-server`. Các lệnh trên viết đầy đủ:
+
+```bash
+S=/opt/scs-server/scs-server
+
+# Kiểm và chạy thử: user thường, không cần sudo
+$S rules check ~/scs-rules/cong-ty.yaml
+$S rules test  ~/scs-rules/cong-ty.yaml -log ~/mau-auth.log
+
+# Ký: khóa phát hành chỉ user scs (và root) đọc được, nên chạy bằng sudo
+sudo $S rules build ~/scs-rules/cong-ty.yaml -key /etc/scs-server/pki/release.key -o ~/cong-ty.json
+sudo chown "$USER": ~/cong-ty.json
+```
+
+- Không chạy `sudo -u scs ... ~/scs-rules/...`: user `scs` không vào được thư mục nhà của bạn (Ubuntu để quyền 750), sẽ báo `permission denied`.
+- File `.json` đã ký **không bí mật** (chỉ có rule và chữ ký); chép đi đâu cũng được. Khóa `release.key` thì **không bao giờ** chép ra khỏi server.
+- Sau khi cập nhật server, binary mới cũng ở đúng chỗ đó; lệnh rule đổi theo bản server.
+
+Chép bộ rule đã ký sang máy agent (từ server, hoặc bất kỳ máy nào vào được cả hai):
+
+```bash
+scp ~/cong-ty.json user@<IP máy agent>:/tmp/
+```
+
 Kết quả `rules test` cho thấy dòng nào sinh sự kiện và sự kiện gửi lên server trông thế nào:
 
 ```
@@ -280,6 +342,10 @@ journalctl -k -o cat --since today | sudo scs-agent rules -log - -source journal
 
 `-install` kiểm chữ ký bằng `/opt/scs-agent/release.pub` (có sẵn trong gói cài). File ký bằng khóa khác hoặc bị sửa thì bị từ chối, bộ đang dùng giữ nguyên.
 
+- Bộ rule đang dùng lưu ở `/var/lib/scs-agent/rules/current.json`. Cài bằng `sudo` thì file vẫn thuộc user `scs-agent` (chủ của `/var/lib/scs-agent`), nên dịch vụ agent đọc được. **Đừng** tự chép file vào đó bằng `cp`: dùng `-install` để có kiểm chữ ký và đúng quyền.
+- Cài xong xóa file tạm: `rm /tmp/cong-ty.json`.
+- Gỡ bộ rule (về trạng thái chưa có rule): `sudo rm /var/lib/scs-agent/rules/current.json`.
+
 ## 11. Ví dụ làm từ đầu
 
 Bài toán: phần mềm bán hàng chạy dưới dạng dịch vụ `pos.service`, khi mất kết nối CSDL thì ghi dòng `DB connection lost`. Cần báo khi mất kết nối liên tục (không báo khi chập chờn một lần), nhưng bỏ qua lúc đang khởi động lại có chủ ý (có chữ `shutdown`).
@@ -300,7 +366,7 @@ Giả sử thấy:
 2026-11-09 10:12:11 INFO  [db] DB connection restored
 ```
 
-**Bước 2 + 3: viết rule và tests** (thêm vào cuối `rules:` trong file bộ rule)
+**Bước 2 + 3: viết rule và tests** (thêm vào cuối `rules:` trong `~/scs-rules/cong-ty.yaml`)
 
 ```yaml
   - id: POS-DB-LOST-01
@@ -323,13 +389,13 @@ Giả sử thấy:
 **Bước 4: kiểm**
 
 ```bash
-scs-server rules check server/rules/mau-co-ban.yaml
+/opt/scs-server/scs-server rules check ~/scs-rules/cong-ty.yaml
 ```
 
 **Bước 5: chạy thử trên mẫu** (các dòng trong journal cách nhau khoảng 5 s)
 
 ```bash
-scs-server rules test server/rules/mau-co-ban.yaml -log mau-pos.log -source journald -unit pos.service -step 5s
+/opt/scs-server/scs-server rules test ~/scs-rules/cong-ty.yaml -log mau-pos.log -source journald -unit pos.service -step 5s
 ```
 
 Không báo lần nào dù trong mẫu có lúc mất kết nối thật? Hạ `threshold`. Báo cả chục lần một ngày lúc mạng chập chờn? Tăng `threshold` hoặc `window_s`.
@@ -337,9 +403,10 @@ Không báo lần nào dù trong mẫu có lúc mất kết nối thật? Hạ `
 **Bước 6: tăng `version`, ký, cài**
 
 ```bash
-scs-server rules build server/rules/mau-co-ban.yaml -key <SCS_RELEASE_KEY> -o mau-co-ban.json
-# chép mau-co-ban.json sang máy agent, rồi trên máy agent:
-sudo scs-agent rules -install mau-co-ban.json
+sudo /opt/scs-server/scs-server rules build ~/scs-rules/cong-ty.yaml -key /etc/scs-server/pki/release.key -o ~/cong-ty.json
+scp ~/cong-ty.json user@<IP máy agent>:/tmp/
+# trên máy agent:
+sudo scs-agent rules -install /tmp/cong-ty.json
 sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journald unit: ... pos.service"
 ```
 
@@ -361,6 +428,10 @@ sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journa
 | `rules test` báo `Không có rule nào đọc nguồn ...` | `-source` / `-unit` không khớp rule nào | đặt đúng `-source` (file hay `journald`) và `-unit` |
 | Tests đạt nhưng trên máy không bao giờ báo | mẫu lấy từ file nhưng rule đọc journald (hoặc ngược lại), sai unit | lấy mẫu đúng nguồn ([mục 5](#5-chọn-nguồn-log-file-hay-journald)), thử bằng `scs-agent rules -log` trên máy |
 | Báo quá nhiều | regex rộng, thiếu aggregate / cooldown | regex cụ thể hơn, thêm `exclude`, `aggregate`, `cooldown_s` |
+| Menu mục 4 / `update.sh` báo `Thư mục code có thay đổi chưa commit` | đã sửa file rule mẫu trong `~/SCS-System/server/rules/` | chép file sang `~/scs-rules/`, rồi trả file mẫu về như cũ: `cd ~/SCS-System && git checkout -- server/rules/` |
+| `rules build` báo `permission denied` với `release.key` | chạy bằng user thường | `sudo /opt/scs-server/scs-server rules build ...` ([mục 10](#trên-server-ubuntu-đã-cài-đường-dẫn-thật)) |
+| `rules build` bằng `sudo -u scs` báo `permission denied` với file `.yaml` | user `scs` không vào được thư mục nhà | dùng `sudo` (root) thay cho `sudo -u scs` |
+| `scs-server: command not found` | binary không nằm trong PATH | gọi `/opt/scs-server/scs-server` |
 | Chạy trong Git Bash trên Windows, `-source /var/log/...` không ra gì | Git Bash tự đổi `/var/log/...` thành đường dẫn Windows | chạy trên Ubuntu, hoặc đặt `MSYS_NO_PATHCONV=1` trước lệnh |
 
 ## 13. Giới hạn
@@ -397,4 +468,6 @@ sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journa
 | Server lưu bộ rule, gán bộ rule theo nhóm máy trên web, phát qua heartbeat (`rule_set_version`) | Chưa có (mốc M7) |
 | Agent gửi sự kiện lên server, hàng đợi khi mất mạng; server lưu sự kiện, tạo cảnh báo trên web | Chưa có (mốc A3 / M5) |
 
-Trong lúc chưa có các phần trên, quy trình là: viết rule → `rules check` / `rules test` trên server → `rules build` → chép file `.json` sang máy → `scs-agent rules -install` → `scs-agent rules -log ...` để xem rule bắt được gì trên log thật của máy đó.
+Trong lúc chưa có các phần trên, quy trình là: viết rule trong `~/scs-rules/` → `rules check` / `rules test` trên server → `sudo ... rules build` → chép file `.json` sang máy → `scs-agent rules -install` → `scs-agent rules -log ...` để xem rule bắt được gì trên log thật của máy đó.
+
+Lưu ý: dịch vụ agent **chưa** tự đọc log theo bộ rule (mốc A3). Hiện bộ rule chỉ dùng được bằng lệnh `scs-agent rules -log` để chạy thử; cài sẵn bây giờ thì khi có A3 agent dùng luôn.
