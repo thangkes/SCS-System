@@ -41,6 +41,7 @@ Lệnh:
   fingerprint  xem hostname có đúng quy ước không, các thành phần nhận dạng máy, mã khóa
   status       xem cấu hình, trạng thái đăng ký và trạng thái máy sẽ gửi trong heartbeat
   ping         kiểm tra kết nối và chứng chỉ server (-server URL -ca FILE: thử trước khi cài)
+  rules        xem bộ rule đang dùng, cài tay, chạy thử trên file log (scs-agent rules -h)
   version      in phiên bản
 
 Hostname phải đúng quy ước <mã siêu thị>-TN<số>[-PRI|-SEC]:
@@ -64,6 +65,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		fmt.Fprintln(stdout, version)
 		return 0
+	case "rules":
+		return runRules(args[1:], stdout, stderr)
 	case "run", "fingerprint", "status", "ping":
 	default:
 		fmt.Fprintf(stderr, "lệnh không hợp lệ: %q\n\n%s", cmd, usage)

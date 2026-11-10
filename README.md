@@ -16,7 +16,7 @@ Code comments and docs are in Vietnamese.*
 | [`server/`](server/) | **SCS-Server** (`scs-server`): cổng nhận dữ liệu agent (6222), web quản trị HTTPS (7222), PostgreSQL + TimescaleDB |
 | [`agent/`](agent/) | **SCS-Agent** (`scs-agent`): chạy trên từng máy, đăng ký, gửi heartbeat và sự kiện log |
 | [`common/`](common/) | Phần dùng chung: giao thức gói tin có ký, fingerprint máy, quy ước hostname |
-| [`docs/`](docs/) | Thiết kế giai đoạn 1 |
+| [`docs/`](docs/) | Thiết kế giai đoạn 1, [hướng dẫn viết rule](docs/huong-dan-viet-rule.md) |
 
 ## Nguyên tắc thiết kế
 

@@ -119,7 +119,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
     <tr><td>2</td><td>Agent khung tự cập nhật</td><td>Cài một lần; duyệt xong tự nhận bản agent server phát hành (có chữ ký), tự quay về bản khung nếu bản mới lỗi</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>3</td><td>Cấu hình từ server</td><td>Đặt trên web (chung, theo siêu thị, theo máy), agent nhận qua heartbeat</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>4</td><td>Gửi trạng thái định kỳ</td><td>Heartbeat 5 phút; phần trạng thái máy (ổ đĩa, RAM, RAID, NTP, dịch vụ) đã định nghĩa, chưa gửi và lưu</td><td><span class="st st-part">Một phần</span></td></tr>
-    <tr><td>5</td><td>Quét log theo rule</td><td>Agent áp bộ rule có chữ ký, chỉ gửi những dòng khớp</td><td><span class="st st-todo">Chưa làm</span></td></tr>
+    <tr><td>5</td><td>Quét log theo rule</td><td>Agent áp bộ rule có chữ ký, chỉ gửi những dòng khớp</td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>6</td><td>Mã hóa mọi dữ liệu</td><td>TLS 1.3 + chứng chỉ máy + chữ ký từng gói; không gói nào đi dạng rõ</td><td><span class="st st-done">Đã làm</span></td></tr>
   </table></div>
 </section>
@@ -396,35 +396,35 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
 </section>
 
 <section id="rule">
-  <h2>13. Rule quét log <span class="st st-todo">Chưa làm</span></h2>
-  <p>Rule được nhóm thành <strong>bộ rule</strong> và gán theo nhóm máy (dùng chung cơ chế cấp chung / siêu thị / máy như cấu hình agent). Mỗi bộ có số phiên bản và chữ ký số; agent chỉ áp dụng bộ rule có chữ ký hợp lệ, sai thì giữ bộ cũ và báo lỗi.</p>
-  <pre><code>rule_set: pos-default
-version: 2026.10.27-03
+  <h2>13. Rule quét log <span class="st st-part">Một phần</span></h2>
+  <p>Agent và server dùng <strong>cùng một khung rule</strong> (<code>common/rules</code>): cùng định nghĩa, cùng hàm kiểm tra, cùng bộ máy khớp và đếm ngưỡng. Admin viết bộ rule bằng YAML, server kiểm, chạy thử trên log mẫu rồi ký bằng khóa phát hành (ngữ cảnh ký riêng, không dùng thay được cho chữ ký bản agent); agent kiểm chữ ký và kiểm lại nội dung y như server, sai thì giữ bộ cũ. Cách viết chi tiết: <code>docs/huong-dan-viet-rule.md</code>.</p>
+  <p>Rule được nhóm thành <strong>bộ rule</strong> và gán theo nhóm máy (dùng chung cơ chế cấp chung / siêu thị / máy như cấu hình agent). Mỗi bộ có số phiên bản; agent chỉ tải lại khi phiên bản khác bản đang chạy.</p>
+  <pre><code>name: mau-co-ban
+version: '2026.11.10-01'
 rules:
   - id: SSH-FAIL-01
-    source: /var/log/auth.log
-    match: 'Failed password for .* from (?P&lt;ip&gt;\S+)'
     severity: medium
-    aggregate: { window_s: 300, threshold: 5 }   # 5 lần trong 5 phút mới báo
-
-  - id: USB-ADD-01
-    source: journald
-    unit: kernel
-    match: 'New USB device found'
-    severity: low
+    source: /var/log/auth.log
+    match: 'sshd\[\d+\]: Failed password for (?:invalid user )?(?P&lt;user&gt;\S+) from (?P&lt;ip&gt;\S+)'
+    aggregate: { window_s: 300, threshold: 5, group_by: ip }   # cùng IP 5 lần / 5 phút mới báo
+    cooldown_s: 1800
 
   - id: RAID-DEGRADED-01
-    source: journald
-    unit: mdmonitor
-    match: 'DegradedArray|Fail'
     severity: critical
-
-  - id: POS-SVC-DOWN-01
     source: journald
-    unit: pos.service
-    match: 'Failed with result'
-    severity: high</code></pre>
-  <p>Rule giới hạn ở regex và đếm ngưỡng. Agent <strong>không chạy lệnh</strong> từ rule ở giai đoạn 1, nên dù bộ rule bị can thiệp cũng không thực thi được gì trên máy.</p>
+    unit: mdmonitor.service
+    match: '(?:DegradedArray|Fail) event detected on md device (?P&lt;md&gt;/dev/md\S+)'
+    tests:
+      match: ['DegradedArray event detected on md device /dev/md0']</code></pre>
+  <table>
+    <tr><th>Phần</th><th>Trạng thái</th></tr>
+    <tr><td>Định nghĩa, kiểm tra, khớp + đếm ngưỡng + cooldown, ký / kiểm chữ ký bộ rule</td><td><span class="st st-done">Đã làm</span></td></tr>
+    <tr><td><code>scs-server rules check | test | build</code>, bộ rule mẫu <code>server/rules/mau-co-ban.yaml</code></td><td><span class="st st-done">Đã làm</span></td></tr>
+    <tr><td><code>scs-agent rules</code>: xem, cài tay bộ rule đã ký, chạy thử trên log thật</td><td><span class="st st-done">Đã làm</span></td></tr>
+    <tr><td>Agent đọc file log liên tục + journald, gửi sự kiện, hàng đợi khi mất mạng</td><td><span class="st st-todo">Chưa làm</span> (A3)</td></tr>
+    <tr><td>Server lưu bộ rule, gán theo nhóm máy trên web, phát qua heartbeat</td><td><span class="st st-todo">Chưa làm</span> (M7)</td></tr>
+  </table>
+  <p>Rule giới hạn ở regex RE2 (chạy tuyến tính, không treo được agent) và đếm ngưỡng, chỉ đọc file trong <code>/var/log</code> hoặc journald. Agent <strong>không chạy lệnh</strong> từ rule ở giai đoạn 1, nên dù bộ rule bị can thiệp cũng không thực thi được gì trên máy.</p>
 </section>
 
 <section id="loi">
@@ -527,10 +527,10 @@ rules:
     <tr><td>M4</td><td>Heartbeat (xác thực, lần cuối thấy, gửi cấu hình / bản agent / địa chỉ) <span class="st st-done">Đã làm</span>; lưu trạng thái máy, nhận lô log <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>M5</td><td>Worker: ghi dữ liệu qua hàng đợi, cảnh báo offline / đổi fingerprint</td><td><span class="st st-todo">Chưa làm</span></td></tr>
     <tr><td>M6</td><td>Web quản trị: tổng quan, máy, cảnh báo, chờ duyệt, hệ thống, agent (phát hành + cấu hình) <span class="st st-done">Đã làm</span>; chi tiết trạng thái máy, biểu đồ <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
-    <tr><td>M7</td><td>Phát hành bản agent theo nhóm <span class="st st-done">Đã làm</span>; bộ rule có chữ ký <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
+    <tr><td>M7</td><td>Phát hành bản agent theo nhóm <span class="st st-done">Đã làm</span>; khung rule + ký bộ rule <span class="st st-done">Đã làm</span>; phát bộ rule qua heartbeat <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>A0 · A1</td><td>Agent: cấu hình, khóa máy, nhận dạng máy, đăng ký và chờ duyệt</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>A2</td><td>Heartbeat, nhiều địa chỉ server, cấu hình từ server <span class="st st-done">Đã làm</span>; gửi trạng thái máy <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
-    <tr><td>A3</td><td>Quét log theo rule, hàng đợi khi mất mạng</td><td><span class="st st-todo">Chưa làm</span></td></tr>
+    <tr><td>A3</td><td>Quét log theo rule (khung rule + lệnh chạy thử đã có), đọc log liên tục, hàng đợi khi mất mạng</td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>A6</td><td>Agent khung tự cập nhật, kiểm chữ ký, tự quay về</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Triển khai</td><td>Menu cài / cập nhật server, gói cài agent một file; server chạy thử trên Ubuntu trong mạng nội bộ</td><td><span class="st st-done">Đã làm</span></td></tr>
   </table></div>

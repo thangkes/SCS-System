@@ -1,0 +1,134 @@
+# Bộ rule mẫu cho máy tại điểm bán (Ubuntu). Cách viết: docs/huong-dan-viet-rule.md
+#
+# Kiểm:      scs-server rules check rules/mau-co-ban.yaml
+# Chạy thử:  scs-server rules test rules/mau-co-ban.yaml -log /var/log/auth.log
+# Ký:        scs-server rules build rules/mau-co-ban.yaml -o data/rules/mau-co-ban.json
+#
+# Mỗi lần sửa: tăng "version" (ví dụ ngày + số thứ tự), agent thấy phiên bản khác mới tải lại.
+
+name: mau-co-ban
+version: '2026.11.10-01'
+description: Rule cơ bản - đăng nhập, sudo, USB, ổ đĩa, RAID, dịch vụ hỏng
+
+rules:
+  # --- Đăng nhập SSH sai: báo khi một IP sai >= 5 lần trong 5 phút, sau đó im 30 phút với IP đó.
+  - id: SSH-FAIL-01
+    title: Đăng nhập SSH sai nhiều lần từ một IP
+    severity: medium
+    source: /var/log/auth.log
+    match: 'sshd\[\d+\]: Failed password for (?:invalid user )?(?P<user>\S+) from (?P<ip>[0-9a-fA-F.:]+)'
+    aggregate: { window_s: 300, threshold: 5, group_by: ip }
+    cooldown_s: 1800
+    tests:
+      match:
+        - 'Nov 10 08:01:02 12345-TN1-PRI sshd[2211]: Failed password for root from 10.0.5.20 port 50122 ssh2'
+        - 'Nov 10 08:01:02 12345-TN1-PRI sshd[2211]: Failed password for invalid user admin from 10.0.5.20 port 50122 ssh2'
+      no_match:
+        - 'Nov 10 08:01:02 12345-TN1-PRI sshd[2211]: Accepted password for user1 from 10.0.5.20 port 50122 ssh2'
+
+  # --- Đăng nhập SSH thành công bằng root: báo từng lần.
+  - id: SSH-ROOT-LOGIN-01
+    title: Có người đăng nhập SSH bằng root
+    severity: high
+    source: /var/log/auth.log
+    match: 'sshd\[\d+\]: Accepted \S+ for root from (?P<ip>[0-9a-fA-F.:]+)'
+    tests:
+      match:
+        - 'Nov 10 08:05:00 12345-TN1-PRI sshd[3001]: Accepted publickey for root from 10.0.5.20 port 50200 ssh2: ED25519 SHA256:abc'
+      no_match:
+        - 'Nov 10 08:05:00 12345-TN1-PRI sshd[3001]: Accepted publickey for user1 from 10.0.5.20 port 50200 ssh2'
+
+  # --- sudo sai mật khẩu 3 lần (sudo tự ghi "3 incorrect password attempts").
+  - id: SUDO-FAIL-01
+    title: Nhập sai mật khẩu sudo
+    severity: low
+    source: /var/log/auth.log
+    match: 'sudo:\s+(?P<user>\S+) : \d+ incorrect password attempts?'
+    cooldown_s: 600
+    tests:
+      match:
+        - 'Nov 10 09:00:00 12345-TN1-PRI sudo:     user1 : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/user1 ; USER=root ; COMMAND=/bin/bash'
+      no_match:
+        - 'Nov 10 09:00:00 12345-TN1-PRI sudo:     user1 : TTY=pts/0 ; PWD=/home/user1 ; USER=root ; COMMAND=/bin/ls'
+
+  # --- Cắm USB lưu trữ (log kernel trong journal).
+  - id: USB-STORAGE-01
+    title: Cắm thiết bị lưu trữ USB
+    severity: low
+    source: journald
+    unit: kernel
+    match: 'usb-storage \S+: USB Mass Storage device detected'
+    cooldown_s: 60
+    tests:
+      match:
+        - 'usb-storage 1-1:1.0: USB Mass Storage device detected'
+      no_match:
+        - 'usb 1-1: New USB device found, idVendor=046d, idProduct=c077'
+
+  # --- Lỗi đọc ghi ổ đĩa.
+  - id: DISK-IO-ERR-01
+    title: Lỗi I/O ổ đĩa
+    severity: high
+    source: journald
+    unit: kernel
+    match: '(?:I/O error, dev (?P<dev>[a-z0-9]+)|EXT4-fs error \(device (?P<fsdev>[a-z0-9]+)\))'
+    exclude: 'dev (?:loop|sr)\d'
+    aggregate: { window_s: 600, threshold: 3 }
+    cooldown_s: 3600
+    tests:
+      match:
+        - 'blk_update_request: I/O error, dev sda, sector 123456 op 0x0:(READ) flags 0x0'
+        - 'EXT4-fs error (device sda2): ext4_find_entry:1455: inode #2: comm ls: reading directory lblock 0'
+      no_match:
+        - 'blk_update_request: I/O error, dev loop3, sector 8 op 0x0:(READ)'
+        - 'blk_update_request: I/O error, dev sr0, sector 0 op 0x0:(READ)'
+
+  # --- RAID phần mềm (mdadm) bị suy giảm.
+  - id: RAID-DEGRADED-01
+    title: RAID bị suy giảm hoặc hỏng ổ
+    severity: critical
+    source: journald
+    unit: mdmonitor.service
+    match: '(?:DegradedArray|Fail|FailSpare) event detected on md device (?P<md>/dev/md\S+)'
+    tests:
+      match:
+        - 'DegradedArray event detected on md device /dev/md0'
+        - 'Fail event detected on md device /dev/md1, component device /dev/sdb1'
+      no_match:
+        - 'NewArray event detected on md device /dev/md0'
+
+  # --- Dịch vụ systemd bị dừng do lỗi (mọi dịch vụ). Đổi unit để chỉ theo dõi một dịch vụ.
+  - id: SVC-FAILED-01
+    title: Dịch vụ systemd dừng do lỗi
+    severity: high
+    source: journald
+    unit: init.scope
+    match: '^(?P<svc>[A-Za-z0-9@_.:-]+\.service): Failed with result ''(?P<result>[a-z-]+)'''
+    exclude: '^(?:apt-daily|apt-daily-upgrade|fwupd-refresh|motd-news)\.service'
+    cooldown_s: 900
+    tests:
+      match:
+        - "cups.service: Failed with result 'exit-code'."
+      no_match:
+        - "apt-daily.service: Failed with result 'exit-code'."
+        - 'cups.service: Deactivated successfully.'
+
+  # --- Hết bộ nhớ, kernel phải kill tiến trình.
+  - id: OOM-KILL-01
+    title: Hết RAM, kernel kill tiến trình
+    severity: high
+    source: journald
+    unit: kernel
+    match: 'Out of memory: Killed process \d+ \((?P<proc>[^)]+)\)'
+    cooldown_s: 600
+    tests:
+      match:
+        - 'Out of memory: Killed process 4242 (java) total-vm:8123456kB, anon-rss:4000000kB'
+
+  # Rule tắt: giữ lại để bật khi cần, không gửi xuống agent.
+  - id: CRON-RUN-01
+    title: Cron chạy lệnh (chỉ dùng khi điều tra)
+    severity: info
+    source: /var/log/syslog
+    match: 'CRON\[\d+\]: \((?P<user>[^)]+)\) CMD '
+    disabled: true

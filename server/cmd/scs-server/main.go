@@ -41,6 +41,7 @@ Lệnh:
               -unlock để mở khóa khi bị khóa do nhập sai nhiều)
   pki         tạo CA nội bộ + chứng chỉ server ghi IP WAN: pki init -ip <IP WAN> [-ip <IP VPN>]
               cấp lại chứng chỉ server (đổi IP): pki server -ip ...
+  rules       viết rule quét log: rules check | test | build (scs-server rules -h)
   version     in phiên bản
 
 Cấu hình lấy từ biến môi trường; tự nạp ./.env nếu có (xem .env.example).
@@ -67,6 +68,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "pki":
 		return runPKI(args[1:], stdout, stderr)
+	case "rules":
+		return runRules(args[1:], stdout, stderr)
 	case "ingest", "admin", "worker", "all", "login-code":
 	default:
 		fmt.Fprintf(stderr, "lệnh không hợp lệ: %q\n\n%s", cmd, usage)
