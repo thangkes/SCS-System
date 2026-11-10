@@ -21,7 +21,7 @@ func sshSet() *RuleSet {
 			CooldownS: 600,
 			Tests: &Tests{
 				Match:   []string{"sshd[1]: Failed password for root from 10.0.0.9 port 22 ssh2"},
-				NoMatch: []string{"sshd[1]: Accepted password for user1 from 10.0.0.9 port 22 ssh2", "sshd[1]: Failed password for root from 127.0.0.1 port 22 ssh2"},
+				NoMatch: []string{"sshd[1]: Accepted password for user from 10.0.0.9 port 22 ssh2", "sshd[1]: Failed password for root from 127.0.0.1 port 22 ssh2"},
 			},
 		},
 		{ID: "USB-ADD-01", Severity: "low", Source: SourceJournald, Unit: "kernel", Match: `New USB device found`},

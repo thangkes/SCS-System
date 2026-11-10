@@ -82,7 +82,7 @@ rules:
       match:
         - 'Nov 10 08:01:02 12345-TN1-PRI sshd[2211]: Failed password for root from 10.0.5.20 port 50122 ssh2'
       no_match:
-        - 'Nov 10 08:01:02 12345-TN1-PRI sshd[2211]: Accepted password for user1 from 10.0.5.20 port 50122 ssh2'
+        - 'Nov 10 08:01:02 12345-TN1-PRI sshd[2211]: Accepted password for user from 10.0.5.20 port 50122 ssh2'
 ```
 
 Quy tắc YAML cần nhớ:

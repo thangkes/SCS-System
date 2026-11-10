@@ -24,7 +24,7 @@ rules:
         - 'Nov 10 08:01:02 12345-TN1-PRI sshd[2211]: Failed password for root from 10.0.5.20 port 50122 ssh2'
         - 'Nov 10 08:01:02 12345-TN1-PRI sshd[2211]: Failed password for invalid user admin from 10.0.5.20 port 50122 ssh2'
       no_match:
-        - 'Nov 10 08:01:02 12345-TN1-PRI sshd[2211]: Accepted password for user1 from 10.0.5.20 port 50122 ssh2'
+        - 'Nov 10 08:01:02 12345-TN1-PRI sshd[2211]: Accepted password for user from 10.0.5.20 port 50122 ssh2'
 
   # --- Đăng nhập SSH thành công bằng root: báo từng lần.
   - id: SSH-ROOT-LOGIN-01
@@ -36,7 +36,7 @@ rules:
       match:
         - 'Nov 10 08:05:00 12345-TN1-PRI sshd[3001]: Accepted publickey for root from 10.0.5.20 port 50200 ssh2: ED25519 SHA256:abc'
       no_match:
-        - 'Nov 10 08:05:00 12345-TN1-PRI sshd[3001]: Accepted publickey for user1 from 10.0.5.20 port 50200 ssh2'
+        - 'Nov 10 08:05:00 12345-TN1-PRI sshd[3001]: Accepted publickey for user from 10.0.5.20 port 50200 ssh2'
 
   # --- sudo sai mật khẩu 3 lần (sudo tự ghi "3 incorrect password attempts").
   - id: SUDO-FAIL-01
@@ -47,9 +47,9 @@ rules:
     cooldown_s: 600
     tests:
       match:
-        - 'Nov 10 09:00:00 12345-TN1-PRI sudo:     user1 : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/user1 ; USER=root ; COMMAND=/bin/bash'
+        - 'Nov 10 09:00:00 12345-TN1-PRI sudo:     user : 3 incorrect password attempts ; TTY=pts/0 ; PWD=/home/user ; USER=root ; COMMAND=/bin/bash'
       no_match:
-        - 'Nov 10 09:00:00 12345-TN1-PRI sudo:     user1 : TTY=pts/0 ; PWD=/home/user1 ; USER=root ; COMMAND=/bin/ls'
+        - 'Nov 10 09:00:00 12345-TN1-PRI sudo:     user : TTY=pts/0 ; PWD=/home/user ; USER=root ; COMMAND=/bin/ls'
 
   # --- Cắm USB lưu trữ (log kernel trong journal).
   - id: USB-STORAGE-01
