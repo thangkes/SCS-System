@@ -398,7 +398,7 @@ Quy tắc quá nửa giả định node có thể **tắt** nhưng không **gian
 | Chịu được số node tắt, cụm 3 / 4 / 5 / 7 | 1 / 1 / 2 / 3 | 0 / 1 / 1 / 2 |
 | Một node gian ký hai lần | tách nhánh được, **bị phát hiện** và chỉ đích danh | **không tách nhánh được** |
 
-Với hơn 2/3, cụm 3 node tắt một là không ra được quyết định; phải từ 4 node mới chịu được một node tắt. Code tính số chữ ký ở một chỗ (`Majority` trong `common/cluster`), nên đổi quy tắc là sửa một hàm.
+**Đã chốt (2026-11-12): giữ quá nửa.** Với hơn 2/3, cụm 3 node tắt một là không ra được quyết định; phải từ 4 node mới chịu được một node tắt. Code tính số chữ ký ở một chỗ (`Majority` trong `common/cluster`), nên đổi quy tắc là sửa một hàm.
 
 ## 15. Thứ tự làm
 
@@ -421,3 +421,4 @@ Các mốc của bản một server (A3 đọc log, M4 lưu trạng thái máy, 
 4. Lần đầu agent gọi một node, rồi nhận **danh sách node theo quy tắc gán server** ([mục 9](#quy-tắc-gán-server)).
 5. Agent hỏi **một node khác bất kỳ, chọn ngẫu nhiên** mỗi **12 giờ** (và mỗi lần khởi động).
 6. **Làm cụm ngay**, bắt đầu từ mốc C1.
+7. **Giữ quy tắc quá nửa** (không đổi sang hơn 2/3): chấp nhận việc một node gian ký hai lần chỉ bị phát hiện chứ không bị chặn ([mục 14](#quá-nửa-hay-hơn-23)).
