@@ -111,9 +111,11 @@ lệnh `all`. TLS 1.3 hai chiều; bên gọi phải có chứng chỉ, và tr�
 | `GET /cluster/v1/log?from=N` | server trong cụm | đọc nhật ký từ quyết định số N (bắt kịp) |
 | `POST /cluster/v1/join-forward` | server trong cụm | chuyển yêu cầu xin vào cụm cho server khác |
 
-Lệnh `cluster` đọc và ghi thẳng thư mục cụm, nên chạy bằng đúng user của dịch vụ:
-`sudo -u scs /opt/scs-server/scs-server cluster status -env-file /etc/scs-server/server.env`. Sau `cluster init` / `cluster join`
-phải khởi động lại dịch vụ để mở cổng cụm.
+Cách dùng chính là **menu server** (`bash server/menu.sh`, mục 12–14): menu chạy lệnh bằng đúng user, đúng thư mục, rồi khởi
+động lại dịch vụ và mở ufw. Gõ tay thì lệnh `cluster` đọc và ghi thẳng thư mục cụm, nên phải chạy bằng user của dịch vụ và
+chỉ rõ thư mục: `sudo -u scs /opt/scs-server/scs-server cluster status -dir /var/lib/scs-server/data/cluster`
+(đường dẫn mặc định `data/cluster` là tương đối, gõ từ thư mục khác sẽ ra sai chỗ). Sau `cluster init` / `cluster join` phải
+khởi động lại dịch vụ để mở cổng cụm.
 
 Test: `go test ./common/cluster/ ./server/internal/cluster/` (cụm 3, 4, 5 server trong bộ nhớ và qua TLS thật).
 

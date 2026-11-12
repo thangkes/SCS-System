@@ -73,6 +73,7 @@ scs-server cluster join   https://<IP server đầu>:5222 -fingerprint <Mã khó
 scs-server cluster ping   https://<IP>:5222                                        # gọi thử, in mã khóa để đối chiếu
 ```
 
+Trên server đã cài, dùng **menu server mục 12–14** (trạng thái cụm, tạo cụm, xin vào cụm) thay cho gõ lệnh.
 Cách lập cụm từng bước: [INSTALL.md mục 4](INSTALL.md#4-cụm-nhiều-server-đang-phát-triển). Thiết kế, mối đe dọa và thứ tự làm:
 [docs/thiet-ke-cum-server.md](docs/thiet-ke-cum-server.md).
 

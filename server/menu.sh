@@ -292,6 +292,144 @@ do_package() {
 	fi
 }
 
+# ---------------------------------------------------------------- cụm nhiều server
+SCS_BIN=/opt/scs-server/scs-server
+SCS_HOME=/var/lib/scs-server
+
+# cluster_dir: thư mục cụm (khóa node + nhật ký), luôn là đường dẫn tuyệt đối. Giá trị tương đối
+# trong server.env tính từ thư mục làm việc của dịch vụ, không phải từ nơi đang đứng gõ lệnh.
+cluster_dir() {
+	local d
+	d="$(env_get SCS_CLUSTER_DIR)"
+	d="${d:-data/cluster}"
+	[[ "$d" == /* ]] || d="$SCS_HOME/$d"
+	printf '%s\n' "$d"
+}
+
+cluster_port() {
+	local p
+	p="$(env_get SCS_CLUSTER_LISTEN)"
+	p="${p##*:}"
+	printf '%s\n' "${p:-5222}"
+}
+
+# cluster_cmd LỆNH [THAM SỐ...]: chạy "scs-server cluster ..." bằng user của dịch vụ, đúng thư mục cụm.
+cluster_cmd() {
+	[[ -x "$SCS_BIN" ]] || { echo "  Chưa cài dịch vụ (chọn mục 3 trước)."; return 1; }
+	sudo -u scs "$SCS_BIN" cluster "$@" -dir "$(cluster_dir)"
+}
+
+# cluster_state: none | joining | member
+cluster_state() {
+	local d
+	d="$(cluster_dir)"
+	if sudo test -s "$d/log.jsonl"; then
+		echo member
+	elif sudo test -f "$d/join.json"; then
+		echo joining
+	else
+		echo none
+	fi
+}
+
+valid_node_name() { [[ "$1" =~ ^[a-z0-9][a-z0-9._-]{0,31}$ ]]; }
+valid_cluster_url() { [[ "$1" =~ ^https://[^/:@[:space:]]+:[0-9]{1,5}$ ]]; }
+
+# default_node_name: hostname viết thường, bỏ ký tự không hợp lệ.
+default_node_name() {
+	hostname 2>/dev/null | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9._-]+/-/g; s/^[^a-z0-9]+//' | cut -c1-32
+}
+
+# ask_cluster_addrs: hỏi địa chỉ cổng cụm của server này. Kết quả: mảng ADDR_ARGS (-addr ... -addr ...).
+ask_cluster_addrs() {
+	local port a
+	port="$(cluster_port)"
+	ADDR_ARGS=()
+	echo "  Địa chỉ để server khác gọi tới cổng cụm của server này (cổng $port)."
+	echo "  ${C_DIM}Cùng mạng nội bộ: IP LAN. Khác địa điểm: thêm IP WAN / tên miền DDNS / IP VPN và cổng chuyển tiếp về $port.${C_0}"
+	ask "Địa chỉ chính" "https://$(lan_ip || echo 127.0.0.1):$port"
+	valid_cluster_url "$REPLY" || { echo "  ${C_RED}Phải có dạng https://<IP hoặc tên miền>:<cổng>${C_0}"; return 1; }
+	ADDR_ARGS+=(-addr "$REPLY")
+	ask "Địa chỉ thêm, cách nhau dấu cách ('-' = không có)" "-"
+	[[ "$REPLY" == "-" ]] && return 0
+	for a in $REPLY; do
+		valid_cluster_url "$a" || { echo "  ${C_RED}\"$a\" phải có dạng https://<IP hoặc tên miền>:<cổng>${C_0}"; return 1; }
+		ADDR_ARGS+=(-addr "$a")
+	done
+}
+
+# cluster_after: khởi động lại dịch vụ để mở cổng cụm, mở ufw nếu đang bật.
+cluster_after() {
+	local port
+	port="$(cluster_port)"
+	if command -v ufw >/dev/null && sudo ufw status 2>/dev/null | grep -q "Status: active"; then
+		sudo ufw allow "$port/tcp" comment "SCS cum server" >/dev/null && echo "  ${C_GRN}✔${C_0} ufw: đã mở cổng cụm $port"
+	fi
+	if sudo systemctl restart scs-server; then
+		echo "  ${C_GRN}✔${C_0} Đã khởi động lại scs-server (mở cổng cụm $port)"
+	else
+		echo "  ${C_RED}Không khởi động lại được scs-server${C_0} (xem mục 9)"
+	fi
+}
+
+do_cluster_status() {
+	cluster_cmd status || return 0
+	case "$(cluster_state)" in
+		member) echo; echo "  ${C_DIM}Thêm / cô lập / gỡ server: web quản trị → trang \"Cụm server\" (phải làm trên từng server).${C_0}" ;;
+		joining) echo; echo "  ${C_DIM}Admin duyệt trên web của mọi server trong cụm (trang \"Cụm server\"), so với \"Mã khóa\" ở trên.${C_0}" ;;
+	esac
+}
+
+do_cluster_init() {
+	[[ -x "$SCS_BIN" ]] || { echo "  Chưa cài dịch vụ (chọn mục 3 trước)."; return 0; }
+	if [[ "$(cluster_state)" != none ]]; then
+		echo "  Server này đã thuộc một cụm hoặc đang xin vào cụm (xem mục 12)."
+		return 0
+	fi
+	echo "  Tạo cụm MỚI với server này là server đầu tiên. Chỉ làm ${C_B}một lần, trên một server${C_0};"
+	echo "  các server sau dùng mục 14 để xin vào cụm này."
+	ask "Tên cụm (chữ thường, số, . _ -)" "scs"
+	local cname="$REPLY"
+	valid_node_name "$cname" || { echo "  ${C_RED}Tên cụm không hợp lệ${C_0}"; return 1; }
+	ask "Tên server này trong cụm (ví dụ hn-01)" "$(default_node_name)"
+	local name="$REPLY"
+	valid_node_name "$name" || { echo "  ${C_RED}Tên server không hợp lệ (chữ thường, số, . _ -, tối đa 32 ký tự)${C_0}"; return 1; }
+	ask_cluster_addrs || return 1
+	echo
+	confirm "Tạo cụm \"$cname\" với server \"$name\"?" || return 0
+	cluster_cmd init -cluster "$cname" -name "$name" "${ADDR_ARGS[@]}" || return 1
+	cluster_after
+	echo
+	echo "  Đưa dòng ${C_B}Mã khóa${C_0} ở trên cho người cài server tiếp theo (họ nhập ở mục 14)."
+}
+
+do_cluster_join() {
+	[[ -x "$SCS_BIN" ]] || { echo "  Chưa cài dịch vụ (chọn mục 3 trước)."; return 0; }
+	if [[ "$(cluster_state)" != none ]]; then
+		echo "  Server này đã thuộc một cụm hoặc đang xin vào cụm (xem mục 12)."
+		return 0
+	fi
+	echo "  Xin vào một cụm đã có. Cần hai thứ lấy từ một server đang ở trong cụm (mục 12 trên server đó):"
+	echo "    - địa chỉ cổng cụm của nó, ví dụ https://192.168.1.10:5222"
+	echo "    - dòng \"Mã khóa\" của nó (để chắc là gọi đúng server, không bị kẻ khác chen giữa)"
+	ask "Địa chỉ cổng cụm của server trong cụm" ""
+	local target="${REPLY%/}"
+	valid_cluster_url "$target" || { echo "  ${C_RED}Phải có dạng https://<IP hoặc tên miền>:<cổng>${C_0}"; return 1; }
+	ask "Mã khóa của server đó" ""
+	local fp="$REPLY"
+	[[ "$fp" =~ ^[0-9a-fA-F]{4}(-[0-9a-fA-F]{4}){7}$ ]] || { echo "  ${C_RED}Mã khóa có dạng xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx-xxxx${C_0}"; return 1; }
+	ask "Tên server này trong cụm (ví dụ hn-02)" "$(default_node_name)"
+	local name="$REPLY"
+	valid_node_name "$name" || { echo "  ${C_RED}Tên server không hợp lệ (chữ thường, số, . _ -, tối đa 32 ký tự)${C_0}"; return 1; }
+	ask_cluster_addrs || return 1
+	echo
+	cluster_cmd join "$target" -fingerprint "$fp" -name "$name" "${ADDR_ARGS[@]}" || return 1
+	cluster_after
+	echo
+	echo "  Bây giờ admin đăng nhập web của ${C_B}từng${C_0} server trong cụm → trang \"Cụm server\" → so Mã khóa ở trên → Duyệt."
+	echo "  Đủ mọi server duyệt thì server này tự vào cụm (kiểm bằng mục 12)."
+}
+
 # ---------------------------------------------------------------- menu
 while true; do
 	clear 2>/dev/null || true
@@ -320,6 +458,11 @@ while true; do
   ${C_B}Agent${C_0}
   11) Đóng gói agent để cài cho máy tại điểm bán (một file .tar.gz)
 
+  ${C_B}Cụm nhiều server${C_0}
+  12) Trạng thái cụm, mã khóa của server này
+  13) Tạo cụm mới (server đầu tiên)
+  14) Xin vào cụm đã có
+
    0) Thoát
 EOF
 	echo
@@ -337,6 +480,9 @@ EOF
 		9) do_status ;;
 		10) do_uninstall ;;
 		11) do_package ;;
+		12) do_cluster_status ;;
+		13) do_cluster_init ;;
+		14) do_cluster_join ;;
 		0 | q | Q | "") exit 0 ;;
 		*) echo "  Không có mục \"$choice\"." ;;
 	esac

@@ -264,6 +264,11 @@ if [[ -d "$PKI_DIR" ]]; then
 fi
 [[ -n "$(env_value "$ENV_FILE" SCS_AGENT_DIST)" ]] || set_env SCS_AGENT_DIST "$OPT_DIR/agent"
 [[ -n "$(env_value "$ENV_FILE" SCS_AGENT_RELEASES)" ]] || set_env SCS_AGENT_RELEASES "$DATA_DIR/agent-releases"
+# Thư mục cụm luôn ghi đường dẫn tuyệt đối: lệnh "scs-server cluster ..." gõ tay từ thư mục khác
+# vẫn dùng đúng chỗ dịch vụ đang dùng (giá trị tương đối tính từ thư mục làm việc của dịch vụ).
+cluster_dir_cfg="$(env_value "$ENV_FILE" SCS_CLUSTER_DIR)"
+cluster_dir_cfg="${cluster_dir_cfg:-data/cluster}"
+[[ "$cluster_dir_cfg" == /* ]] || set_env SCS_CLUSTER_DIR "$DATA_DIR/$cluster_dir_cfg"
 if [[ -f "$AGENT_BIN/VERSION" ]]; then
 	install -d -o root -g root -m 755 "$OPT_DIR/agent"
 	rm -f "$OPT_DIR/agent"/scs-agent-linux-* "$OPT_DIR/agent/VERSION"

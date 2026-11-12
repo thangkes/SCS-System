@@ -221,28 +221,32 @@ Trên máy agent: `sudo scs-agent rules -install cong-ty.json`, rồi `sudo scs-
 Thiết kế và hiện trạng: [docs/thiet-ke-cum-server.md](docs/thiet-ke-cum-server.md). Hiện các server đã lập cụm, thêm /
 cô lập / gỡ server và ra quyết định chung được; **agent chưa chạy theo cụm** và việc duyệt máy vẫn theo từng server.
 
-Viết tắt bên dưới: `S="sudo -u scs /opt/scs-server/scs-server"`, `E="-env-file /etc/scs-server/server.env"`.
+Làm bằng **menu server** (`bash server/menu.sh`), nhóm "Cụm nhiều server":
 
-**Server đầu tiên (tạo cụm):**
+**Server đầu tiên (tạo cụm):** mục **13**. Menu hỏi tên cụm, tên server, địa chỉ cổng cụm (gợi ý sẵn IP LAN và cổng 5222),
+rồi tự khởi động lại dịch vụ và mở cổng 5222 trên ufw nếu ufw đang bật. Cuối cùng in dòng **Mã khóa**: đưa mã này cho người
+cài server tiếp theo. Xem lại bất kỳ lúc nào bằng mục **12**.
 
-```bash
-$S cluster init -cluster scs -name hn-01 -addr https://<IP server này>:5222 $E
-sudo systemctl restart scs-server        # mở cổng cụm 5222
-sudo bash server/scripts/install.sh      # (hoặc menu mục 3) để ufw mở cổng 5222; hoặc: sudo ufw allow 5222/tcp
-$S cluster status $E                     # ghi lại dòng "Mã khóa" để đưa cho server sắp vào cụm
-```
+**Server mới xin vào cụm:** mục **14**. Nhập địa chỉ cổng cụm và **Mã khóa** của một server đang ở trong cụm, tên server mới,
+địa chỉ của nó. Menu gửi yêu cầu, khởi động lại dịch vụ, mở ufw và in **mã khóa của server mới**.
 
-**Server mới xin vào cụm:**
+Dùng lệnh thay cho menu (tự động hóa). Chạy bằng user của dịch vụ và chỉ rõ thư mục cụm:
 
 ```bash
-$S cluster join https://<IP server đầu>:5222 -fingerprint <Mã khóa của server đầu> -name hn-02 -addr https://<IP server này>:5222 $E
-sudo systemctl restart scs-server
-sudo ufw allow 5222/tcp                  # nếu ufw đang bật
+S="sudo -u scs /opt/scs-server/scs-server"; D="-dir /var/lib/scs-server/data/cluster"
+$S cluster init -cluster scs -name hn-01 -addr https://<IP server này>:5222 $D           # server đầu tiên
+$S cluster status $D                                                                    # xem cụm, lấy "Mã khóa"
+$S cluster join https://<IP server đầu>:5222 -fingerprint <Mã khóa> -name hn-02 -addr https://<IP server này>:5222 $D
+sudo systemctl restart scs-server && sudo ufw allow 5222/tcp                             # sau init / join
 ```
+
+Không chỉ `-dir` mà gõ lệnh từ thư mục khác thì khóa và nhật ký bị tạo **sai chỗ** (đường dẫn mặc định là tương đối), dịch vụ
+sẽ không thấy. Sau khi chạy lại cài đặt (menu mục 3) bằng bản này, `server.env` ghi sẵn đường dẫn tuyệt đối và có thể dùng
+`-env-file /etc/scs-server/server.env` thay cho `-dir`.
 
 Lệnh `join` so mã khóa trước khi gửi (sai là dừng, chống kẻ đứng giữa) và in **mã khóa của server mới**. Sau đó admin
 đăng nhập web của **từng** server trong cụm → trang **Cụm server** → mục "Server chờ vào cụm" → so mã khóa với mã vừa in →
-**Duyệt**. Đủ mọi server duyệt thì server mới tự vào cụm trong khoảng 10 giây (`$S cluster status $E`).
+**Duyệt**. Đủ mọi server duyệt thì server mới tự vào cụm trong khoảng 10 giây (kiểm bằng menu mục 12).
 
 **Cô lập / gỡ server** (trang Cụm server):
 
