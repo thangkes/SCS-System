@@ -10,7 +10,7 @@ Code comments and docs are in Vietnamese.*
 > Trạng thái: đang phát triển (giai đoạn 1). Chưa dùng cho môi trường thật.
 > Đang chuyển sang **cụm nhiều server ngang hàng**: thiết kế đã chốt ở
 > [docs/thiet-ke-cum-server.md](docs/thiet-ke-cum-server.md). Đã có mốc C1 (khóa node, cổng 5222,
-> `scs-server cluster init | status | ping`), đang làm C2.
+> `scs-server cluster init | status | ping`) và phần lõi C2 (đề nghị, ký quá nửa, bắt kịp nhật ký).
 
 ## Thành phần
 

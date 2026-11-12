@@ -1,6 +1,6 @@
 # Thiết kế cụm SCS-Server (nhiều server)
 
-Trạng thái: **bản thiết kế đã chốt (2026-11-12)**. Mốc **C1 đã có**: khóa node, chứng chỉ tự ký, nhật ký quyết định (quyết định tạo cụm), cổng 5222, lệnh `scs-server cluster init | status | ping`. Đang làm C2. Tài liệu này ghi các quyết định đã chốt và cách làm chi tiết, để xem lại trước khi bắt đầu.
+Trạng thái: **bản thiết kế đã chốt (2026-11-12)**. Mốc **C1 đã có**: khóa node, chứng chỉ tự ký, nhật ký quyết định (quyết định tạo cụm), cổng 5222, lệnh `scs-server cluster init | status | ping`. Mốc **C2 đã có phần lõi**: đề nghị, bỏ phiếu theo round có bằng chứng, gom chữ ký quá nửa, phát và bắt kịp nhật ký qua 5222, phát hiện ký hai lần và tách nhánh (test với cụm 3, 4, 5 node). **Chưa có**: đưa duyệt / thu hồi máy và cấu hình agent vào nhật ký (C2 phần hai), quy trình thêm node qua mạng và web (C3). Tài liệu này ghi các quyết định đã chốt và cách làm chi tiết, để xem lại trước khi bắt đầu.
 
 Mục lục
 
@@ -148,7 +148,8 @@ mỗi node kiểm lại đủ chữ ký hợp lệ rồi mới áp dụng vào D
 ```
 
 - **Mỗi node chỉ ký một đề nghị cho mỗi (seq, round).** Quá nửa của cùng một tập node, nên không thể có hai quyết định khác nhau cùng đủ chữ ký cho một seq.
-- Hai node đề nghị cùng lúc mà không bên nào đủ quá nửa thì đề nghị thua chờ ngẫu nhiên 1–5 giây, thử lại ở round sau (hoặc seq sau nếu bên kia đã thắng). Quyết định ít khi xảy ra nên tranh chấp hiếm.
+- Hai node đề nghị cùng lúc mà không bên nào đủ quá nửa (ví dụ chia phiếu 2–2 trên 4 node): node đề nghị gom các phiếu có chữ ký của round đó làm **bằng chứng rằng không đề nghị nào còn có thể đủ phiếu**, kể cả khi mọi node chưa bỏ phiếu đều dồn cho nó. Có bằng chứng thì các node mới ký ở round sau. Không có bằng chứng thì không ai được sang round sau, nên một đề nghị đã đủ chữ ký ở round trước không bao giờ bị đè.
+- Node đã ký ở round sau thì không ký round trước nữa. Phiếu đã bỏ được ghi xuống đĩa **trước khi** trả chữ ký, nên node khởi động lại cũng không ký trùng.
 - **Node không tin node đề nghị.** Node nào cũng tự kiểm đủ chữ ký trước khi áp dụng, nên một node bị hack không ghi được quyết định bậy.
 - **Node chậm hay vừa bật lại** hỏi các node khác những quyết định còn thiếu, kiểm chữ ký từng quyết định rồi áp dụng. Không cần tin node đưa dữ liệu.
 - Mỗi quyết định tính quá nửa theo **danh sách cụm tại thời điểm ngay trước nó**.
@@ -378,6 +379,7 @@ Mỗi node khai **danh sách địa chỉ cho từng cổng** (5222 cho node kh�
 | Kẻ đứng giữa hai node | TLS hai chiều, chỉ nhận khóa có trong danh sách cụm |
 | Kẻ đứng giữa agent và node | agent chỉ tin khóa node có trong danh sách cụm đã ký |
 | Một node bị hack ra quyết định bậy | cần chữ ký quá nửa; node khác tự kiểm trước khi áp dụng |
+| Một node bị hack **ký cả hai đề nghị trái nhau** để hai bản cùng đủ quá nửa (tách nhánh nhật ký) | **phát hiện, không chặn được với quy tắc quá nửa**: hai chữ ký trái nhau là bằng chứng chỉ đích danh node đó; node nào thấy hai bản cùng đủ chữ ký thì dừng ra quyết định và báo trên trạng thái cụm, chờ admin cô lập node gian và chọn nhánh đúng. Muốn **chặn hẳn** phải đổi sang quy tắc **hơn 2/3** (xem dưới) |
 | Một node bị hack ký bản agent độc | cần quá nửa chữ ký, mỗi chữ ký cần admin xác nhận trên chính node đó |
 | Một node bị hack giữ agent lại | agent mỗi 12 giờ hỏi một node khác; cô lập node đó là agent rời đi trong tối đa ~14 giờ |
 | Một node bị hack khai sai trạng thái máy | chỉ khai sai được máy đang gửi về nó; cô lập thì bị bỏ |
@@ -386,12 +388,24 @@ Mỗi node khai **danh sách địa chỉ cho từng cổng** (5222 cho node kh�
 | Hack quá nửa số node | **không chặn được**: đây là giới hạn của quy tắc quá nửa. Giảm rủi ro bằng cách đặt node ở nhiều nơi, người quản trị khác nhau |
 | Lộ mã đăng nhập web của một node | chỉ ra được đề nghị từ node đó; việc nhạy cảm vẫn cần xác nhận trên các node khác |
 
+### Quá nửa hay hơn 2/3
+
+Quy tắc quá nửa giả định node có thể **tắt** nhưng không **gian**. Một node gian ký hai đề nghị trái nhau có thể làm cả hai cùng đủ quá nửa (cụm 3 node: A + gian, B + gian).
+
+| | Quá nửa (đang dùng) | Hơn 2/3 |
+|---|---|---|
+| Số chữ ký cần, cụm 3 / 4 / 5 / 7 node | 2 / 3 / 3 / 4 | 3 / 3 / 4 / 5 |
+| Chịu được số node tắt, cụm 3 / 4 / 5 / 7 | 1 / 1 / 2 / 3 | 0 / 1 / 1 / 2 |
+| Một node gian ký hai lần | tách nhánh được, **bị phát hiện** và chỉ đích danh | **không tách nhánh được** |
+
+Với hơn 2/3, cụm 3 node tắt một là không ra được quyết định; phải từ 4 node mới chịu được một node tắt. Code tính số chữ ký ở một chỗ (`Majority` trong `common/cluster`), nên đổi quy tắc là sửa một hàm.
+
 ## 15. Thứ tự làm
 
 | Mốc | Nội dung | Xong khi |
 |---|---|---|
-| **C1** | Khóa node, chứng chỉ tự ký, cổng 5222 với TLS hai chiều + kiểm khóa, `cluster init` | 1 node chạy, gọi 5222 không có khóa đúng bị ngắt |
-| **C2** | Nhật ký quyết định: đề nghị, ký, quá nửa, bắt kịp, chống ký trùng; chuyển duyệt / thu hồi máy, cấu hình sang nhật ký | 3 node trên một máy test: tắt 1 vẫn duyệt được máy, tắt 2 thì không; node bật lại tự bắt kịp |
+| **C1** (đã có) | Khóa node, chứng chỉ tự ký, cổng 5222 với TLS hai chiều + kiểm khóa, `cluster init` | 1 node chạy, gọi 5222 không có khóa đúng bị ngắt |
+| **C2** | Nhật ký quyết định: đề nghị, ký, quá nửa, bắt kịp, chống ký trùng **(đã có)**; chuyển duyệt / thu hồi máy, cấu hình sang nhật ký (chưa) | 3 node trên một máy test: tắt 1 vẫn duyệt được máy, tắt 2 thì không; node bật lại tự bắt kịp |
 | **C3** | Thêm / cô lập / gỡ node, web "Server trong cụm" | thêm node cần đủ chữ ký mọi node; cô lập tại chỗ có hiệu lực ngay |
 | **C4** | Agent theo cụm: kiểm danh sách cụm thay CA, quy tắc gán server, giữ node, chuyển kênh, hỏi node khác mỗi 12 giờ; bước chuyển cho agent cũ | agent cũ và mới cùng chạy; cô lập node là agent rời đi ở lần hỏi kế tiếp |
 | **C5** | Trạng thái chung + web gom dữ liệu từ mọi node | web hiện đúng siêu thị online / offline khi máy chuyển kênh; node tắt thì web ghi rõ thiếu |

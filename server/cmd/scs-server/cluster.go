@@ -177,8 +177,11 @@ func clusterServer(cfg *config.Config, log *slog.Logger) (runner, error) {
 		n.Close()
 		return nil, err
 	}
+	n.SetTransport(cluster.HTTPTransport{Node: n})
 	return func(ctx context.Context) error {
 		defer n.Close()
+		// Định kỳ bắt kịp nhật ký từ node khác (node vừa bật lại, hoặc lỡ một lần phát).
+		go n.Run(ctx, 30*time.Second, func(err error) { log.Warn("chưa bắt kịp nhật ký cụm", "err", err) })
 		return run(ctx)
 	}, nil
 }

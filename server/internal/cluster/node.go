@@ -45,6 +45,7 @@ type Node struct {
 	mu   sync.RWMutex
 	st   cc.State
 	logF *os.File
+	c    consensus
 }
 
 // LoadOrCreateKey đọc khóa node; chưa có thì sinh mới (quyền 600). Trả khóa và có phải mới tạo.
@@ -113,6 +114,13 @@ func Open(dir string) (*Node, error) {
 	}
 	if n.st, err = cc.Replay(log); err != nil {
 		return nil, fmt.Errorf("nhật ký cụm %s hỏng hoặc bị sửa: %w", filepath.Join(dir, LogFile), err)
+	}
+	for _, d := range log {
+		h, _ := d.Hash()
+		n.c.hashes = append(n.c.hashes, h)
+	}
+	if err := n.loadVotes(); err != nil {
+		return nil, fmt.Errorf("đọc phiếu đã bỏ (%s): %w", VotesFile, err)
 	}
 	if n.st.Seq > 0 {
 		if _, ok := n.st.Member(n.ID); !ok {
@@ -217,6 +225,7 @@ func (n *Node) appendLocked(d *cc.Decision) error {
 		return err
 	}
 	n.st = next
+	n.c.hashes = append(n.c.hashes, next.Head)
 	return nil
 }
 

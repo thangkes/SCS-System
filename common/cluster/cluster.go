@@ -40,10 +40,27 @@ const (
 	MaxClockSkew = 5 * time.Minute
 )
 
-// Loại quyết định. Mốc C1 có genesis; các loại khác thêm ở C2/C3.
+// Loại quyết định.
 const (
-	TypeGenesis = "member.genesis"
+	TypeGenesis   = "member.genesis" // tạo cụm (1 node, tự ký)
+	TypeMemberAdd = "member.add"     // thêm node: 100% node hợp lệ + node mới ký
 )
+
+// appTypes: quyết định của ứng dụng (duyệt máy, cấu hình…): quá nửa node hợp lệ ký. Nội dung do
+// server kiểm và áp vào DB; phần chung chỉ kiểm chữ ký và thứ tự.
+var appTypes = map[string]bool{
+	"device.approve":    true,
+	"device.reject":     true,
+	"device.revoke":     true,
+	"device.store_code": true,
+	"device.test_ring":  true,
+	"agent.config":      true,
+	"agent.release":     true,
+	"note":              true, // ghi chú tự do của admin (dùng để thử cụm)
+}
+
+// AppType: loại quyết định của ứng dụng (quá nửa) có hợp lệ không.
+func AppType(t string) bool { return appTypes[t] }
 
 // Trạng thái node trong danh sách cụm.
 const (
@@ -78,6 +95,11 @@ type Member struct {
 	PubKey string `json:"pub"` // Ed25519, base64
 	Addrs  Addrs  `json:"addrs"`
 	Status string `json:"status"`
+}
+
+// MemberAddPayload: thêm một node vào cụm.
+type MemberAddPayload struct {
+	Member Member `json:"member"`
 }
 
 // GenesisPayload: quyết định đầu tiên tạo cụm với một node.
@@ -252,61 +274,191 @@ func Majority(n int) int { return n/2 + 1 }
 // ErrUnsupported: loại quyết định chưa hỗ trợ ở bản này.
 var ErrUnsupported = errors.New("loại quyết định chưa được hỗ trợ")
 
-// Apply kiểm quyết định d (nối tiếp, chữ ký, nội dung) rồi áp dụng vào trạng thái. Lỗi thì
-// trạng thái giữ nguyên. Quyết định đầu tiên áp vào State rỗng.
-func (s *State) Apply(d *Decision) error {
+// rule: ai được ký một quyết định và cần bao nhiêu chữ ký.
+type rule struct {
+	eligible map[string]ed25519.PublicKey
+	need     int
+	must     []string // các node bắt buộc phải có chữ ký
+	effect   func(next *State, hash string)
+}
+
+// Rule: ai được ký và cần bao nhiêu chữ ký (để hiện "đang chờ 2/3" trên web, hay để node đề nghị
+// biết khi nào đủ).
+func (s *State) Rule(d *Decision) (need int, eligible []string, err error) {
+	r, err := s.check(d)
+	if err != nil {
+		return 0, nil, err
+	}
+	for id := range r.eligible {
+		eligible = append(eligible, id)
+	}
+	sort.Strings(eligible)
+	return r.need, eligible, nil
+}
+
+// Check kiểm một đề nghị trước khi ký: nối tiếp đúng, đủ trường, nội dung hợp lệ. Không đếm chữ ký.
+func (s *State) Check(d *Decision) error {
+	_, err := s.check(d)
+	return err
+}
+
+func (s *State) validKeys() map[string]ed25519.PublicKey {
+	out := map[string]ed25519.PublicKey{}
+	for _, m := range s.Valid() {
+		if pub, err := DecodePub(m.PubKey); err == nil {
+			out[m.ID] = pub
+		}
+	}
+	return out
+}
+
+func (s *State) check(d *Decision) (*rule, error) {
 	if d == nil {
-		return errors.New("quyết định rỗng")
+		return nil, errors.New("quyết định rỗng")
 	}
 	if len(d.Payload) > MaxPayload {
-		return errors.New("nội dung quyết định quá lớn")
+		return nil, errors.New("nội dung quyết định quá lớn")
 	}
-	if len(d.Sigs) == 0 || len(d.Sigs) > MaxSigs {
-		return errors.New("quyết định không có chữ ký hợp lệ")
+	if len(d.Sigs) > MaxSigs {
+		return nil, errors.New("quá nhiều chữ ký")
 	}
 	if d.Seq != s.Seq+1 {
-		return fmt.Errorf("quyết định số %d không nối tiếp (đang ở %d)", d.Seq, s.Seq)
+		return nil, fmt.Errorf("%w: quyết định số %d, node đang ở %d", ErrNotNext, d.Seq, s.Seq)
 	}
 	if d.Prev != s.Head {
-		return errors.New("quyết định không nối với quyết định trước (sai mã băm)")
+		return nil, fmt.Errorf("%w: không nối với quyết định trước (sai mã băm)", ErrNotNext)
 	}
 	if !idRe.MatchString(d.Proposer) || d.Round == 0 || len(d.Nonce) != 32 || d.Created.IsZero() {
-		return errors.New("quyết định thiếu trường hoặc sai định dạng")
+		return nil, errors.New("quyết định thiếu trường hoặc sai định dạng")
 	}
 	if d.Prev != "" && !hexRe.MatchString(d.Prev) {
-		return errors.New("mã băm quyết định trước sai định dạng")
+		return nil, errors.New("mã băm quyết định trước sai định dạng")
+	}
+	if d.Type == TypeGenesis {
+		if s.Seq != 0 {
+			return nil, errors.New("cụm đã có quyết định đầu tiên")
+		}
+		var p GenesisPayload
+		if err := decodeStrict(d.Payload, &p); err != nil {
+			return nil, err
+		}
+		if err := p.Member.validate(); err != nil {
+			return nil, err
+		}
+		if !nameRe.MatchString(p.Cluster) || p.Member.Status != StatusActive || d.Proposer != p.Member.ID {
+			return nil, errors.New("quyết định tạo cụm không hợp lệ")
+		}
+		pub, _ := DecodePub(p.Member.PubKey)
+		return &rule{eligible: map[string]ed25519.PublicKey{p.Member.ID: pub}, need: 1, must: []string{p.Member.ID},
+			effect: func(next *State, hash string) {
+				next.Cluster, next.ClusterID, next.Members, next.Epoch = p.Cluster, hash, []Member{p.Member}, d.Seq
+			}}, nil
+	}
+	if s.Seq == 0 {
+		return nil, errors.New("cụm chưa có quyết định đầu tiên")
+	}
+	valid := s.validKeys()
+	if _, ok := valid[d.Proposer]; !ok {
+		return nil, fmt.Errorf("node đề nghị %q không phải node hợp lệ của cụm", d.Proposer)
+	}
+	switch {
+	case d.Type == TypeMemberAdd:
+		var p MemberAddPayload
+		if err := decodeStrict(d.Payload, &p); err != nil {
+			return nil, err
+		}
+		if err := p.Member.validate(); err != nil {
+			return nil, err
+		}
+		if p.Member.Status != StatusActive {
+			return nil, errors.New("node mới phải ở trạng thái hoạt động")
+		}
+		if len(s.Members) >= MaxMembers {
+			return nil, fmt.Errorf("cụm tối đa %d node", MaxMembers)
+		}
+		for _, m := range s.Members {
+			if m.ID == p.Member.ID {
+				return nil, errors.New("node đã có trong danh sách cụm (node đã gỡ phải sinh khóa mới)")
+			}
+			if m.Name == p.Member.Name {
+				return nil, fmt.Errorf("tên node %q đã được dùng", p.Member.Name)
+			}
+		}
+		// Thêm node: 100% node hợp lệ + chính node mới (chứng minh nó giữ khóa riêng).
+		elig := map[string]ed25519.PublicKey{}
+		must := []string{}
+		for id, pub := range valid {
+			elig[id] = pub
+			must = append(must, id)
+		}
+		pub, _ := DecodePub(p.Member.PubKey)
+		elig[p.Member.ID] = pub
+		must = append(must, p.Member.ID)
+		return &rule{eligible: elig, need: len(elig), must: must, effect: func(next *State, _ string) {
+			next.Members = append(next.Members, p.Member)
+			next.Epoch = d.Seq
+		}}, nil
+	case appTypes[d.Type]:
+		if !json.Valid(d.Payload) || len(d.Payload) == 0 || d.Payload[0] != '{' {
+			return nil, errors.New("nội dung quyết định phải là một đối tượng JSON")
+		}
+		return &rule{eligible: valid, need: Majority(len(valid)), must: []string{d.Proposer},
+			effect: func(*State, string) {}}, nil
+	}
+	return nil, fmt.Errorf("%w: %q", ErrUnsupported, d.Type)
+}
+
+// ErrNotNext: quyết định không nối tiếp nhật ký của node (node chậm hơn hoặc nhanh hơn).
+var ErrNotNext = errors.New("không nối tiếp")
+
+// Apply kiểm quyết định d (nối tiếp, nội dung, đủ chữ ký theo quy tắc) rồi áp dụng vào trạng
+// thái. Lỗi thì trạng thái giữ nguyên. Quyết định đầu tiên áp vào State rỗng.
+func (s *State) Apply(d *Decision) error {
+	r, err := s.check(d)
+	if err != nil {
+		return err
+	}
+	if len(d.Sigs) == 0 {
+		return errors.New("quyết định không có chữ ký hợp lệ")
+	}
+	if err := verifySigs(d, r.eligible, r.need); err != nil {
+		return err
+	}
+	for _, id := range r.must {
+		if _, ok := d.Sigs[id]; !ok {
+			return fmt.Errorf("thiếu chữ ký bắt buộc của node %q", id)
+		}
 	}
 	hash, err := d.Hash()
 	if err != nil {
 		return err
 	}
 	next := s.clone()
-	switch d.Type {
-	case TypeGenesis:
-		if s.Seq != 0 {
-			return errors.New("cụm đã có quyết định đầu tiên")
-		}
-		var p GenesisPayload
-		if err := decodeStrict(d.Payload, &p); err != nil {
-			return err
-		}
-		if err := p.Member.validate(); err != nil {
-			return err
-		}
-		if !nameRe.MatchString(p.Cluster) || p.Member.Status != StatusActive || d.Proposer != p.Member.ID {
-			return errors.New("quyết định tạo cụm không hợp lệ")
-		}
-		pub, _ := DecodePub(p.Member.PubKey)
-		if err := verifySigs(d, map[string]ed25519.PublicKey{p.Member.ID: pub}, 1); err != nil {
-			return err
-		}
-		next.Cluster, next.ClusterID, next.Members, next.Epoch = p.Cluster, hash, []Member{p.Member}, d.Seq
-	default:
-		return fmt.Errorf("%w: %q", ErrUnsupported, d.Type)
-	}
+	r.effect(&next, hash)
 	next.Seq, next.Head = d.Seq, hash
+	sort.Slice(next.Members, func(i, j int) bool { return next.Members[i].ID < next.Members[j].ID })
 	*s = next
 	return nil
+}
+
+// VerifySig: chữ ký của node id trên d có đúng không (dùng khi gom phiếu).
+func (s *State) VerifySig(d *Decision, id string) bool {
+	pub, ok := s.validKeys()[id]
+	if !ok {
+		if r, err := s.check(d); err == nil {
+			pub, ok = r.eligible[id]
+		}
+	}
+	sig, has := d.Sigs[id]
+	if !ok || !has {
+		return false
+	}
+	b, err := d.signingBytes()
+	if err != nil {
+		return false
+	}
+	raw, err := base64.StdEncoding.DecodeString(sig)
+	return err == nil && ed25519.Verify(pub, b, raw)
 }
 
 // verifySigs: mọi chữ ký phải của node trong eligible và đúng; cần ít nhất need chữ ký.

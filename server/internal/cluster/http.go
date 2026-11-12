@@ -1,13 +1,16 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,6 +33,9 @@ type Status struct {
 	NodeID string    `json:"node_id"`
 	State  cc.State  `json:"state"`
 	Time   time.Time `json:"time"`
+	// Fork: khác rỗng khi node thấy nhật ký bị tách nhánh. Equivocators: node đã ký hai đề nghị trái nhau.
+	Fork         string            `json:"fork,omitempty"`
+	Equivocators map[string]string `json:"equivocators,omitempty"`
 }
 
 // Handler: các đường dẫn trên cổng 5222.
@@ -46,9 +52,11 @@ func (n *Node) Handler(version string, log *slog.Logger) http.Handler {
 		httpx.WriteJSON(w, http.StatusOK, h)
 	})
 	mux.Handle("GET /cluster/v1/status", n.membersOnly(func(w http.ResponseWriter, r *http.Request) {
-		httpx.WriteJSON(w, http.StatusOK, Status{NodeID: n.ID, State: n.State(), Time: time.Now().UTC()})
+		httpx.WriteJSON(w, http.StatusOK, Status{NodeID: n.ID, State: n.State(), Time: time.Now().UTC(),
+			Fork: n.Fork(), Equivocators: n.Equivocators()})
 	}))
-	return httpx.Chain(mux, httpx.SecureHeaders, httpx.Recover(log), httpx.MaxBody(1<<20),
+	n.consensusRoutes(mux)
+	return httpx.Chain(mux, httpx.SecureHeaders, httpx.Recover(log), httpx.MaxBody(4<<20),
 		httpx.AggregatedAccessLog(log, slog.LevelDebug), httpx.WithRequestID)
 }
 
@@ -80,24 +88,145 @@ func (n *Node) Server(addr, version string, log *slog.Logger) (func(ctx context.
 
 // Get gọi một đường dẫn trên node khác qua 5222, đọc JSON vào out.
 func (n *Node) Get(ctx context.Context, base, path string, check PeerCheck, out any) error {
+	if err := n.do(ctx, http.MethodGet, base, path, check, nil, out); err != nil {
+		return fmt.Errorf("%s%s: %w", base, path, err)
+	}
+	return nil
+}
+
+// commitReq: phát một quyết định đã đủ chữ ký.
+type commitReq struct {
+	Decision *cc.Decision `json:"decision"`
+}
+
+type logResp struct {
+	Decisions []*cc.Decision `json:"decisions"`
+}
+
+// consensusRoutes: các đường dẫn đồng thuận, chỉ node hợp lệ gọi được.
+func (n *Node) consensusRoutes(mux *http.ServeMux) {
+	mux.Handle("POST /cluster/v1/propose", n.membersOnly(func(w http.ResponseWriter, r *http.Request) {
+		var req ProposeReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "gói tin không đọc được")
+			return
+		}
+		from, _, _ := n.Peer(r)
+		httpx.WriteJSON(w, http.StatusOK, n.HandlePropose(from, req))
+	}))
+	mux.Handle("POST /cluster/v1/commit", n.membersOnly(func(w http.ResponseWriter, r *http.Request) {
+		var req commitReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "gói tin không đọc được")
+			return
+		}
+		if err := n.HandleCommit(req.Decision); err != nil {
+			httpx.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "seq": n.State().Seq})
+	}))
+	mux.Handle("GET /cluster/v1/log", n.membersOnly(func(w http.ResponseWriter, r *http.Request) {
+		from, err := strconv.ParseUint(r.URL.Query().Get("from"), 10, 64)
+		if err != nil || from == 0 {
+			httpx.WriteError(w, http.StatusBadRequest, "thiếu from")
+			return
+		}
+		ds, err := n.LogFrom(from)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "không đọc được nhật ký")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, logResp{Decisions: ds})
+	}))
+}
+
+// HTTPTransport: gọi node khác qua cổng 5222, thử lần lượt các địa chỉ của node đó. Mỗi lần gọi
+// ghim đúng khóa của node đích (lấy từ danh sách cụm).
+type HTTPTransport struct{ Node *Node }
+
+func (t HTTPTransport) call(ctx context.Context, peer cc.Member, method, path string, in, out any) error {
+	pub, err := cc.DecodePub(peer.PubKey)
+	if err != nil {
+		return err
+	}
+	var last error = errors.New("node không có địa chỉ cổng cụm")
+	for i, base := range peer.Addrs.Cluster {
+		// Chia thời gian còn lại cho các địa chỉ chưa thử, để một địa chỉ chết (IP cũ, đường
+		// truyền đứt) không ăn hết thời gian của các địa chỉ sau.
+		actx, cancel := ctx, context.CancelFunc(func() {})
+		if dl, ok := ctx.Deadline(); ok {
+			left := time.Until(dl) / time.Duration(len(peer.Addrs.Cluster)-i)
+			actx, cancel = context.WithTimeout(ctx, left)
+		}
+		last = t.Node.do(actx, method, base, path, Pin(pub), in, out)
+		cancel()
+		if last == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return last
+		}
+		var he *httpError
+		if errors.As(last, &he) { // node đã trả lời (từ chối): không thử địa chỉ khác
+			return last
+		}
+	}
+	return last
+}
+
+func (t HTTPTransport) Propose(ctx context.Context, peer cc.Member, req ProposeReq) (ProposeResp, error) {
+	var resp ProposeResp
+	err := t.call(ctx, peer, http.MethodPost, "/cluster/v1/propose", req, &resp)
+	return resp, err
+}
+
+func (t HTTPTransport) Commit(ctx context.Context, peer cc.Member, d *cc.Decision) error {
+	return t.call(ctx, peer, http.MethodPost, "/cluster/v1/commit", commitReq{Decision: d}, nil)
+}
+
+func (t HTTPTransport) Log(ctx context.Context, peer cc.Member, from uint64) ([]*cc.Decision, error) {
+	var resp logResp
+	err := t.call(ctx, peer, http.MethodGet, "/cluster/v1/log?from="+strconv.FormatUint(from, 10), nil, &resp)
+	return resp.Decisions, err
+}
+
+// httpError: node đích đã trả lời bằng mã lỗi HTTP.
+type httpError struct {
+	Status int
+	Msg    string
+}
+
+func (e *httpError) Error() string { return fmt.Sprintf("HTTP %d %s", e.Status, e.Msg) }
+
+// do gọi một đường dẫn trên node khác; in khác nil thì gửi JSON, out khác nil thì đọc JSON.
+func (n *Node) do(ctx context.Context, method, base, path string, check PeerCheck, in, out any) error {
 	tlsCfg, err := n.ClientTLS(check)
 	if err != nil {
 		return err
 	}
-	c := &http.Client{
-		Timeout:   10 * time.Second,
-		Transport: &http.Transport{TLSClientConfig: tlsCfg, DisableKeepAlives: true, ForceAttemptHTTP2: false},
+	c := &http.Client{Timeout: 15 * time.Second, Transport: &http.Transport{TLSClientConfig: tlsCfg, DisableKeepAlives: true}}
+	var body io.Reader
+	if in != nil {
+		b, err := json.Marshal(in)
+		if err != nil {
+			return err
+		}
+		body = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+path, nil)
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(base, "/")+path, body)
 	if err != nil {
 		return err
+	}
+	if in != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	resp, err := c.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	raw, err := io.ReadAll(io.LimitReader(resp.Body, 64<<20))
 	if err != nil {
 		return err
 	}
@@ -105,8 +234,11 @@ func (n *Node) Get(ctx context.Context, base, path string, check PeerCheck, out 
 		var e struct {
 			Error string `json:"error"`
 		}
-		_ = json.Unmarshal(body, &e)
-		return fmt.Errorf("%s%s: HTTP %d %s", base, path, resp.StatusCode, e.Error)
+		_ = json.Unmarshal(raw, &e)
+		return &httpError{resp.StatusCode, e.Error}
 	}
-	return json.Unmarshal(body, out)
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal(raw, out)
 }
