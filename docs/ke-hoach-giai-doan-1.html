@@ -183,6 +183,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
     <tr><th>Cổng</th><th>Dùng cho</th><th>Ai vào được</th></tr>
     <tr><td><code>6222</code></td><td>Agent: đăng ký, heartbeat, tải bản agent (sau này: log, rule)</td><td>Mọi nơi agent gọi tới (LAN, VLAN khác, Internet qua chuyển tiếp cổng). Bảo vệ bằng TLS 1.3, chứng chỉ máy và admin duyệt, không dựa vào tường lửa. Giới hạn 64 kết nối mỗi IP, 40.000 tổng</td></tr>
     <tr><td><code>7222</code></td><td>Web quản trị (luôn HTTPS)</td><td>Chỉ các dải trong <code>SCS_ADMIN_ALLOW</code>; IP khác bị đóng kết nối trước cả bước bắt tay TLS. Menu cho chọn "toàn mạng nội bộ" (10/8, 172.16/12, 192.168/16) cho công ty nhiều lớp mạng</td></tr>
+    <tr><td><code>5222</code></td><td>Liên lạc giữa các server trong cụm</td><td>Chỉ mở khi server đã thuộc một cụm hoặc đang xin vào. TLS 1.3 hai chiều; chỉ nhận server có khóa trong danh sách cụm, trừ yêu cầu xin vào cụm (giới hạn số lượng, admin duyệt trên mọi server). Xem <code>docs/thiet-ke-cum-server.md</code>.</td></tr>
   </table></div>
   <h3>Agent gọi server bằng địa chỉ nào cũng được</h3>
   <p>Agent <strong>chỉ kiểm chứng chỉ server có do CA riêng của server cấp</strong> (và dùng cho server), không so IP hay tên miền trong chứng chỉ. Vì vậy agent ở VLAN khác, gọi qua IP WAN có NAT, hay server đổi IP đều không phải cấp lại chứng chỉ. Không giả được server vì CA này chỉ cấp chứng chỉ server cho scs-server; chứng chỉ của các máy agent chỉ dùng được cho client.</p>
@@ -533,7 +534,10 @@ rules:
     <tr><td>A3</td><td>Quét log theo rule (khung rule + lệnh chạy thử đã có), đọc log liên tục, hàng đợi khi mất mạng</td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>A6</td><td>Agent khung tự cập nhật, kiểm chữ ký, tự quay về</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Triển khai</td><td>Menu cài / cập nhật server, gói cài agent một file; server chạy thử trên Ubuntu trong mạng nội bộ</td><td><span class="st st-done">Đã làm</span></td></tr>
-    <tr><td>C1 – C6</td><td>Cụm nhiều server ngang hàng: khóa riêng từng server thay CA, nhật ký quyết định quá nửa chữ ký, thêm / cô lập / gỡ server, cổng 5222, agent giữ server + chuyển kênh, web gom dữ liệu, phát hành bằng chữ ký nhiều server. Thiết kế: <code>docs/thiet-ke-cum-server.md</code></td><td><span class="st st-part">Đang làm</span></td></tr>
+    <tr><td>C1</td><td>Cụm: khóa riêng từng server thay CA, chứng chỉ tự ký, cổng 5222, nhật ký quyết định có chữ ký</td><td><span class="st st-done">Đã làm</span></td></tr>
+    <tr><td>C2</td><td>Cụm: đề nghị, ký quá nửa, bắt kịp nhật ký, phát hiện ký hai lần / tách nhánh <span class="st st-done">Đã làm</span>; đưa duyệt máy và cấu hình agent vào nhật ký <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
+    <tr><td>C3</td><td>Cụm: xin vào cụm qua mạng, admin xác nhận trên từng server, cô lập tại chỗ / toàn cụm, bỏ cô lập, gỡ; trang web "Cụm server"</td><td><span class="st st-done">Đã làm</span></td></tr>
+    <tr><td>C4 · C5 · C6</td><td>Agent theo cụm (tin danh sách cụm, giữ một server, chuyển kênh); trạng thái chung và web gom dữ liệu; phát hành bằng chữ ký nhiều server. Thiết kế: <code>docs/thiet-ke-cum-server.md</code></td><td><span class="st st-todo">Chưa làm</span></td></tr>
   </table></div>
   <p>Từ 2026-11-12 ưu tiên làm cụm (C1 trở đi) trước các mốc còn lại của bản một server (A3, M4, M5, M7). Phần nhận dữ liệu của từng server không đổi nên các mốc đó dùng lại được trong cụm.</p>
   <p>Sau phần phát triển: kiểm thử bảo mật (giả mạo máy, replay, bản cập nhật giả), pilot 100–200 máy ở 20–30 cửa hàng (tiêu chí: heartbeat thành công trên 99%, agent dùng dưới 5% CPU), rồi mở rộng theo vùng.</p>

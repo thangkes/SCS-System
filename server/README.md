@@ -67,10 +67,55 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=0.1.0" -o bin/s
 | `worker` | Xử lý hàng đợi | — |
 | `all` | Chạy tất cả (dev) | — |
 | `login-code` | In mã đăng nhập web hiện hành (chạy trên máy server, cùng user với dịch vụ); `-watch` để tự in mã mới; `-unlock` mở khóa khi bị khóa do nhập sai nhiều | — |
+| `pki` | Tạo CA nội bộ, chứng chỉ server, khóa phát hành: `pki init`, `pki server`, `pki release` | — |
+| `rules` | Viết rule quét log: `rules check`, `rules test`, `rules build` ([hướng dẫn](../docs/huong-dan-viet-rule.md)) | — |
+| `cluster` | Cụm nhiều server: `cluster init`, `status`, `ping`, `join` (xem mục "Cụm nhiều server" bên dưới) | `:5222` |
 | `version` | In phiên bản | — |
 
 Cấu hình đọc từ biến môi trường, tự nạp `./.env` nếu có, hoặc chỉ định `-env-file /etc/scs-server/server.env`.
 Biến đã có sẵn trong môi trường thắng giá trị trong file.
+
+## Cụm nhiều server
+
+Thiết kế: [docs/thiet-ke-cum-server.md](../docs/thiet-ke-cum-server.md). Cách lập cụm từng bước: [INSTALL.md mục 4](../INSTALL.md).
+Đã có: lập cụm, đề nghị và ký quá nửa, thêm / cô lập / gỡ server, trang web "Cụm server". Chưa có: agent theo cụm,
+duyệt máy qua cụm, trạng thái chung, phát hành bằng chữ ký nhiều server.
+
+| Thứ | Ở đâu |
+|---|---|
+| Định dạng quyết định, luật ký và bỏ phiếu (dùng chung với agent sau này) | `common/cluster/` |
+| Khóa node, nhật ký, đồng thuận, thêm / cô lập / gỡ node, cổng 5222 | `server/internal/cluster/` |
+| API cho trang web | `server/internal/app/cluster.go` (`/admin/v1/cluster...`) |
+| Lệnh `scs-server cluster` | `server/cmd/scs-server/cluster.go` |
+
+Thư mục cụm (`SCS_CLUSTER_DIR`, mặc định `data/cluster`, trên server đã cài là `/var/lib/scs-server/data/cluster`):
+
+| File | Nội dung |
+|---|---|
+| `node.key` | Khóa riêng Ed25519 của server (quyền 600). **Không chép sang máy khác.** Mất khóa thì server phải xin vào cụm lại bằng khóa mới |
+| `log.jsonl` | Nhật ký quyết định, mỗi dòng một quyết định có chữ ký. Mở lại là kiểm lại toàn bộ; mất thì tải lại được từ server khác |
+| `votes.json` | Phiếu server đã bỏ cho quyết định kế tiếp (ghi trước khi trả chữ ký, để khởi động lại không ký trùng) |
+| `local.json` | Riêng của server này: yêu cầu xin vào cụm đang chờ, xác nhận của admin, cô lập tại chỗ |
+| `join.json` | Có khi server đang xin vào cụm; tự xóa khi vào xong |
+
+Cổng 5222 (`SCS_CLUSTER_LISTEN`) chỉ mở khi có `log.jsonl` (đã thuộc cụm) hoặc `join.json` (đang xin vào), và chỉ khi chạy
+lệnh `all`. TLS 1.3 hai chiều; bên gọi phải có chứng chỉ, và trừ `hello` / `join` / `join-sign` thì khóa phải có trong danh sách cụm:
+
+| Đường dẫn | Ai gọi được | Việc |
+|---|---|---|
+| `GET /cluster/v1/hello` | ai có chứng chỉ | mã node, mã khóa, mã cụm rút gọn (để đối chiếu trước khi xin vào) |
+| `POST /cluster/v1/join` | ai có chứng chỉ (tối đa 20 yêu cầu chờ) | xin vào cụm; phải được admin duyệt trên mọi server |
+| `POST /cluster/v1/join-sign` | ai có chứng chỉ | chỉ server đang xin vào trả lời: ký quyết định thêm chính nó |
+| `GET /cluster/v1/status` | server trong cụm | trạng thái cụm, tách nhánh, server ký hai lần |
+| `POST /cluster/v1/propose`, `commit` | server trong cụm | xin chữ ký cho đề nghị; phát quyết định đã đủ chữ ký |
+| `GET /cluster/v1/log?from=N` | server trong cụm | đọc nhật ký từ quyết định số N (bắt kịp) |
+| `POST /cluster/v1/join-forward` | server trong cụm | chuyển yêu cầu xin vào cụm cho server khác |
+
+Lệnh `cluster` đọc và ghi thẳng thư mục cụm, nên chạy bằng đúng user của dịch vụ:
+`sudo -u scs /opt/scs-server/scs-server cluster status -env-file /etc/scs-server/server.env`. Sau `cluster init` / `cluster join`
+phải khởi động lại dịch vụ để mở cổng cụm.
+
+Test: `go test ./common/cluster/ ./server/internal/cluster/` (cụm 3, 4, 5 server trong bộ nhớ và qua TLS thật).
 
 ## Trạng thái
 
