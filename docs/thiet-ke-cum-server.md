@@ -1,6 +1,6 @@
 # Thiết kế cụm SCS-Server (nhiều server)
 
-Trạng thái: **bản thiết kế đã chốt (2026-11-12)**. Mốc **C1 đã có**: khóa node, chứng chỉ tự ký, nhật ký quyết định (quyết định tạo cụm), cổng 5222, lệnh `scs-server cluster init | status | ping`. Mốc **C2 đã có phần lõi**: đề nghị, bỏ phiếu theo round có bằng chứng, gom chữ ký quá nửa, phát và bắt kịp nhật ký qua 5222, phát hiện ký hai lần và tách nhánh (test với cụm 3, 4, 5 node). **Chưa có**: đưa duyệt / thu hồi máy và cấu hình agent vào nhật ký (C2 phần hai), quy trình thêm node qua mạng và web (C3). Tài liệu này ghi các quyết định đã chốt và cách làm chi tiết, để xem lại trước khi bắt đầu.
+Trạng thái: **bản thiết kế đã chốt (2026-11-12)**. Mốc **C1 đã có**: khóa node, chứng chỉ tự ký, nhật ký quyết định (quyết định tạo cụm), cổng 5222, lệnh `scs-server cluster init | status | ping`. Mốc **C3 đã có**: xin vào cụm qua mạng (`cluster join`), admin xác nhận trên từng node, cô lập tại chỗ / toàn cụm, bỏ cô lập, gỡ node, trang web "Cụm server". Mốc **C2 đã có phần lõi**: đề nghị, bỏ phiếu theo round có bằng chứng, gom chữ ký quá nửa, phát và bắt kịp nhật ký qua 5222, phát hiện ký hai lần và tách nhánh (test với cụm 3, 4, 5 node). **Chưa có**: đưa duyệt / thu hồi máy và cấu hình agent vào nhật ký (C2 phần hai, làm cùng C4), agent theo cụm (C4), trạng thái chung và web gom dữ liệu (C5), phát hành bằng chữ ký nhiều node (C6). Tài liệu này ghi các quyết định đã chốt và cách làm chi tiết, để xem lại trước khi bắt đầu.
 
 Mục lục
 
@@ -182,10 +182,19 @@ Cụm **từ 3 node** chịu được 1 node tắt; 5 node chịu được 2. C�
 
 Danh sách cụm **không phải file riêng**: nó được dựng lại từ các quyết định `member.*` trong nhật ký. Mỗi bản danh sách có **số đời** (epoch) tăng dần và mã băm của quyết định tạo ra nó.
 
+### Mọi thay đổi danh sách cụm cần admin xác nhận trên từng node
+
+Một node **chỉ ký** quyết định thêm / cô lập / bỏ cô lập / gỡ node khi **admin đã xác nhận việc đó trên chính node ấy** (trang web "Cụm server", đăng nhập bằng mã của node đó). Nhờ vậy một node bị chiếm không thể tự cô lập hay gỡ node khác, hay kéo node lạ vào cụm, chỉ bằng cách gửi đề nghị: các node chưa có xác nhận tại chỗ sẽ không ký.
+
+- Xác nhận có hạn 7 ngày; rút lại được khi quyết định chưa thành.
+- Node hỏi trước các node khác đã được xác nhận chưa rồi mới bỏ phiếu. Chưa đủ thì không bỏ phiếu, để không giữ chỗ làm chậm các quyết định khác; web báo rõ còn chờ node nào.
+- Quyết định về danh sách cụm có **dạng duy nhất**: cùng một việc (ví dụ "cô lập node X") thì node nào dựng cũng ra đúng một bản, nên khi admin xác nhận trên nhiều node, chữ ký cộng dồn vào một quyết định thay vì chia phiếu cho nhiều bản. Vì thế quyết định loại này không ghi tên admin hay giờ bấm; việc ai xác nhận lúc nào nằm trong log của từng node.
+- Server tự thử lại mỗi 30 giây các việc đã được xác nhận mà chưa đủ node.
+
 ### Tạo cụm (node đầu tiên)
 
 ```
-sudo scs-server cluster init --name hn-01
+sudo -u scs /opt/scs-server/scs-server cluster init -cluster scs -name hn-01 -addr https://<IP>:5222 -env-file /etc/scs-server/server.env
 ```
 
 Node đầu tiên tự ký quyết định `member.genesis` (cụm 1 node, quá nửa = 1). Mã băm của quyết định này là **mã cụm**, in ra màn hình và đóng vào gói cài agent.
@@ -193,8 +202,9 @@ Node đầu tiên tự ký quyết định `member.genesis` (cụm 1 node, quá 
 ### Thêm node
 
 ```
-Node mới D:  sudo scs-server cluster join https://<địa chỉ node A>:5222
-   │           (in mã khóa của D để admin đối chiếu)
+Node mới D:  scs-server cluster join https://<địa chỉ node A>:5222 -fingerprint <mã khóa của A> -name ... -addr ...
+   │           (D so mã khóa của A trước khi gửi: sai là dừng; in mã khóa của D để admin đối chiếu)
+   │           rồi khởi động lại scs-server trên D để mở cổng cụm
    ▼
 A nhận "xin vào cụm" (cổng 5222, giới hạn tần suất, tối đa 20 yêu cầu chờ), báo cho mọi node
    │
@@ -207,7 +217,7 @@ Admin đăng nhập web TỪNG node đang hoạt động (A, B, C) → trang "Se
 đủ chữ ký của MỌI node → quyết định member.add có hiệu lực
    │
    ▼
-D nhận toàn bộ nhật ký, kiểm chữ ký từ quyết định đầu tiên, dựng DB của nó → hòa mạng
+D (tự hỏi A mỗi 10 giây) tải toàn bộ nhật ký, kiểm chữ ký từ quyết định đầu tiên → hòa mạng
    │
    ▼
 heartbeat kế tiếp: mọi agent nhận danh sách cụm mới có D
@@ -406,7 +416,7 @@ Quy tắc quá nửa giả định node có thể **tắt** nhưng không **gian
 |---|---|---|
 | **C1** (đã có) | Khóa node, chứng chỉ tự ký, cổng 5222 với TLS hai chiều + kiểm khóa, `cluster init` | 1 node chạy, gọi 5222 không có khóa đúng bị ngắt |
 | **C2** | Nhật ký quyết định: đề nghị, ký, quá nửa, bắt kịp, chống ký trùng **(đã có)**; chuyển duyệt / thu hồi máy, cấu hình sang nhật ký (chưa) | 3 node trên một máy test: tắt 1 vẫn duyệt được máy, tắt 2 thì không; node bật lại tự bắt kịp |
-| **C3** | Thêm / cô lập / gỡ node, web "Server trong cụm" | thêm node cần đủ chữ ký mọi node; cô lập tại chỗ có hiệu lực ngay |
+| **C3** (đã có) | Thêm / cô lập / gỡ node, web "Cụm server" | thêm node cần đủ chữ ký mọi node; cô lập tại chỗ có hiệu lực ngay |
 | **C4** | Agent theo cụm: kiểm danh sách cụm thay CA, quy tắc gán server, giữ node, chuyển kênh, hỏi node khác mỗi 12 giờ; bước chuyển cho agent cũ | agent cũ và mới cùng chạy; cô lập node là agent rời đi ở lần hỏi kế tiếp |
 | **C5** | Trạng thái chung + web gom dữ liệu từ mọi node | web hiện đúng siêu thị online / offline khi máy chuyển kênh; node tắt thì web ghi rõ thiếu |
 | **C6** | Phát hành bản agent và bộ rule bằng chữ ký quá nửa node | agent từ chối bản chỉ có chữ ký của một node |

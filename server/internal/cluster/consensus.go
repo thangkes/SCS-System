@@ -663,15 +663,17 @@ func (n *Node) broadcast(ctx context.Context, d *cc.Decision) {
 }
 
 // Run: định kỳ bắt kịp nhật ký từ node khác cho tới khi ctx bị hủy.
-func (n *Node) Run(ctx context.Context, every time.Duration, onErr func(error)) error {
-	t := time.NewTicker(every)
-	defer t.Stop()
+func (n *Node) Run(ctx context.Context, every time.Duration, onErr func(error), onJoined func()) error {
 	for {
 		var err error
+		wait := every
 		if n.Joining() {
 			var joined bool
-			if joined, err = n.JoinStep(ctx); joined && onErr != nil {
-				onErr(errors.New("node đã được thêm vào cụm"))
+			if joined, err = n.JoinStep(ctx); joined && onJoined != nil {
+				onJoined()
+			}
+			if wait > 10*time.Second { // đang chờ duyệt: hỏi thường hơn để vào cụm sớm sau khi admin duyệt xong
+				wait = 10 * time.Second
 			}
 		} else if n.Initialized() {
 			if _, err = n.CatchUp(ctx); err == nil {
@@ -684,7 +686,7 @@ func (n *Node) Run(ctx context.Context, every time.Duration, onErr func(error)) 
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-t.C:
+		case <-time.After(wait):
 		}
 	}
 }

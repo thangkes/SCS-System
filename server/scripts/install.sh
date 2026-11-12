@@ -310,6 +310,18 @@ if command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active
 	ingest_port="${ingest_port:-6222}"
 	ufw allow "$ingest_port/tcp" comment "SCS agent" >/dev/null
 	ok "ufw: đã mở cổng agent $ingest_port"
+	# Cổng cụm (5222): chỉ mở khi server đã thuộc một cụm hoặc đang xin vào cụm. Cổng này chỉ nhận
+	# server có khóa trong danh sách cụm (và yêu cầu xin vào cụm, phải được admin duyệt).
+	cluster_dir="$(env_value "$ENV_FILE" SCS_CLUSTER_DIR)"
+	cluster_dir="${cluster_dir:-data/cluster}"
+	[[ "$cluster_dir" == /* ]] || cluster_dir="$DATA_DIR/$cluster_dir"
+	if [[ -f "$cluster_dir/log.jsonl" || -f "$cluster_dir/join.json" ]]; then
+		cluster_listen="$(env_value "$ENV_FILE" SCS_CLUSTER_LISTEN)"
+		cluster_port="${cluster_listen##*:}"
+		cluster_port="${cluster_port:-5222}"
+		ufw allow "$cluster_port/tcp" comment "SCS cum server" >/dev/null
+		ok "ufw: đã mở cổng cụm $cluster_port"
+	fi
 fi
 
 [[ "$(env_value "$ENV_FILE" SCS_ENV)" == prod ]] ||

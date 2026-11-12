@@ -213,3 +213,46 @@ Trên máy agent: `sudo scs-agent rules -install cong-ty.json`, rồi `sudo scs-
 - Dòng log mẫu dán vào `tests` phải che tên tài khoản, tên máy, IP, tên miền thật.
 - Hiện tại bộ rule cài tay và chỉ chạy thử được bằng `scs-agent rules -log`; agent tự đọc log và server tự phát
   bộ rule qua heartbeat là các mốc sau (A3, M7).
+
+---
+
+## 4. Cụm nhiều server (đang phát triển)
+
+Thiết kế và hiện trạng: [docs/thiet-ke-cum-server.md](docs/thiet-ke-cum-server.md). Hiện các server đã lập cụm, thêm /
+cô lập / gỡ server và ra quyết định chung được; **agent chưa chạy theo cụm** và việc duyệt máy vẫn theo từng server.
+
+Viết tắt bên dưới: `S="sudo -u scs /opt/scs-server/scs-server"`, `E="-env-file /etc/scs-server/server.env"`.
+
+**Server đầu tiên (tạo cụm):**
+
+```bash
+$S cluster init -cluster scs -name hn-01 -addr https://<IP server này>:5222 $E
+sudo systemctl restart scs-server        # mở cổng cụm 5222
+sudo bash server/scripts/install.sh      # (hoặc menu mục 3) để ufw mở cổng 5222; hoặc: sudo ufw allow 5222/tcp
+$S cluster status $E                     # ghi lại dòng "Mã khóa" để đưa cho server sắp vào cụm
+```
+
+**Server mới xin vào cụm:**
+
+```bash
+$S cluster join https://<IP server đầu>:5222 -fingerprint <Mã khóa của server đầu> -name hn-02 -addr https://<IP server này>:5222 $E
+sudo systemctl restart scs-server
+sudo ufw allow 5222/tcp                  # nếu ufw đang bật
+```
+
+Lệnh `join` so mã khóa trước khi gửi (sai là dừng, chống kẻ đứng giữa) và in **mã khóa của server mới**. Sau đó admin
+đăng nhập web của **từng** server trong cụm → trang **Cụm server** → mục "Server chờ vào cụm" → so mã khóa với mã vừa in →
+**Duyệt**. Đủ mọi server duyệt thì server mới tự vào cụm trong khoảng 10 giây (`$S cluster status $E`).
+
+**Cô lập / gỡ server** (trang Cụm server):
+
+- **Cô lập tại đây**: server đang mở web ngừng liên lạc với server kia **ngay**, không cần ai đồng ý. Dùng khi nghi bị tấn công.
+- **Cô lập toàn cụm / Bỏ cô lập / Gỡ khỏi cụm**: là xác nhận trên server đang mở web; phải xác nhận trên **quá nửa** số server
+  (không tính server bị nhắm tới) thì mới có hiệu lực. Server đã gỡ muốn vào lại phải xóa khóa cũ và xin vào từ đầu.
+
+Lưu ý:
+
+- Cụm nên có **từ 3 server, số lẻ**. Cụm 2 server tắt một là không ra được quyết định mới.
+- Sao lưu `/var/lib/scs-server/data/cluster/node.key` (khóa riêng của server, không chép sang máy khác). Nhật ký cụm
+  (`log.jsonl`) mất thì tải lại được từ server khác.
+- Đồng hồ các server phải đúng (NTP).

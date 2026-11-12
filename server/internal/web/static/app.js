@@ -556,6 +556,7 @@
           <thead><tr><th>Cổng</th><th>Dùng cho</th><th class="hide-sm">Ghi chú</th></tr></thead>
           <tbody>
             <tr><td class="mono strong">6222</td><td>Agent: đăng ký, heartbeat, log, rule, cập nhật</td><td class="hide-sm">Mở cho mạng cửa hàng. Bắt buộc chứng chỉ client trừ /v1/enroll.</td></tr>
+            <tr><td class="mono strong">5222</td><td>Liên lạc giữa các server trong cụm</td><td class="hide-sm">Chỉ mở khi server đã thuộc một cụm. Chỉ nhận server có khóa trong danh sách cụm.</td></tr>
             <tr><td class="mono strong">7222</td><td>Web quản trị (trang này)</td><td class="hide-sm">Luôn HTTPS. Chỉ VPN hoặc máy server (SCS_ADMIN_ALLOW); IP khác bị đóng kết nối ngay.</td></tr>
           </tbody></table></div>
       </div>
@@ -773,6 +774,132 @@
   }
 
   // ---------------------------------------------------------------- trang: sắp có
+  // ---------------------------------------------------------------- trang: Cụm server
+  // Mọi nút ở đây chỉ ghi XÁC NHẬN CỦA ADMIN TRÊN NODE NÀY. Quyết định có hiệu lực khi đủ số node
+  // cũng được xác nhận (thêm node: mọi node; còn lại: quá nửa) — phải đăng nhập web từng node.
+  const CLUSTER_ACT = {
+    'member.add': 'thêm node',
+    'member.isolate': 'cô lập',
+    'member.restore': 'bỏ cô lập',
+    'member.remove': 'gỡ khỏi cụm',
+  };
+
+  async function pageCluster() {
+    setTitle('Cụm server');
+    const page = view;
+    page.innerHTML = '<p class="hint">Đang tải…</p>';
+    async function load() {
+      let c;
+      try { c = await getJSON('/admin/v1/cluster'); } catch (err) { if (page === view) showLoadError(page, err); return; }
+      if (page !== view) return;
+      if (!c.enabled || !c.initialized) {
+        page.innerHTML = `<div class="card soon">${ICON.clock}<h2>${c.joining ? 'Node đang xin vào cụm' : 'Server này chưa thuộc cụm nào'}</h2>
+          <p>${c.joining
+    ? `Đã gửi yêu cầu qua <span class="mono">${esc(c.joining.target)}</span>. Admin cần duyệt trên web của mọi node trong cụm, so với mã khóa dưới đây.`
+    : 'Tạo cụm mới bằng lệnh <span class="mono">scs-server cluster init</span>, hoặc xin vào cụm đã có bằng <span class="mono">scs-server cluster join</span>.'}</p>
+          ${c.enabled ? `<p>Mã node <span class="mono strong">${esc(c.node_id)}</span><br>Mã khóa <span class="mono strong">${esc(c.fingerprint)}</span></p>` : ''}</div>`;
+        return;
+      }
+      const approved = (type, id) => Boolean((c.approvals || {})[`${type}:${id}`]);
+      const actBtn = (type, m, label, cls) => (approved(type, m.id)
+        ? `<button class="btn btn-sm" data-unapprove="${type}" data-id="${esc(m.id)}" data-name="${esc(m.name)}"${adminOnly()}>Rút xác nhận ${esc(CLUSTER_ACT[type])}</button>`
+        : `<button class="btn btn-sm ${cls || ''}" data-approve="${type}" data-id="${esc(m.id)}" data-name="${esc(m.name)}" data-fp="${esc(m.fingerprint)}"${adminOnly()}>${esc(label)}</button>`);
+      const waiting = Object.keys(c.approvals || {});
+      const equiv = Object.entries(c.equivocators || {});
+      page.innerHTML = `
+        ${c.fork ? `<div class="card soon">${ICON.warn}<h2>Nhật ký cụm bị tách nhánh</h2><p>${esc(c.fork)}</p>
+          <p>Server này đã dừng ra quyết định mới. Có node đã ký hai quyết định trái nhau: cô lập node đó rồi liên hệ người quản trị để chọn nhánh đúng.</p></div>` : ''}
+        ${equiv.length ? `<div class="card soon">${ICON.warn}<h2>Có node ký hai đề nghị trái nhau</h2>
+          <p>${equiv.map(([id, why]) => `<span class="mono strong">${esc(id)}</span>: ${esc(why)}`).join('<br>')}</p>
+          <p>Đây là dấu hiệu node bị chiếm quyền hoặc lỗi nặng. Nên cô lập node đó.</p></div>` : ''}
+        <div class="card">
+          <div class="card-head"><h2>Cụm ${esc(c.cluster)}</h2><span class="sub">Quyết định cần ${fmtNum(c.majority)}/${fmtNum(c.valid)} node hợp lệ ký; thêm node cần ${fmtNum(c.valid)}/${fmtNum(c.valid)}</span></div>
+          <dl class="kv">
+            <dt>Mã cụm</dt><dd class="mono">${esc(c.cluster_id)}</dd>
+            <dt>Node này</dt><dd><span class="mono strong">${esc(c.node_id)}</span></dd>
+            <dt>Mã khóa node này</dt><dd class="mono">${esc(c.fingerprint)}</dd>
+            <dt>Số quyết định</dt><dd>${fmtNum(c.seq)} (danh sách cụm đời ${fmtNum(c.epoch)})</dd>
+          </dl>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Node trong cụm</h2><span class="sub">Dòng chữ nhỏ dưới tên là mã khóa của node</span></div>
+          <p class="hint">"Cô lập tại đây" có hiệu lực ngay trên server này. Các nút còn lại là xác nhận của bạn trên server này: phải xác nhận trên đủ số server thì mới có hiệu lực.</p>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Node</th><th>Trạng thái</th><th class="hide-sm">Địa chỉ cổng cụm</th><th></th></tr></thead>
+            <tbody>${c.members.map((m) => `
+              <tr><td><span class="strong">${esc(m.name)}</span>${m.self ? ' <span class="pill pill-info no-dot">node này</span>' : ''}<br><span class="mono nowrap hint">${esc(m.fingerprint)}</span></td>
+                <td>${m.status === 'active' ? '<span class="pill pill-ok">Hoạt động</span>' : '<span class="pill pill-bad">Bị cô lập</span>'}
+                  ${m.isolated_local ? '<br><span class="pill pill-warn no-dot">Cô lập tại node này</span>' : ''}</td>
+                <td class="hide-sm mono">${m.addrs.cluster.map(esc).join('<br>')}</td>
+                <td>${m.self ? '' : `<div class="btns btns-col">
+                  <button class="btn btn-sm" data-local="${m.isolated_local ? 'off' : 'on'}" data-id="${esc(m.id)}" data-name="${esc(m.name)}"${adminOnly()}>${m.isolated_local ? 'Nối lại tại đây' : 'Cô lập tại đây'}</button>
+                  ${m.status === 'active' ? actBtn('member.isolate', m, 'Cô lập toàn cụm', 'btn-danger') : actBtn('member.restore', m, 'Bỏ cô lập')}
+                  ${actBtn('member.remove', m, 'Gỡ khỏi cụm')}
+                </div>`}</td></tr>`).join('')}
+            </tbody></table></div>
+          ${waiting.length ? `<p class="hint">Đã xác nhận trên node này, đang chờ các node khác: ${waiting.map((k) => {
+    const i = k.lastIndexOf(':'); return `${esc(CLUSTER_ACT[k.slice(0, i)] || k)} <span class="mono">${esc(k.slice(i + 1))}</span>`;
+  }).join(', ')}. Đăng nhập web của các node còn lại và xác nhận cùng việc đó.</p>` : ''}
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Server chờ vào cụm</h2><span class="sub">Phải duyệt trên mọi node. Chỉ duyệt khi mã khóa trùng với mã in trên chính server đó</span></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Tên node</th><th>Mã khóa (so với mã in trên server đó)</th><th class="hide-sm">Địa chỉ</th><th class="hide-sm">Nhận lúc</th><th></th></tr></thead>
+            <tbody>${c.joins.map((j) => `
+              <tr><td><span class="strong">${esc(j.member.name)}</span><br><span class="mono">${esc(j.member.id)}</span></td>
+                <td class="mono strong nowrap">${esc(j.fingerprint)}</td>
+                <td class="hide-sm mono">${j.member.addrs.cluster.map(esc).join('<br>')}</td>
+                <td class="hide-sm">${esc(fmtTime(new Date(j.received_at)))}${j.via ? '<br>qua node khác' : ''}</td>
+                <td><div class="btns">
+                  ${j.approved ? '<span class="pill pill-ok no-dot">Đã duyệt trên node này</span>'
+    : `<button class="btn btn-sm btn-primary" data-approve="member.add" data-id="${esc(j.member.id)}" data-name="${esc(j.member.name)}" data-fp="${esc(j.fingerprint)}"${adminOnly()}>Duyệt</button>`}
+                  <button class="btn btn-sm" data-reject="${esc(j.member.id)}" data-name="${esc(j.member.name)}"${adminOnly()}>Từ chối</button>
+                </div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Không có server nào đang xin vào cụm.</td></tr>'}
+            </tbody></table></div>
+        </div>
+        <p class="hint">Tự cập nhật mỗi 10 giây.</p>`;
+    }
+    page.addEventListener('click', async (e) => {
+      const b = e.target.closest('button');
+      if (!b || b.disabled) return;
+      const { id, name } = b.dataset;
+      try {
+        if (b.dataset.approve) {
+          const type = b.dataset.approve;
+          const isAdd = type === 'member.add';
+          const ok = await confirmBox(`Xác nhận ${CLUSTER_ACT[type]} ${name}?`,
+            `<p>Node <span class="mono strong">${esc(name)}</span> (${esc(id)})</p>
+             ${isAdd ? `<p>Mã khóa: <span class="mono strong">${esc(b.dataset.fp)}</span></p><p><strong>Chỉ duyệt khi mã này trùng với mã in trên chính server đó.</strong> Thêm node cần mọi node trong cụm duyệt.</p>`
+    : '<p>Đây là xác nhận trên node này. Cần quá nửa số node (không tính node bị nhắm tới) cùng xác nhận thì mới có hiệu lực.</p>'}`,
+            isAdd ? 'Duyệt' : 'Xác nhận', !isAdd);
+          if (!ok) return;
+          const r = await postJSON('/admin/v1/cluster/approve', { type, id });
+          toast(r.message);
+        } else if (b.dataset.unapprove) {
+          await postJSON('/admin/v1/cluster/unapprove', { type: b.dataset.unapprove, id });
+          toast(`Đã rút xác nhận ${CLUSTER_ACT[b.dataset.unapprove]} ${name}`);
+        } else if (b.dataset.reject) {
+          if (!(await confirmBox(`Từ chối ${name}?`, '<p>Yêu cầu bị xóa trên node này. Server đó có thể gửi lại.</p>', 'Từ chối', true))) return;
+          await postJSON('/admin/v1/cluster/reject-join', { id: b.dataset.reject });
+          toast(`Đã từ chối ${name}`);
+        } else if (b.dataset.local) {
+          const on = b.dataset.local === 'on';
+          if (on && !(await confirmBox(`Cô lập ${name} tại node này?`,
+            '<p>Node này ngừng liên lạc với node đó <strong>ngay lập tức</strong>, không cần node khác đồng ý. Dùng khi nghi node đó bị tấn công. Các node khác không bị ảnh hưởng cho tới khi bạn cô lập trên chúng hoặc cô lập toàn cụm.</p>', 'Cô lập ngay', true))) return;
+          await postJSON('/admin/v1/cluster/isolate-local', { id, on });
+          toast(on ? `Đã cô lập ${name} tại node này` : `Đã nối lại ${name} tại node này`);
+        } else {
+          return;
+        }
+        load();
+      } catch (err) {
+        toast(`Không làm được: ${err.message}`);
+      }
+    });
+    await load();
+    refreshTimer = setInterval(() => { if (!$('#dialog').open) load(); }, 10000);
+  }
+
   function pageSoon(title, text) {
     setTitle(title);
     view.innerHTML = `<div class="card soon">${ICON.clock}<h2>${esc(title)}</h2><p>${esc(text)}</p></div>`;
@@ -787,6 +914,7 @@
     'he-thong': pageSystem,
     rule: () => pageSoon('Rule quét log', 'Soạn, ký và gán bộ rule cho từng nhóm máy. Sẽ làm ở mốc M7.'),
     'cap-nhat': pageAgent,
+    cum: pageCluster,
   };
 
   function route() {
