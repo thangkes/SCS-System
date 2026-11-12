@@ -9,12 +9,14 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 
 	"github.com/thangkes/SCS-System/common/protocol"
 )
@@ -133,5 +135,75 @@ func TestRejectTampered(t *testing.T) {
 	other.Arch = "mips"
 	if Apply(context.Background(), &fakeDL{data: data}, other, state, pub) == nil {
 		t.Fatal("sai kiến trúc phải bị từ chối")
+	}
+}
+
+// Máy khởi động lại (đổi boot_id) khi bản mới chưa gọi được server thì không tính là bản mới chết;
+// chết trong cùng một lần bật máy thì có tính.
+func TestRebootNotCounted(t *testing.T) {
+	state, pub, priv := setup(t)
+	data := []byte("agent v4")
+	if err := Apply(context.Background(), &fakeDL{data: data}, release(priv, "v4", data), state, pub); err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	execBinary = func(string) error { n++; return errors.New("thử") }
+	boot := "boot-1"
+	bootID = func() string { return boot }
+	defer func() { execBinary, bootID = execBinaryOS, readBootID }()
+	t.Setenv(ChildEnv, "")
+
+	// Cửa hàng tắt máy mỗi tối, mạng tới server đứt 10 ngày: bản mới vẫn được giữ.
+	for i := 0; i < 10; i++ {
+		boot = fmt.Sprintf("boot-%d", i)
+		Launch(quiet, state, pub, "v1")
+	}
+	if cur, _ := Load(state); n != 10 || cur.Version != "v4" || cur.Tries != 0 || len(cur.Bad) != 0 {
+		t.Fatalf("reboot không được tính là lỗi: n=%d %+v", n, cur)
+	}
+	// Bản mới chết liên tục trong cùng một lần bật máy: lần thứ MaxTries thì quay về bản khung.
+	for i := 0; i < MaxTries; i++ {
+		Launch(quiet, state, pub, "v1")
+	}
+	cur, _ := Load(state)
+	if n != 10+MaxTries-1 || cur.Version != "" || len(cur.Bad) != 1 || cur.Bad[0] != "v4" {
+		t.Fatalf("chết %d lần phải bị đánh dấu hỏng: n=%d %+v", MaxTries, n, cur)
+	}
+}
+
+// Dấu hỏng tự hết sau BadFor: tải lại được (lỡ đánh dấu oan thì máy tự thử lại).
+func TestBadExpires(t *testing.T) {
+	state, pub, priv := setup(t)
+	data := []byte("agent v5")
+	u := release(priv, "v5", data)
+	t0 := time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC)
+	clock := t0
+	now = func() time.Time { return clock }
+	defer func() { now = time.Now }()
+	if err := save(state, Current{Bad: []string{"v5"}, BadAt: map[string]time.Time{"v5": t0}}); err != nil {
+		t.Fatal(err)
+	}
+	clock = t0.Add(BadFor - time.Minute)
+	if err := Apply(context.Background(), &fakeDL{data: data}, u, state, pub); !errors.Is(err, ErrBadRelease) {
+		t.Fatalf("chưa hết hạn: phải từ chối, được %v", err)
+	}
+	clock = t0.Add(BadFor)
+	if err := Apply(context.Background(), &fakeDL{data: data}, u, state, pub); err != nil {
+		t.Fatalf("hết hạn: phải tải lại được: %v", err)
+	}
+	if cur, _ := Load(state); cur.Version != "v5" || len(cur.Bad) != 0 || cur.BadAt != nil {
+		t.Fatalf("%+v", cur)
+	}
+}
+
+// Dấu hỏng ghi bởi bản agent cũ (không có thời điểm) vẫn chặn, rồi hết hạn tính từ lần đọc đầu.
+func TestLegacyBad(t *testing.T) {
+	state, pub, priv := setup(t)
+	data := []byte("agent v6")
+	u := release(priv, "v6", data)
+	os.MkdirAll(dir(state), 0o700)
+	os.WriteFile(filepath.Join(dir(state), "current.json"), []byte(`{"tries":0,"good":false,"bad":["v6"]}`), 0o600)
+	if err := Apply(context.Background(), &fakeDL{data: data}, u, state, pub); !errors.Is(err, ErrBadRelease) {
+		t.Fatalf("dấu hỏng cũ phải còn chặn: %v", err)
 	}
 }

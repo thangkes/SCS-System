@@ -28,6 +28,9 @@ var (
 	MaxEvery   = 1 * time.Hour
 	BackoffMin = 30 * time.Second
 	BackoffMax = 30 * time.Minute
+	// RetryUpdate: tải / kiểm bản agent mới lỗi thì bấy lâu sau mới thử lại (không thử mỗi heartbeat,
+	// nhưng cũng không bỏ hẳn tới khi tiến trình khởi động lại).
+	RetryUpdate = 1 * time.Hour
 )
 
 // ErrRestart: đã tải bản agent mới, cần khởi động lại để chạy bản đó (systemd tự bật lại).
@@ -52,7 +55,7 @@ func Run(ctx context.Context, d Deps) error {
 	backoff := BackoffMin
 	lastServer := d.Client.Current()
 	marked := false
-	failedUpdate := "" // bản tải / kiểm lỗi lần trước: không thử lại liên tục mỗi heartbeat
+	failedUpdate, failedAt := "", time.Time{} // bản tải / kiểm lỗi lần trước và lúc lỗi
 	for {
 		comps, _ := sysinfo.Components()
 		body := protocol.HeartbeatBody{UptimeS: int64(time.Since(start) / time.Second), RuleSetVersion: st.RuleSetVersion,
@@ -94,10 +97,11 @@ func Run(ctx context.Context, d Deps) error {
 					d.Log.Error("không lưu được cấu hình server gửi xuống", "err", err)
 				}
 			}
-			if u := resp.Update; u != nil && u.Version != d.Version && u.Version != failedUpdate {
+			if u := resp.Update; u != nil && u.Version != d.Version &&
+				(u.Version != failedUpdate || time.Since(failedAt) >= RetryUpdate) {
 				d.Log.Info("server yêu cầu chạy bản agent khác, đang tải", "tu", d.Version, "sang", u.Version)
 				if err := update.Apply(ctx, d.Client, *u, d.StateDir, d.ReleasePub); err != nil {
-					failedUpdate = u.Version
+					failedUpdate, failedAt = u.Version, time.Now()
 					d.Log.Error("không cập nhật được bản agent", "version", u.Version, "err", err)
 				} else {
 					d.Log.Info("đã tải và kiểm chữ ký bản agent mới, khởi động lại để chạy", "version", u.Version)

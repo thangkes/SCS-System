@@ -248,7 +248,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
     <li><span class="who">Admin</span><br>Trang <strong>Agent</strong> trên web: bấm <em>Phát hành nhóm thử</em> (các máy đánh dấu "nhóm thử" trong chi tiết máy), theo dõi số máy đang chạy từng bản, ổn rồi bấm <em>Phát hành tất cả</em>. Dừng phát hành thì máy giữ bản đang chạy; phát hành lại bản cũ là quay về.</li>
     <li><span class="who">Agent</span><br>Heartbeat nhận <code>update</code> (phiên bản, kiến trúc, SHA-256, kích thước, chữ ký). Agent tải qua kết nối có chứng chỉ máy, kiểm SHA-256 và chữ ký bằng khóa công khai phát hành (<code>/opt/scs-agent/release.pub</code>, root sở hữu, đóng trong gói cài), lưu vào thư mục trạng thái, rồi tự thoát để systemd khởi động lại.</li>
     <li><span class="who">Bản khung</span><br>Lúc khởi động, kiểm chữ ký <strong>lần nữa</strong> rồi chuyển sang chạy bản đã tải (exec). Bản mới gửi được heartbeat thì được ghi nhận là chạy tốt.</li>
-    <li><span class="who">Tự quay về</span><br>Bản mới khởi động 3 lần mà chưa gửi được heartbeat: bản khung đánh dấu bản đó hỏng, chạy tiếp chính nó và không tải lại bản hỏng.</li>
+    <li><span class="who">Tự quay về</span><br>Bản mới chết 3 lần (trong cùng một lần bật máy) mà chưa gửi được heartbeat: bản khung đánh dấu bản đó hỏng, chạy tiếp chính nó, 24 giờ sau mới thử lại. Máy tắt / khởi động lại (đổi boot_id) hay mất mạng không bị tính là lỗi.</li>
   </ol>
   <div class="note">Bản khung đóng vai watchdog: nó luôn còn trên máy, hiếm khi phải thay, và là đường lui khi bản cập nhật lỗi.</div>
   <div class="warn"><strong>Rủi ro còn lại:</strong> file tải về nằm trong thư mục mà user <code>scs-agent</code> ghi được; ai đã chiếm được user này có thể đổi file giữa lúc kiểm chữ ký và lúc chạy. Người đó vốn đã có khóa máy, nên mức tác động thấp. Khóa phát hành hiện nằm trên server (quyền 600); khi lên quy mô lớn nên chuyển sang ký offline.</div>
@@ -434,7 +434,7 @@ rules:
     <tr><td>Địa chỉ server đang dùng không kết nối được</td><td>Thử ngay địa chỉ kế tiếp trong danh sách server gửi xuống</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Server trả 429/503 hoặc lỗi mạng</td><td>Giãn nhịp theo cấp số nhân (30 giây … 30 phút) cộng jitter, theo <code>Retry-After</code> nếu có</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Máy bị thu hồi / chứng chỉ không còn hiệu lực</td><td>Ghi log, giãn nhịp tối đa, không thoát (systemd không khởi động lại liên tục)</td><td><span class="st st-done">Đã làm</span></td></tr>
-    <tr><td>Bản cập nhật sai chữ ký hoặc khởi động lỗi</td><td>Từ chối / quay về bản khung, không tải lại bản đó</td><td><span class="st st-done">Đã làm</span></td></tr>
+    <tr><td>Bản cập nhật sai chữ ký hoặc khởi động lỗi</td><td>Từ chối / quay về bản khung, 24 giờ sau mới thử lại; reboot, mất mạng không tính là lỗi</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Đồng hồ máy lệch</td><td>Bù theo header <code>Date</code> của server; script cài nhắc bật NTP</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Mất mạng khi có sự kiện log</td><td>Hàng đợi cục bộ (giới hạn 50 MB), đầy thì bỏ mức thấp trước, có mạng lại gửi dần</td><td><span class="st st-todo">Chưa làm</span></td></tr>
   </table></div>

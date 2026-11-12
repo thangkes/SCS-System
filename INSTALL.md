@@ -116,7 +116,8 @@ với server và chờ admin duyệt. Duyệt xong, agent nhận qua heartbeat (
 - **bản agent cần chạy**: mỗi lần cập nhật server (menu mục 4) có thêm bản agent cùng phiên bản; admin bấm
   **Phát hành nhóm thử** (các máy đánh dấu "nhóm thử" trong chi tiết máy) rồi **Phát hành tất cả**. Agent tải bản
   mới, kiểm **chữ ký của khóa phát hành** (khóa công khai đóng trong gói, root sở hữu), rồi tự khởi động lại chạy bản
-  đó. Bản mới khởi động 3 lần mà chưa gửi được heartbeat thì agent quay về bản khung và không tải lại bản đó.
+  đó. Bản mới **chết 3 lần** (trong cùng một lần bật máy) mà chưa gửi được heartbeat thì agent quay về bản khung
+  và 24 giờ sau mới thử lại bản đó. Máy tắt / khởi động lại hay mất mạng tới server **không** bị tính là lỗi.
 
 Không phải đóng gói hay cài lại khi có bản mới hoặc đổi cấu hình.
 

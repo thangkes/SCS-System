@@ -6,8 +6,10 @@
 //
 //   - Apply: tải bản server chỉ định, kiểm SHA-256 + chữ ký, ghi lại làm bản cần chạy.
 //   - Launch: lúc khởi động, bản khung kiểm lại chữ ký rồi chuyển sang chạy bản đó (exec).
-//     Bản mới khởi động MaxTries lần mà chưa gửi được heartbeat thì bị đánh dấu hỏng, bản khung
-//     chạy tiếp và không tải lại bản hỏng đó nữa.
+//     Bản mới chết MaxTries lần (trong cùng một lần bật máy) mà chưa gửi được heartbeat thì bị
+//     đánh dấu hỏng, bản khung chạy tiếp và không tải lại bản đó trong BadFor (24 giờ).
+//     Máy tắt / khởi động lại giữa chừng (đổi boot_id) không bị tính là bản mới chết; mất mạng
+//     cũng không, vì bản mới vẫn chạy và tự thử gọi server lại.
 //   - MarkGood: bản mới gửi heartbeat thành công thì được ghi nhận là chạy tốt.
 package update
 
@@ -24,6 +26,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strings"
+	"time"
 
 	"github.com/thangkes/SCS-System/common/protocol"
 )
@@ -32,15 +36,76 @@ import (
 // chuyển tiếp lần nữa).
 const ChildEnv = "SCS_AGENT_CHILD"
 
-// MaxTries: số lần khởi động bản mới mà chưa gửi được heartbeat trước khi coi là hỏng.
+// MaxTries: số lần bản mới chết (chưa gửi được heartbeat) trước khi coi là hỏng.
 const MaxTries = 3
+
+// BadFor: bản bị coi là hỏng thì bấy lâu sau mới được tải và thử lại (lỡ đánh dấu oan thì tự hết).
+var BadFor = 24 * time.Hour
+
+// Thay được trong test.
+var (
+	now    = time.Now
+	bootID = readBootID
+)
+
+// readBootID: mã của lần bật máy hiện tại (Linux); đổi sau mỗi lần khởi động lại. "" nếu không có.
+func readBootID() string {
+	b, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
 
 // Current: bản agent cần chạy, lưu ở <state>/update/current.json.
 type Current struct {
 	protocol.UpdateInfo
-	Tries int      `json:"tries"`
-	Good  bool     `json:"good"`
-	Bad   []string `json:"bad,omitempty"` // các bản đã hỏng, không tải lại
+	// Tries: số lần bản này đã chết khi chưa được ghi nhận chạy tốt.
+	Tries int  `json:"tries"`
+	Good  bool `json:"good"`
+	// Started + BootID: đã chuyển sang bản này trong lần bật máy nào. Lần khởi động sau cùng
+	// boot_id nghĩa là tiến trình trước đã chết (tính một lần); khác boot_id là máy đã khởi
+	// động lại (không tính).
+	Started bool   `json:"started,omitempty"`
+	BootID  string `json:"boot_id,omitempty"`
+	// Bad: các bản đã hỏng, không tải lại cho tới BadAt + BadFor.
+	Bad   []string             `json:"bad,omitempty"`
+	BadAt map[string]time.Time `json:"bad_at,omitempty"`
+}
+
+// markBad ghi bản v là hỏng từ lúc này.
+func (c *Current) markBad(v string) {
+	if !slices.Contains(c.Bad, v) {
+		c.Bad = append(c.Bad, v)
+	}
+	if c.BadAt == nil {
+		c.BadAt = map[string]time.Time{}
+	}
+	c.BadAt[v] = now()
+}
+
+// pruneBad bỏ các dấu hỏng đã quá BadFor. Dấu cũ chưa có thời điểm (bản agent trước) tính từ lúc này.
+func (c *Current) pruneBad() {
+	keep := c.Bad[:0]
+	for _, v := range c.Bad {
+		at, ok := c.BadAt[v]
+		if !ok {
+			if c.BadAt == nil {
+				c.BadAt = map[string]time.Time{}
+			}
+			at = now()
+			c.BadAt[v] = at
+		}
+		if now().Sub(at) < BadFor {
+			keep = append(keep, v)
+		} else {
+			delete(c.BadAt, v)
+		}
+	}
+	c.Bad = keep
+	if len(c.Bad) == 0 {
+		c.Bad, c.BadAt = nil, nil
+	}
 }
 
 // Downloader tải một đường dẫn trên server (client.Client.Download).
@@ -133,6 +198,7 @@ func Apply(ctx context.Context, dl Downloader, info protocol.UpdateInfo, stateDi
 	if err != nil {
 		return err
 	}
+	cur.pruneBad()
 	if slices.Contains(cur.Bad, info.Version) {
 		return ErrBadRelease
 	}
@@ -159,7 +225,7 @@ func Apply(ctx context.Context, dl Downloader, info protocol.UpdateInfo, stateDi
 	if err := writeAtomic(binPath(stateDir, info.Version), data, 0o700); err != nil {
 		return err
 	}
-	if err := save(stateDir, Current{UpdateInfo: info, Bad: cur.Bad}); err != nil {
+	if err := save(stateDir, Current{UpdateInfo: info, Bad: cur.Bad, BadAt: cur.BadAt}); err != nil {
 		return err
 	}
 	// Dọn bản cũ: chỉ giữ bản vừa tải.
@@ -200,16 +266,25 @@ func Launch(log *slog.Logger, stateDir, pubPath, selfVersion string) {
 	}
 	fail := func(reason string, err error) {
 		log.Error("không chạy bản cập nhật, chạy bản đang cài", "version", cur.Version, "ly_do", reason, "err", err)
-		cur.Bad = append(cur.Bad, cur.Version)
-		cur.UpdateInfo, cur.Tries, cur.Good = protocol.UpdateInfo{}, 0, false
+		cur.markBad(cur.Version)
+		cur.UpdateInfo, cur.Tries, cur.Good, cur.Started, cur.BootID = protocol.UpdateInfo{}, 0, false, false, ""
 		save(stateDir, cur)
 	}
 	if !cur.Good {
+		boot := bootID()
+		switch {
+		case !cur.Started:
+			// lần đầu chuyển sang bản này
+		case boot != "" && boot != cur.BootID:
+			log.Info("máy đã khởi động lại khi bản mới chưa gọi được server: không tính là lỗi", "version", cur.Version)
+		default:
+			cur.Tries++ // cùng lần bật máy mà phải khởi động lại: bản trước đã chết
+		}
 		if cur.Tries >= MaxTries {
-			fail(fmt.Sprintf("đã khởi động %d lần mà chưa gửi được heartbeat", cur.Tries), nil)
+			fail(fmt.Sprintf("đã chết %d lần mà chưa gửi được heartbeat", cur.Tries), nil)
 			return
 		}
-		cur.Tries++
+		cur.Started, cur.BootID = true, boot
 		if err := save(stateDir, cur); err != nil {
 			log.Warn("không ghi được số lần thử bản cập nhật, chạy bản đang cài", "err", err)
 			return
