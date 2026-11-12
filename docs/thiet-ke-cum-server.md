@@ -1,6 +1,6 @@
 # Thiết kế cụm SCS-Server (nhiều server)
 
-Trạng thái: **bản thiết kế, chưa code**. Tài liệu này ghi các quyết định đã chốt và cách làm chi tiết, để xem lại trước khi bắt đầu.
+Trạng thái: **bản thiết kế đã chốt (2026-11-12), đang làm mốc C1**. Tài liệu này ghi các quyết định đã chốt và cách làm chi tiết, để xem lại trước khi bắt đầu.
 
 Mục lục
 
@@ -19,7 +19,7 @@ Mục lục
 13. [Chuyển từ một server lên cụm](#13-chuyển-từ-một-server-lên-cụm)
 14. [Mối đe dọa và cách chặn](#14-mối-đe-dọa-và-cách-chặn)
 15. [Thứ tự làm](#15-thứ-tự-làm)
-16. [Giả định cần xác nhận](#16-giả-định-cần-xác-nhận)
+16. [Đã xác nhận](#16-đã-xác-nhận-2026-11-12)
 
 ---
 
@@ -31,14 +31,16 @@ Chạy nhiều SCS-Server thành một **mạng lưới ngang hàng**: server n�
 |---|---|
 | Q1 | Dữ liệu agent gửi về server nào thì **server đó giữ**, không đồng bộ. Web quản trị xem được dữ liệu ở mọi server. **Trạng thái siêu thị chia sẻ chung.** |
 | Q2 | Máy được duyệt trên một server thì **được cả mạng lưới nhận**. Liên lạc giữa server phải chống server lạ và kẻ đứng giữa. |
-| Q3 | **Đồng thuận theo quy tắc quá nửa**: một quyết định chỉ có hiệu lực khi đủ chữ ký của quá nửa số server. |
+| Q3 | **Đồng thuận theo quy tắc quá nửa**: một quyết định chỉ có hiệu lực khi đủ chữ ký của quá nửa số server **đang hoạt động và hợp lệ**. Riêng **thêm server cần 100%**. |
 | Q4 | **Bỏ CA.** Agent và server tin nhau qua **danh sách cụm có chữ ký** của các server. |
-| Q5 | **Thêm server phải được mọi server đang có duyệt** (điều kiện bắt buộc để hòa mạng). Có **cô lập** (khẩn cấp) và **gỡ** server. |
+| Q5 | **Thêm server phải được mọi server hợp lệ duyệt** (điều kiện bắt buộc để hòa mạng). Có **cô lập** (khẩn cấp) và **gỡ** server, theo quá nửa. |
 | Q6 | Web quản trị chạy trên mọi server, thay đổi đi qua đồng thuận. |
 | Q7 | Server liên lạc với nhau qua **cổng riêng 5222**. |
-| Q8 | Agent giữ một server, nhưng **định kỳ hỏi server khác** về danh sách cụm (để thoát khỏi server bị hack). |
+| Q8 | Agent giữ một server, nhưng **mỗi 12 giờ hỏi một server khác bất kỳ, chọn ngẫu nhiên** về danh sách cụm (để thoát khỏi server bị hack). |
 | Q9 | **Bản agent phải có chữ ký của quá nửa số server, mỗi chữ ký chỉ có sau khi admin xác nhận trên chính server đó.** Không còn một khóa phát hành duy nhất. |
 | Q10 | Hỗ trợ mọi kiểu mạng: cùng LAN, khác VLAN, Internet (IP WAN tĩnh, chuyển tiếp cổng / NAT, DDNS), VPN (WireGuard, Tailscale). |
+| Q11 | Lần đầu agent gọi một server; server trả về **danh sách server của máy đó theo quy tắc gán server** (đặt trên web). |
+| Q12 | **Làm cụm ngay**, trước các mốc còn lại của bản một server. |
 
 ## 2. Thuật ngữ
 
@@ -50,7 +52,9 @@ Chạy nhiều SCS-Server thành một **mạng lưới ngang hàng**: server n�
 | **Danh sách cụm** | các node đang có: mã node, tên, khóa công khai, địa chỉ, trạng thái (hoạt động / cô lập) |
 | **Quyết định** | một thay đổi chung của cụm (duyệt máy, đổi cấu hình, thêm server…) |
 | **Nhật ký quyết định** | chuỗi quyết định nối nhau bằng mã băm, mỗi quyết định có chữ ký của nhiều node |
-| **Quá nửa** | ⌊N/2⌋ + 1, với N = số node **đang hoạt động** (không tính node bị cô lập) |
+| **Node hợp lệ** | node có trong danh sách cụm, đang hoạt động (không bị cô lập, không bị gỡ) |
+| **Quá nửa** | ⌊N/2⌋ + 1, với N = số node **hợp lệ trong danh sách cụm** |
+| **Quy tắc gán server** | quyết định cho biết nhóm máy nào dùng những node nào, theo thứ tự nào |
 
 ## 3. Kiến trúc: ba loại dữ liệu, ba cổng
 
@@ -88,6 +92,7 @@ Mỗi node có **PostgreSQL riêng**. NATS vẫn dùng nội bộ trong từng n
 - Chứng chỉ TLS của node là **chứng chỉ tự ký từ chính khóa node**, trên cả 3 cổng. Không cần CA.
 - Khi nối tới một node khác (5222) hay khi agent nối tới node (6222), bên gọi **so khóa công khai trong chứng chỉ với danh sách cụm**. Không có trong danh sách hoặc đang bị cô lập thì ngắt kết nối. Không so IP hay tên miền, nên đi qua LAN, NAT, VPN hay đổi IP đều không ảnh hưởng.
 - Kẻ đứng giữa không có khóa node thì không giả được node, dù chặn được đường truyền.
+- Nhật ký quyết định lưu ở `/var/lib/scs-server/cluster/` (file chỉ ghi thêm, mỗi quyết định một dòng). Mỗi quyết định đều có chữ ký, nên node mất file vẫn tải lại được từ node khác và tự kiểm, không cần tin node đưa.
 
 ### Agent
 
@@ -154,10 +159,21 @@ mỗi node kiểm lại đủ chữ ký hợp lệ rồi mới áp dụng vào D
 |---|---|
 | Duyệt / từ chối / thu hồi máy, đổi mã siêu thị, cấu hình agent, nhóm phát hành, bộ rule | **quá nửa** node đang hoạt động |
 | Phát hành bản agent | **quá nửa**, và mỗi chữ ký chỉ có sau khi admin xác nhận trên chính node đó ([mục 10](#10-phát-hành-bản-agent-và-bộ-rule)) |
-| Cô lập node X trên toàn cụm | **quá nửa** node đang hoạt động, không tính X |
-| Gỡ hẳn node X | **mọi** node đang hoạt động trừ X |
-| Thêm node | **mọi** node đang hoạt động, mỗi node do admin duyệt trên chính node đó |
+| Quy tắc gán server | **quá nửa** |
+| Cô lập node X trên toàn cụm | **quá nửa** node hợp lệ, không tính X |
+| Bỏ cô lập node X | **quá nửa**, mỗi chữ ký cần admin xác nhận trên chính node đó |
+| Gỡ hẳn node X | **quá nửa** node hợp lệ, không tính X |
+| **Thêm node** | **100% node hợp lệ**, mỗi node do admin duyệt trên chính node đó |
 | Đổi địa chỉ của node X | chữ ký của X + quá nửa |
+
+### "Còn sống và hợp lệ" tính thế nào
+
+Quá nửa tính trên **số node hợp lệ trong danh sách cụm**, không tính trên số node *đang trả lời được lúc đó*. Đây là điều bắt buộc:
+
+- Nếu đếm theo node đang trả lời, khi mạng giữa hai địa điểm đứt, **mỗi bên đều thấy mình là quá nửa của những node còn liên lạc được**, và hai bên ra hai quyết định trái nhau (ví dụ bên này duyệt, bên kia thu hồi cùng một máy). Không gộp lại được.
+- Đếm theo danh sách cụm thì luôn chỉ có tối đa một bên đủ quá nửa.
+
+Một node **chết hẳn** (hỏng máy, không bật lại được) vẫn nằm trong mẫu số cho tới khi bị cô lập hay gỡ. Cách xử lý: các node còn lại **cô lập** node chết (quá nửa), từ đó nó không còn được tính, rồi gỡ hẳn khi chắc chắn không dùng nữa. Ví dụ cụm 5 node chết 1: cô lập cần 3 trong 4 node còn lại; sau đó quá nửa là 3/4, thêm node mới cần cả 4/4.
 
 Cụm **từ 3 node** chịu được 1 node tắt; 5 node chịu được 2. Cụm 2 node vẫn chạy được, nhưng quá nửa của 2 là 2: tắt một node là không ra được quyết định mới (agent vẫn gửi dữ liệu bình thường).
 
@@ -196,7 +212,7 @@ D nhận toàn bộ nhật ký, kiểm chữ ký từ quyết định đầu ti�
 heartbeat kế tiếp: mọi agent nhận danh sách cụm mới có D
 ```
 
-Một node đang tắt thì không thêm được node mới. Phải chờ node đó bật lại, hoặc gỡ nó khỏi cụm trước.
+Thêm node cần **100% node hợp lệ**. Một node đang tắt thì không thêm được node mới: chờ node đó bật lại, hoặc cô lập nó trước (quá nửa), rồi mới thêm.
 
 ### Cô lập node (khi nghi bị tấn công)
 
@@ -205,11 +221,11 @@ Có hai mức, làm được cùng lúc:
 1. **Cô lập tại chỗ (ngay lập tức, không cần đồng thuận):** admin bấm "Cô lập X" trên node A. A ngừng nhận kết nối 5222 từ X, ngừng ký đề nghị của X, không tính chữ ký của X nữa. Chỉ làm giảm niềm tin nên không cần ai đồng ý và không thể bị lợi dụng. Làm trên các node còn lại để cô lập X ở cả cụm ngay.
 2. **Cô lập toàn cụm (quyết định `member.isolate`, quá nửa node không tính X):** X bị đánh dấu cô lập trong danh sách cụm. **Agent nhận danh sách mới thì không gửi dữ liệu cho X nữa** và chuyển sang node khác. X không còn được tính vào quá nửa.
 
-Bỏ cô lập (`member.restore`) cần quá nửa node, và admin xác nhận trên từng node như khi thêm node, vì đây là cho node đó lấy lại quyền.
+Bỏ cô lập (`member.restore`) cần quá nửa node, và mỗi chữ ký cần admin xác nhận trên chính node đó, vì đây là cho node đó lấy lại quyền.
 
 ### Gỡ node
 
-`member.remove`: **mọi** node đang hoạt động trừ X ký. Khóa của X bị xóa khỏi danh sách cụm vĩnh viễn; muốn quay lại thì X phải sinh khóa mới và xin vào cụm từ đầu. Dữ liệu lớn (loại C) nằm trên X không còn xem được qua web; nếu cần giữ lại thì sao lưu DB của X trước khi gỡ.
+`member.remove`: **quá nửa** node hợp lệ trừ X ký. Khóa của X bị xóa khỏi danh sách cụm vĩnh viễn; muốn quay lại thì X phải sinh khóa mới và xin vào cụm từ đầu. Dữ liệu lớn (loại C) nằm trên X không còn xem được qua web; nếu cần giữ lại thì sao lưu DB của X trước khi gỡ.
 
 ## 7. Trạng thái chung (siêu thị, máy)
 
@@ -242,10 +258,31 @@ Không đưa vào nhật ký quyết định: thay đổi quá nhiều (mỗi m�
 
 Gói cài agent mang **mã cụm** và **danh sách cụm mới nhất kèm chuỗi quyết định `member.*`** (thay cho `agent-ca.pem`), cùng địa chỉ của mọi node. Agent kiểm chuỗi từ quyết định đầu tiên nên không thể bị đưa danh sách giả.
 
+### Quy tắc gán server
+
+Admin đặt trên web (quyết định `assign.set`, quá nửa) **nhóm máy nào dùng những node nào, theo thứ tự nào**. Ví dụ:
+
+| Điều kiện (khớp từ trên xuống) | Danh sách node | Thứ tự |
+|---|---|---|
+| mã siêu thị trong khoảng 10001–10500 | hn-01, hn-02, hcm-01 | cố định (ưu tiên hn-01) |
+| hostname khớp mẫu `*-TN1-PRI` | hn-02, hn-01 | cố định |
+| máy trong nhóm thử | test-01 | cố định |
+| **mặc định** (không khớp quy tắc nào) | mọi node hợp lệ | **trộn theo từng máy** (chia tải đều) |
+
+- Node bị cô lập hay gỡ tự bị bỏ khỏi mọi danh sách.
+- Danh sách của một máy do node tính, gửi xuống trong mỗi heartbeat.
+- "Trộn theo từng máy" dùng mã máy làm hạt giống: một máy luôn nhận cùng thứ tự (không nhảy giữa các node), các máy khác nhau thì rải đều.
+
 ### Chọn và giữ node
 
 ```
-lần đầu: chọn ngẫu nhiên một node đang hoạt động (chia tải đều)
+lần đầu: agent gọi lần lượt các node trong gói cài tới khi một node trả lời
+   │
+   ▼
+node đó trả về danh sách node CỦA MÁY NÀY theo quy tắc gán server
+   │
+   ▼
+agent dùng node đầu tiên gọi được trong danh sách đó
    │
    ▼
 gửi heartbeat ── được ──▶ GIỮ node này (lưu lại, khởi động lại vẫn dùng node này)
@@ -253,7 +290,7 @@ gửi heartbeat ── được ──▶ GIỮ node này (lưu lại, khởi đ
  lỗi (không kết nối được, hoặc node trả lỗi 5xx)
    │
    ▼
-thử lần lượt các node khác (thứ tự ngẫu nhiên) ── được ──▶ giữ node mới, không tự quay về node cũ
+thử lần lượt các node khác theo thứ tự trong danh sách của máy ── được ──▶ giữ node mới, không tự quay về node cũ
    │
  hết danh sách
    │
@@ -262,7 +299,8 @@ chờ rồi thử lại từ đầu (30 giây → 30 phút)
 ```
 
 - Mỗi heartbeat, node trả về **số đời danh sách cụm** đang có. Agent thấy số mới hơn thì tải chuỗi quyết định `member.*` còn thiếu, kiểm chữ ký từng quyết định theo danh sách trước đó, rồi mới dùng.
-- **Hỏi node khác định kỳ (Q8):** mỗi giờ (lệch ngẫu nhiên ±20%), agent hỏi **một node khác ngẫu nhiên** số đời danh sách cụm. Thấy danh sách mới hơn của node đang giữ thì cập nhật. Nếu node đang giữ đã bị cô lập hay gỡ, agent **chuyển kênh ngay**. Như vậy một node bị hack không giữ được agent quá 1 giờ sau khi bị cô lập.
+- **Hỏi node khác định kỳ (Q8):** **mỗi 12 giờ** (lệch ngẫu nhiên ±20%, để hàng nghìn máy không hỏi cùng lúc) và mỗi lần agent khởi động, agent hỏi **một node khác bất kỳ, chọn ngẫu nhiên** trong danh sách cụm về số đời danh sách cụm. Thấy danh sách mới hơn thì tải, kiểm chữ ký rồi dùng. Nếu node đang giữ đã bị cô lập hay gỡ, agent **chuyển kênh ngay**.
+- **Đánh đổi của 12 giờ:** một node bị hack rồi bị cô lập vẫn có thể giữ các agent đang bám nó **tối đa khoảng 14 giờ** (12 giờ + 20%), vì node bị hack sẽ không tự báo cho agent. Trong thời gian đó nó nhận được dữ liệu trạng thái của các máy này, nhưng **không ra được lệnh gì cho máy** (bản agent và bộ rule vẫn cần chữ ký quá nửa node). Muốn rút ngắn thì giảm chu kỳ này.
 - Agent **không gửi dữ liệu** cho node bị cô lập, dù node đó vẫn trả lời.
 - **Sự kiện chưa gửi được** (hàng đợi trên máy, mốc A3) được gửi cho node mới sau khi chuyển kênh.
 
@@ -341,7 +379,7 @@ Mỗi node khai **danh sách địa chỉ cho từng cổng** (5222 cho node kh�
 | Kẻ đứng giữa agent và node | agent chỉ tin khóa node có trong danh sách cụm đã ký |
 | Một node bị hack ra quyết định bậy | cần chữ ký quá nửa; node khác tự kiểm trước khi áp dụng |
 | Một node bị hack ký bản agent độc | cần quá nửa chữ ký, mỗi chữ ký cần admin xác nhận trên chính node đó |
-| Một node bị hack giữ agent lại | agent mỗi giờ hỏi node khác; cô lập node đó là agent rời đi |
+| Một node bị hack giữ agent lại | agent mỗi 12 giờ hỏi một node khác; cô lập node đó là agent rời đi trong tối đa ~14 giờ |
 | Một node bị hack khai sai trạng thái máy | chỉ khai sai được máy đang gửi về nó; cô lập thì bị bỏ |
 | Một node bị hack từ chối ký (phá hoại) | quá nửa vẫn đủ; cô lập node đó tại chỗ ngay |
 | Đánh cắp đường truyền rồi gửi lại gói cũ | quyết định có `seq`, `prev`, `nonce`; heartbeat có giờ + nonce (làm luôn phần kiểm nonce còn thiếu) |
@@ -355,17 +393,17 @@ Mỗi node khai **danh sách địa chỉ cho từng cổng** (5222 cho node kh�
 | **C1** | Khóa node, chứng chỉ tự ký, cổng 5222 với TLS hai chiều + kiểm khóa, `cluster init` | 1 node chạy, gọi 5222 không có khóa đúng bị ngắt |
 | **C2** | Nhật ký quyết định: đề nghị, ký, quá nửa, bắt kịp, chống ký trùng; chuyển duyệt / thu hồi máy, cấu hình sang nhật ký | 3 node trên một máy test: tắt 1 vẫn duyệt được máy, tắt 2 thì không; node bật lại tự bắt kịp |
 | **C3** | Thêm / cô lập / gỡ node, web "Server trong cụm" | thêm node cần đủ chữ ký mọi node; cô lập tại chỗ có hiệu lực ngay |
-| **C4** | Agent theo cụm: kiểm danh sách cụm thay CA, giữ node, chuyển kênh, hỏi node khác mỗi giờ; bước chuyển cho agent cũ | agent cũ và mới cùng chạy; cô lập node là agent rời đi trong ≤ 1 giờ |
+| **C4** | Agent theo cụm: kiểm danh sách cụm thay CA, quy tắc gán server, giữ node, chuyển kênh, hỏi node khác mỗi 12 giờ; bước chuyển cho agent cũ | agent cũ và mới cùng chạy; cô lập node là agent rời đi ở lần hỏi kế tiếp |
 | **C5** | Trạng thái chung + web gom dữ liệu từ mọi node | web hiện đúng siêu thị online / offline khi máy chuyển kênh; node tắt thì web ghi rõ thiếu |
 | **C6** | Phát hành bản agent và bộ rule bằng chữ ký quá nửa node | agent từ chối bản chỉ có chữ ký của một node |
 
 Các mốc của bản một server (A3 đọc log, M4 lưu trạng thái máy, M5 gửi log, M7 phát rule) vẫn dùng lại được trong cụm: phần nhận dữ liệu của từng node không đổi.
 
-## 16. Giả định cần xác nhận
+## 16. Đã xác nhận (2026-11-12)
 
-1. **Thêm node cần mọi node duyệt**, còn mọi việc khác theo quá nửa (cô lập: quá nửa; gỡ: mọi node trừ node bị gỡ). Đúng ý bạn chưa?
-2. **Quá nửa tính trên số node đang hoạt động**, không tính node bị cô lập.
-3. **Bộ rule** chỉ cần quá nửa chữ ký, không cần admin xác nhận trên từng node.
-4. **Lần đầu agent chọn node ngẫu nhiên** để chia tải. Hay bạn muốn gán node theo vùng (ví dụ siêu thị miền Bắc ưu tiên node Hà Nội)?
-5. **Agent hỏi node khác mỗi giờ.** Ngắn hơn thì cô lập có hiệu lực nhanh hơn, nhưng thêm kết nối.
-6. **Làm cụm trước, hay làm tiếp phần một server (A3, M4) trước** rồi mới làm cụm?
+1. Thêm node cần **100%** node hợp lệ; mọi việc khác theo **quá nửa** (kể cả gỡ node).
+2. Quá nửa chỉ tính **node hợp lệ** (không bị cô lập, không bị gỡ), đếm theo danh sách cụm, không theo số node đang trả lời ([mục 5](#còn-sống-và-hợp-lệ-tính-thế-nào)).
+3. Bộ rule chỉ cần quá nửa chữ ký, không cần admin xác nhận từng node.
+4. Lần đầu agent gọi một node, rồi nhận **danh sách node theo quy tắc gán server** ([mục 9](#quy-tắc-gán-server)).
+5. Agent hỏi **một node khác bất kỳ, chọn ngẫu nhiên** mỗi **12 giờ** (và mỗi lần khởi động).
+6. **Làm cụm ngay**, bắt đầu từ mốc C1.

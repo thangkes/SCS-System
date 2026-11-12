@@ -533,7 +533,9 @@ rules:
     <tr><td>A3</td><td>Quét log theo rule (khung rule + lệnh chạy thử đã có), đọc log liên tục, hàng đợi khi mất mạng</td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>A6</td><td>Agent khung tự cập nhật, kiểm chữ ký, tự quay về</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Triển khai</td><td>Menu cài / cập nhật server, gói cài agent một file; server chạy thử trên Ubuntu trong mạng nội bộ</td><td><span class="st st-done">Đã làm</span></td></tr>
+    <tr><td>C1 – C6</td><td>Cụm nhiều server ngang hàng: khóa riêng từng server thay CA, nhật ký quyết định quá nửa chữ ký, thêm / cô lập / gỡ server, cổng 5222, agent giữ server + chuyển kênh, web gom dữ liệu, phát hành bằng chữ ký nhiều server. Thiết kế: <code>docs/thiet-ke-cum-server.md</code></td><td><span class="st st-part">Đang làm</span></td></tr>
   </table></div>
+  <p>Từ 2026-11-12 ưu tiên làm cụm (C1 trở đi) trước các mốc còn lại của bản một server (A3, M4, M5, M7). Phần nhận dữ liệu của từng server không đổi nên các mốc đó dùng lại được trong cụm.</p>
   <p>Sau phần phát triển: kiểm thử bảo mật (giả mạo máy, replay, bản cập nhật giả), pilot 100–200 máy ở 20–30 cửa hàng (tiêu chí: heartbeat thành công trên 99%, agent dùng dưới 5% CPU), rồi mở rộng theo vùng.</p>
 </section>
 
