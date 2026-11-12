@@ -61,6 +61,10 @@ type Config struct {
 	ReleaseKey    string
 	AgentDist     string
 	AgentReleases string
+	// ClusterDir (SCS_CLUSTER_DIR): khóa node + nhật ký quyết định của cụm. ClusterListen
+	// (SCS_CLUSTER_LISTEN): cổng liên lạc giữa các server, chỉ mở khi node đã thuộc một cụm.
+	ClusterDir    string
+	ClusterListen string
 }
 
 type DB struct {
@@ -128,6 +132,8 @@ func Load() (*Config, error) {
 		ReleaseKey:    get("SCS_RELEASE_KEY", ""),
 		AgentDist:     get("SCS_AGENT_DIST", "/opt/scs-server/agent"),
 		AgentReleases: get("SCS_AGENT_RELEASES", "data/agent-releases"),
+		ClusterDir:    get("SCS_CLUSTER_DIR", "data/cluster"),
+		ClusterListen: get("SCS_CLUSTER_LISTEN", ":5222"),
 	}
 	errs = append(errs, c.validate()...)
 	if len(errs) > 0 {

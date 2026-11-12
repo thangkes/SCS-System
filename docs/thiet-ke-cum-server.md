@@ -1,6 +1,6 @@
 # Thiết kế cụm SCS-Server (nhiều server)
 
-Trạng thái: **bản thiết kế đã chốt (2026-11-12), đang làm mốc C1**. Tài liệu này ghi các quyết định đã chốt và cách làm chi tiết, để xem lại trước khi bắt đầu.
+Trạng thái: **bản thiết kế đã chốt (2026-11-12)**. Mốc **C1 đã có**: khóa node, chứng chỉ tự ký, nhật ký quyết định (quyết định tạo cụm), cổng 5222, lệnh `scs-server cluster init | status | ping`. Đang làm C2. Tài liệu này ghi các quyết định đã chốt và cách làm chi tiết, để xem lại trước khi bắt đầu.
 
 Mục lục
 
@@ -88,11 +88,11 @@ Mỗi node có **PostgreSQL riêng**. NATS vẫn dùng nội bộ trong từng n
 
 ### Node
 
-- Lúc cài, node sinh **khóa node Ed25519** (`/etc/scs-server/pki/node.key`, quyền 600, user `scs`).
+- Node sinh **khóa node Ed25519** lần đầu chạy lệnh cụm (`SCS_CLUSTER_DIR/node.key`, mặc định `/var/lib/scs-server/data/cluster/node.key`, quyền 600, user `scs`).
 - Chứng chỉ TLS của node là **chứng chỉ tự ký từ chính khóa node**, trên cả 3 cổng. Không cần CA.
 - Khi nối tới một node khác (5222) hay khi agent nối tới node (6222), bên gọi **so khóa công khai trong chứng chỉ với danh sách cụm**. Không có trong danh sách hoặc đang bị cô lập thì ngắt kết nối. Không so IP hay tên miền, nên đi qua LAN, NAT, VPN hay đổi IP đều không ảnh hưởng.
 - Kẻ đứng giữa không có khóa node thì không giả được node, dù chặn được đường truyền.
-- Nhật ký quyết định lưu ở `/var/lib/scs-server/cluster/` (file chỉ ghi thêm, mỗi quyết định một dòng). Mỗi quyết định đều có chữ ký, nên node mất file vẫn tải lại được từ node khác và tự kiểm, không cần tin node đưa.
+- Nhật ký quyết định lưu ở `SCS_CLUSTER_DIR/log.jsonl` (mặc định `/var/lib/scs-server/data/cluster/`; file chỉ ghi thêm, mỗi quyết định một dòng, mở lại là kiểm lại toàn bộ chữ ký). Mỗi quyết định đều có chữ ký, nên node mất file vẫn tải lại được từ node khác và tự kiểm, không cần tin node đưa.
 
 ### Agent
 

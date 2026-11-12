@@ -42,6 +42,7 @@ Lệnh:
   pki         tạo CA nội bộ + chứng chỉ server ghi IP WAN: pki init -ip <IP WAN> [-ip <IP VPN>]
               cấp lại chứng chỉ server (đổi IP): pki server -ip ...
   rules       viết rule quét log: rules check | test | build (scs-server rules -h)
+  cluster     cụm nhiều server: cluster init | status | ping (scs-server cluster -h)
   version     in phiên bản
 
 Cấu hình lấy từ biến môi trường; tự nạp ./.env nếu có (xem .env.example).
@@ -70,6 +71,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runPKI(args[1:], stdout, stderr)
 	case "rules":
 		return runRules(args[1:], stdout, stderr)
+	case "cluster":
+		return runCluster(args[1:], stdout, stderr)
 	case "ingest", "admin", "worker", "all", "login-code":
 	default:
 		fmt.Fprintf(stderr, "lệnh không hợp lệ: %q\n\n%s", cmd, usage)
@@ -216,6 +219,15 @@ func build(cmd string, cfg *config.Config, log *slog.Logger, base app.Deps) ([]r
 		// Mã đăng nhập nằm trong RAM; lệnh login-code lấy qua Unix socket quyền 600.
 		control := func(ctx context.Context) error { return auth.ServeControl(ctx, cfg.ControlSocket, am, al) }
 		rs = append(rs, r, control)
+	}
+	if cmd == "all" {
+		r, err := clusterServer(cfg, log.With("role", "cluster"))
+		if err != nil {
+			return nil, err
+		}
+		if r != nil {
+			rs = append(rs, r)
+		}
 	}
 	if cmd == "worker" || cmd == "all" {
 		rs = append(rs, app.Worker(app.Deps{Cfg: cfg, Log: log.With("role", "worker"), Version: version}))
