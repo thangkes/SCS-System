@@ -175,7 +175,7 @@ func cluster4(t *testing.T) (State, []ed25519.PrivateKey) {
 	for i := 1; i < 4; i++ {
 		pub := keys[i].Public().(ed25519.PublicKey)
 		m := Member{ID: NodeID(pub), Name: "n" + string(rune('0'+i)), PubKey: EncodePub(pub), Addrs: addrs, Status: StatusActive}
-		d, _ := NewDecision(s.Seq+1, s.Head, TypeMemberAdd, NodeID(keys[0].Public().(ed25519.PublicKey)), MemberAddPayload{Member: m}, t0)
+		d, _ := s.MemberDecision(TypeMemberAdd, MemberAddPayload{Member: m})
 		// Thiếu chữ ký của một node đang có, hoặc của node mới → không thêm được.
 		for j := 0; j < i; j++ {
 			d.Sign(keys[j])
@@ -184,7 +184,7 @@ func cluster4(t *testing.T) (State, []ed25519.PrivateKey) {
 			t.Fatal("thêm node thiếu chữ ký của node mới phải bị từ chối")
 		}
 		if i > 1 {
-			partial, _ := NewDecision(s.Seq+1, s.Head, TypeMemberAdd, d.Proposer, MemberAddPayload{Member: m}, t0)
+			partial, _ := s.MemberDecision(TypeMemberAdd, MemberAddPayload{Member: m})
 			partial.Sign(keys[0])
 			partial.Sign(keys[i])
 			if err := s.Apply(partial); err == nil {
@@ -281,5 +281,127 @@ func TestVoteRules(t *testing.T) {
 	}
 	if need, elig, err := s.Rule(x); err != nil || need != 3 || len(elig) != 4 {
 		t.Fatalf("%d %v %v", need, elig, err)
+	}
+}
+
+func TestIsolateRestoreRemove(t *testing.T) {
+	s, keys := cluster4(t)
+	id := func(i int) string { return NodeID(keys[i].Public().(ed25519.PublicKey)) }
+	mk := func(st *State, typ string, target int, signers ...int) *Decision {
+		d, _ := st.MemberDecision(typ, MemberRefPayload{ID: id(target), Reason: "thử"})
+		for _, i := range signers {
+			d.Sign(keys[i])
+		}
+		return d
+	}
+	// Cô lập node 3: cần quá nửa của 3 node còn lại (2). Một chữ ký chưa đủ; chữ ký của chính node 3 không tính.
+	if err := s.Apply(mk(&s, TypeMemberIsolate, 3, 0)); err == nil {
+		t.Fatal("1/3 chưa đủ")
+	}
+	if err := s.Apply(mk(&s, TypeMemberIsolate, 3, 0, 3)); err == nil {
+		t.Fatal("chữ ký của node bị cô lập không được tính")
+	}
+	if err := s.Apply(mk(&s, TypeMemberIsolate, 3, 3, 0, 1)); err == nil {
+		t.Fatal("node không tự đề nghị về chính nó")
+	}
+	if err := s.Apply(mk(&s, TypeMemberIsolate, 3, 0, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Valid()) != 3 || s.Epoch != s.Seq {
+		t.Fatalf("%+v", s)
+	}
+	pub3 := keys[3].Public().(ed25519.PublicKey)
+	if _, ok := s.Trusted(pub3); ok {
+		t.Fatal("node bị cô lập không còn được tin")
+	}
+	if err := s.Apply(mk(&s, TypeMemberIsolate, 3, 0, 1)); err == nil {
+		t.Fatal("cô lập lần hai phải báo lỗi")
+	}
+	// Node bị cô lập không được đề nghị, không được tính vào quá nửa (3 node: cần 2).
+	bad, _ := NewDecision(s.Seq+1, s.Head, "note", id(3), map[string]string{"a": "b"}, t0)
+	bad.Sign(keys[3])
+	bad.Sign(keys[0])
+	if err := s.Apply(bad); err == nil {
+		t.Fatal("node bị cô lập không được đề nghị")
+	}
+	ok, _ := NewDecision(s.Seq+1, s.Head, "note", id(0), map[string]string{"a": "b"}, t0)
+	ok.Sign(keys[0])
+	ok.Sign(keys[1])
+	if err := s.Apply(ok); err != nil {
+		t.Fatal(err)
+	}
+	// Bỏ cô lập rồi gỡ hẳn; khóa đã gỡ không thêm lại được.
+	if err := s.Apply(mk(&s, TypeMemberRestore, 3, 1, 2)); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Valid()) != 4 {
+		t.Fatal("bỏ cô lập phải hoạt động lại")
+	}
+	if err := s.Apply(mk(&s, TypeMemberRestore, 3, 1, 2)); err == nil {
+		t.Fatal("node không bị cô lập thì không bỏ cô lập được")
+	}
+	if err := s.Apply(mk(&s, TypeMemberRemove, 3, 0, 1)); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Members) != 3 || len(s.Removed) != 1 {
+		t.Fatalf("%+v", s)
+	}
+	m := Member{ID: id(3), Name: "n9", PubKey: EncodePub(pub3), Addrs: addrs, Status: StatusActive}
+	again, _ := s.MemberDecision(TypeMemberAdd, MemberAddPayload{Member: m})
+	for i := 0; i < 4; i++ {
+		again.Sign(keys[i])
+	}
+	if err := s.Apply(again); err == nil {
+		t.Fatal("khóa đã gỡ không được thêm lại")
+	}
+	if MemberTarget(again) != id(3) || !MemberType(TypeMemberRemove) || MemberType("note") {
+		t.Fatal("MemberTarget / MemberType sai")
+	}
+}
+
+// Quyết định về danh sách cụm có dạng duy nhất: node nào dựng cũng ra cùng mã băm; bản sửa khác đi bị từ chối.
+func TestMemberDecisionCanonical(t *testing.T) {
+	s, keys := cluster4(t)
+	id := func(i int) string { return NodeID(keys[i].Public().(ed25519.PublicKey)) }
+	p := MemberRefPayload{ID: id(3)}
+	a, err := s.MemberDecision(TypeMemberIsolate, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := s.MemberDecision(TypeMemberIsolate, p)
+	ha, _ := a.Hash()
+	hb, _ := b.Hash()
+	if ha != hb || a.Proposer == id(3) {
+		t.Fatal("cùng một việc phải ra cùng một quyết định, người đề nghị không phải node bị nhắm tới")
+	}
+	// Chữ ký của hai node khác nhau trên hai bản dựng riêng cộng dồn được.
+	a.Sign(keys[0])
+	b.Sign(keys[1])
+	for k, v := range b.Sigs {
+		a.Sigs[k] = v
+	}
+	st := s
+	if err := st.Apply(a); err != nil {
+		t.Fatal(err)
+	}
+	// Bản tự chế (nonce / giờ / người đề nghị / admin khác) bị từ chối dù đủ chữ ký.
+	for name, mutate := range map[string]func(d *Decision){
+		"nonce khác":         func(d *Decision) { d.Nonce = strings.Repeat("ab", 16) },
+		"giờ khác":           func(d *Decision) { d.Created = d.Created.Add(time.Minute) },
+		"người đề nghị khác": func(d *Decision) { d.Proposer = id(2) },
+		"ghi tên admin":      func(d *Decision) { d.Admin = "ai-do" },
+	} {
+		d, _ := s.MemberDecision(TypeMemberIsolate, p)
+		mutate(d)
+		d.Sign(keys[0])
+		d.Sign(keys[1])
+		d.Sign(keys[2])
+		st := s
+		if err := st.Apply(d); err == nil {
+			t.Errorf("%s: phải bị từ chối", name)
+		}
+	}
+	if _, err := s.MemberDecision("note", map[string]string{"a": "b"}); err == nil {
+		t.Fatal("MemberDecision chỉ dùng cho member.*")
 	}
 }

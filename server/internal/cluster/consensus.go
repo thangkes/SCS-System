@@ -8,6 +8,9 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,10 +36,13 @@ var (
 type ProposeReq struct {
 	Decision *cc.Decision   `json:"decision"`
 	Proof    []*cc.Decision `json:"proof,omitempty"` // bằng chứng round trước không ai đủ phiếu (round > 1)
+	// DryRun: chỉ hỏi "node có sẵn sàng ký không" (đã được admin xác nhận, nội dung hợp lệ), không bỏ phiếu.
+	DryRun bool `json:"dry_run,omitempty"`
 }
 
 type ProposeResp struct {
 	Sig   string       `json:"sig,omitempty"`   // chữ ký của node trả lời (đồng ý)
+	OK    bool         `json:"ok,omitempty"`    // trả lời cho DryRun: sẵn sàng ký
 	Seq   uint64       `json:"seq"`             // node trả lời đang ở quyết định số mấy
 	Voted *cc.Decision `json:"voted,omitempty"` // đề nghị khác node này đã ký ở cùng (seq, round)
 	Error string       `json:"error,omitempty"`
@@ -47,7 +53,17 @@ type Transport interface {
 	Propose(ctx context.Context, peer cc.Member, req ProposeReq) (ProposeResp, error)
 	Commit(ctx context.Context, peer cc.Member, d *cc.Decision) error
 	Log(ctx context.Context, peer cc.Member, from uint64) ([]*cc.Decision, error)
+	// JoinSign: xin chữ ký của node mới (chưa thuộc cụm) trên quyết định thêm chính nó.
+	JoinSign(ctx context.Context, m cc.Member, d *cc.Decision) (string, error)
+	// ForwardJoin: chuyển một yêu cầu xin vào cụm cho node khác.
+	ForwardJoin(ctx context.Context, peer cc.Member, m cc.Member) error
 }
+
+// ErrPending: đề nghị hợp lệ nhưng còn chờ admin xác nhận trên node khác.
+var ErrPending = errors.New("chưa đủ xác nhận")
+
+// ErrNotApproved: admin chưa xác nhận quyết định member.* này trên node.
+var ErrNotApproved = errors.New("admin chưa xác nhận việc này trên node này")
 
 // ErrFork: nhật ký của cụm bị tách nhánh (hai quyết định khác nhau cùng đủ chữ ký cho một seq).
 // Chỉ xảy ra khi có node ký hai đề nghị trái nhau. Node dừng đề nghị và bỏ phiếu tới khi admin xử lý.
@@ -130,19 +146,29 @@ func (n *Node) saveVotes() error {
 	return os.Rename(tmp, filepath.Join(n.Dir, VotesFile))
 }
 
-// vote: kiểm và ghi phiếu của node này cho d; trả d đã có thêm chữ ký của node. Gọi khi giữ c.mu.
-func (n *Node) vote(d *cc.Decision, proof []*cc.Decision) (*cc.Decision, error) {
+// precheck: node này có sẵn sàng ký d không (chưa xét phiếu đã bỏ). Gọi khi giữ c.mu.
+func (n *Node) precheck(st *cc.State, d *cc.Decision) error {
 	if n.c.fork != "" {
-		return nil, ErrFork
+		return ErrFork
 	}
-	st := n.State()
 	if err := st.Check(d); err != nil {
-		return nil, err
+		return err
+	}
+	// Quyết định làm đổi danh sách cụm: chỉ ký khi admin đã xác nhận trên chính node này.
+	if cc.MemberType(d.Type) && !n.approved(d.Type, cc.MemberTarget(d)) {
+		return ErrNotApproved
 	}
 	if cc.AppType(d.Type) && n.c.validate != nil {
-		if err := n.c.validate(d); err != nil {
-			return nil, err
-		}
+		return n.c.validate(d)
+	}
+	return nil
+}
+
+// vote: kiểm và ghi phiếu của node này cho d; trả d đã có thêm chữ ký của node. Gọi khi giữ c.mu.
+func (n *Node) vote(d *cc.Decision, proof []*cc.Decision) (*cc.Decision, error) {
+	st := n.State()
+	if err := n.precheck(&st, d); err != nil {
+		return nil, err
 	}
 	// Ghi nhận node ký hai đề nghị trái nhau (nếu đề nghị mới và đề nghị đã ký có chung người ký).
 	if prev := n.c.votes.Decisions[d.Round]; prev != nil && n.c.votes.Votes.Seq == d.Seq {
@@ -206,8 +232,25 @@ func (n *Node) HandlePropose(from string, req ProposeReq) ProposeResp {
 		resp.Error = "thiếu đề nghị"
 		return resp
 	}
-	if d.Proposer != from || !st.VerifySig(d, from) {
+	n.mu.RLock()
+	cut := n.locallyIsolated(from)
+	n.mu.RUnlock()
+	if cut {
+		resp.Error = "node gửi đang bị cô lập tại node này"
+		return resp
+	}
+	// Node gửi phải ký đề nghị. Quyết định thường: node gửi chính là node đề nghị. Quyết định về
+	// danh sách cụm có dạng duy nhất (người đề nghị là nhãn tính sẵn) nên chỉ cần node gửi đã ký.
+	if !st.VerifySig(d, from) || (!cc.MemberType(d.Type) && d.Proposer != from) {
 		resp.Error = "đề nghị phải do chính node gửi ký"
+		return resp
+	}
+	if req.DryRun {
+		if err := n.precheck(&st, d); err != nil {
+			resp.Error = err.Error()
+			return resp
+		}
+		resp.OK = true
 		return resp
 	}
 	signed, err := n.vote(d, req.Proof)
@@ -269,6 +312,7 @@ func (n *Node) commitLocked(d *cc.Decision) error {
 		n.c.votes = voteState{}
 		_ = n.saveVotes()
 	}
+	n.afterMemberChange(d)
 	if n.c.onApply != nil {
 		n.c.onApply(d)
 	}
@@ -308,8 +352,10 @@ func (n *Node) LogFrom(from uint64) ([]*cc.Decision, error) {
 func (n *Node) peers() []cc.Member {
 	var out []cc.Member
 	st := n.State()
+	n.mu.RLock()
+	defer n.mu.RUnlock()
 	for _, m := range st.Valid() {
-		if m.ID != n.ID {
+		if m.ID != n.ID && !n.locallyIsolated(m.ID) {
 			out = append(out, m)
 		}
 	}
@@ -379,11 +425,40 @@ func (n *Node) Propose(ctx context.Context, typ string, payload any, admin strin
 		if st.Seq+1 != seq { // quyết định trước đã xong (của node khác): bắt đầu lại từ round 1
 			seq, round, proof = st.Seq+1, 1, nil
 		}
-		d, err := cc.NewDecision(seq, st.Head, typ, n.ID, payload, time.Now())
+		memberType := cc.MemberType(typ)
+		var d *cc.Decision
+		var err error
+		if memberType {
+			d, err = st.MemberDecision(typ, payload) // dạng duy nhất: node nào dựng cũng ra cùng một bản
+		} else {
+			d, err = cc.NewDecision(seq, st.Head, typ, n.ID, payload, time.Now())
+		}
 		if err != nil {
 			return nil, err
 		}
-		d.Round, d.Admin = round, admin
+		d.Round = round
+		if !memberType {
+			d.Admin = admin
+		}
+		need, eligible, rerr := st.Rule(d)
+		if rerr != nil {
+			return nil, rerr
+		}
+		// Chỉ hỏi các node được quyền ký quyết định này (ví dụ cô lập node X thì không hỏi X).
+		var peers []cc.Member
+		for _, p := range n.peers() {
+			if slices.Contains(eligible, p.ID) {
+				peers = append(peers, p)
+			}
+		}
+		// Quyết định về danh sách cụm: hỏi trước xem đã đủ node được admin xác nhận chưa. Chưa đủ
+		// thì KHÔNG bỏ phiếu (phiếu đã bỏ không rút lại được và sẽ giữ chỗ ở seq này).
+		if memberType {
+			if waiting, ready := n.preflight(ctx, d, peers); !ready(need) {
+				sort.Strings(waiting)
+				return nil, fmt.Errorf("%w: còn chờ %s", ErrPending, strings.Join(waiting, ", "))
+			}
+		}
 
 		n.c.mu.Lock()
 		signed, err := n.vote(d, proof)
@@ -395,14 +470,10 @@ func (n *Node) Propose(ctx context.Context, typ string, payload any, admin strin
 		if err != nil && !errors.Is(err, cc.ErrVoted) {
 			return nil, err
 		}
-		need, _, rerr := st.Rule(d)
-		if rerr != nil {
-			return nil, rerr
-		}
+
 		cands := []*cc.Decision{}
 		behind := false
 		if signed != nil {
-			peers := n.peers()
 			type res struct {
 				p    cc.Member
 				resp ProposeResp
@@ -441,6 +512,23 @@ func (n *Node) Propose(ctx context.Context, typ string, payload any, admin strin
 				}
 				lastErr = fmt.Errorf("node %s từ chối: %s", r.p.Name, r.resp.Error)
 			}
+			// Thêm node: còn cần chữ ký của chính node mới (chứng minh nó giữ khóa riêng).
+			if typ == cc.TypeMemberAdd && len(signed.Sigs) == need-1 {
+				if p, ok := payload.(cc.MemberAddPayload); ok {
+					cctx, cancel := context.WithTimeout(ctx, PeerTimeout)
+					sig, err := n.c.transport.JoinSign(cctx, p.Member, signed)
+					cancel()
+					if err != nil {
+						lastErr = fmt.Errorf("node mới %s chưa ký: %w", p.Member.Name, err)
+					} else {
+						signed.Sigs[p.Member.ID] = sig
+						if !st.VerifySig(signed, p.Member.ID) {
+							delete(signed.Sigs, p.Member.ID)
+							lastErr = fmt.Errorf("node mới %s trả chữ ký sai", p.Member.Name)
+						}
+					}
+				}
+			}
 			if len(signed.Sigs) >= need {
 				if err := n.HandleCommit(signed); err != nil {
 					return nil, err
@@ -448,6 +536,7 @@ func (n *Node) Propose(ctx context.Context, typ string, payload any, admin strin
 				n.broadcast(ctx, signed)
 				return signed, nil
 			}
+
 			cands = append(cands, signed)
 			if lastErr == nil {
 				lastErr = fmt.Errorf("chưa đủ chữ ký: %d/%d (%d node trả lời)", len(signed.Sigs), need, answered)
@@ -457,6 +546,11 @@ func (n *Node) Propose(ctx context.Context, typ string, payload any, admin strin
 			lastErr = errors.New("đang có đề nghị khác chờ đủ chữ ký")
 		}
 		if behind {
+			continue
+		}
+		// Một đề nghị khác ở seq này (node khác đã ký) có thể đã đủ chữ ký mà node đề nghị nó chưa
+		// kịp ghi (ví dụ nó tắt giữa chừng): gộp chữ ký từ các trả lời, đủ thì ghi giúp rồi thử lại.
+		if done := n.completeOther(ctx, &st, cands); done {
 			continue
 		}
 		// Round này không ai đủ phiếu được nữa thì sang round sau, mang theo bằng chứng.
@@ -472,6 +566,85 @@ func (n *Node) Propose(ctx context.Context, typ string, payload any, admin strin
 		}
 	}
 	return nil, fmt.Errorf("đề nghị không đủ chữ ký sau %d lần thử: %w", ProposeAttempts, lastErr)
+}
+
+// preflight hỏi (không bỏ phiếu) các node có sẵn sàng ký d không. Trả tên các node chưa sẵn sàng và
+// hàm cho biết đã đủ số node sẵn sàng chưa (tính cả node này; node mới của member.add ký sau).
+func (n *Node) preflight(ctx context.Context, d *cc.Decision, peers []cc.Member) ([]string, func(need int) bool) {
+	probe := cloneDecision(d)
+	_ = probe.Sign(n.Key)
+	type res struct {
+		name string
+		ok   bool
+		why  string
+	}
+	ch := make(chan res, len(peers))
+	for _, p := range peers {
+		go func(p cc.Member) {
+			cctx, cancel := context.WithTimeout(ctx, PeerTimeout)
+			defer cancel()
+			r, err := n.c.transport.Propose(cctx, p, ProposeReq{Decision: probe, DryRun: true})
+			switch {
+			case err != nil:
+				ch <- res{p.Name, false, "node " + p.Name + " (không trả lời)"}
+			case r.OK:
+				ch <- res{p.Name, true, ""}
+			case r.Error == ErrNotApproved.Error():
+				ch <- res{p.Name, false, "admin xác nhận trên node " + p.Name}
+			default:
+				ch <- res{p.Name, false, "node " + p.Name + " (" + r.Error + ")"}
+			}
+		}(p)
+	}
+	ready := 1
+	var waiting []string
+	for range peers {
+		if r := <-ch; r.ok {
+			ready++
+		} else {
+			waiting = append(waiting, r.why)
+		}
+	}
+	extra := 0
+	if d.Type == cc.TypeMemberAdd {
+		extra = 1 // chữ ký của chính node mới, xin sau
+	}
+	return waiting, func(need int) bool { return ready+extra >= need }
+}
+
+// completeOther gộp chữ ký của các bản giống nhau trong cands; bản nào đủ chữ ký thì ghi và phát.
+func (n *Node) completeOther(ctx context.Context, st *cc.State, cands []*cc.Decision) bool {
+	merged := map[string]*cc.Decision{}
+	for _, c := range cands {
+		h, err := c.Hash()
+		if err != nil {
+			continue
+		}
+		m := merged[h]
+		if m == nil {
+			m = cloneDecision(c)
+			m.Sigs = map[string]string{}
+			merged[h] = m
+		}
+		for id, sig := range c.Sigs {
+			probe := cloneDecision(c)
+			probe.Sigs = map[string]string{id: sig}
+			if st.VerifySig(probe, id) {
+				m.Sigs[id] = sig
+			}
+		}
+	}
+	for _, m := range merged {
+		need, _, err := st.Rule(m)
+		if err != nil || len(m.Sigs) < need {
+			continue
+		}
+		if err := n.HandleCommit(m); err == nil {
+			n.broadcast(ctx, m)
+			return true
+		}
+	}
+	return false
 }
 
 // broadcast phát quyết định đã đủ chữ ký cho mọi node (node nào lỡ thì tự bắt kịp sau).
@@ -494,7 +667,18 @@ func (n *Node) Run(ctx context.Context, every time.Duration, onErr func(error)) 
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
-		if _, err := n.CatchUp(ctx); err != nil && onErr != nil && ctx.Err() == nil {
+		var err error
+		if n.Joining() {
+			var joined bool
+			if joined, err = n.JoinStep(ctx); joined && onErr != nil {
+				onErr(errors.New("node đã được thêm vào cụm"))
+			}
+		} else if n.Initialized() {
+			if _, err = n.CatchUp(ctx); err == nil {
+				n.TryApproved(ctx, "")
+			}
+		}
+		if err != nil && onErr != nil && ctx.Err() == nil {
 			onErr(err)
 		}
 		select {

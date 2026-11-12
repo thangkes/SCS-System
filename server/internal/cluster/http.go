@@ -56,6 +56,7 @@ func (n *Node) Handler(version string, log *slog.Logger) http.Handler {
 			Fork: n.Fork(), Equivocators: n.Equivocators()})
 	}))
 	n.consensusRoutes(mux)
+	n.joinRoutes(mux, log)
 	return httpx.Chain(mux, httpx.SecureHeaders, httpx.Recover(log), httpx.MaxBody(4<<20),
 		httpx.AggregatedAccessLog(log, slog.LevelDebug), httpx.WithRequestID)
 }
@@ -92,6 +93,78 @@ func (n *Node) Get(ctx context.Context, base, path string, check PeerCheck, out 
 		return fmt.Errorf("%s%s: %w", base, path, err)
 	}
 	return nil
+}
+
+// joinReq: xin vào cụm / chuyển tiếp yêu cầu / xin chữ ký node mới.
+type joinReq struct {
+	Member cc.Member `json:"member"`
+}
+
+type joinSignResp struct {
+	Sig string `json:"sig"`
+}
+
+// joinRoutes: các đường dẫn thêm node.
+func (n *Node) joinRoutes(mux *http.ServeMux, log *slog.Logger) {
+	// Xin vào cụm: node chưa thuộc cụm gọi được (đã chứng minh giữ khóa qua TLS). Số yêu cầu chờ
+	// bị giới hạn (MaxJoins) và phải được admin duyệt trên mọi node.
+	mux.HandleFunc("POST /cluster/v1/join", func(w http.ResponseWriter, r *http.Request) {
+		var req joinReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "gói tin không đọc được")
+			return
+		}
+		if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+			httpx.WriteError(w, http.StatusForbidden, "thiếu chứng chỉ")
+			return
+		}
+		pub, _ := r.TLS.PeerCertificates[0].PublicKey.(ed25519.PublicKey)
+		if err := n.HandleJoin(req.Member, pub, ""); err != nil {
+			httpx.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
+		log.Warn("có node xin vào cụm, chờ admin duyệt trên mọi node", "node", req.Member.ID, "ten", req.Member.Name,
+			"ma_khoa", KeyFingerprint(pub))
+		// Chuyển yêu cầu cho các node khác để admin duyệt được trên từng node.
+		go func(m cc.Member) {
+			if n.c.transport == nil {
+				return
+			}
+			for _, p := range n.peers() {
+				ctx, cancel := context.WithTimeout(context.Background(), PeerTimeout)
+				_ = n.c.transport.ForwardJoin(ctx, p, m)
+				cancel()
+			}
+		}(req.Member)
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	})
+	mux.Handle("POST /cluster/v1/join-forward", n.membersOnly(func(w http.ResponseWriter, r *http.Request) {
+		var req joinReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "gói tin không đọc được")
+			return
+		}
+		via, _, _ := n.Peer(r)
+		if err := n.HandleJoin(req.Member, nil, via); err != nil {
+			httpx.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	}))
+	// Node đề nghị xin chữ ký của node mới: chỉ node đang xin vào cụm mới trả lời.
+	mux.HandleFunc("POST /cluster/v1/join-sign", func(w http.ResponseWriter, r *http.Request) {
+		var req commitReq
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, "gói tin không đọc được")
+			return
+		}
+		sig, err := n.HandleJoinSign(req.Decision)
+		if err != nil {
+			httpx.WriteError(w, http.StatusConflict, err.Error())
+			return
+		}
+		httpx.WriteJSON(w, http.StatusOK, joinSignResp{Sig: sig})
+	})
 }
 
 // commitReq: phát một quyết định đã đủ chữ ký.
@@ -189,6 +262,16 @@ func (t HTTPTransport) Log(ctx context.Context, peer cc.Member, from uint64) ([]
 	var resp logResp
 	err := t.call(ctx, peer, http.MethodGet, "/cluster/v1/log?from="+strconv.FormatUint(from, 10), nil, &resp)
 	return resp.Decisions, err
+}
+
+func (t HTTPTransport) JoinSign(ctx context.Context, m cc.Member, d *cc.Decision) (string, error) {
+	var resp joinSignResp
+	err := t.call(ctx, m, http.MethodPost, "/cluster/v1/join-sign", commitReq{Decision: d}, &resp)
+	return resp.Sig, err
+}
+
+func (t HTTPTransport) ForwardJoin(ctx context.Context, peer cc.Member, m cc.Member) error {
+	return t.call(ctx, peer, http.MethodPost, "/cluster/v1/join-forward", joinReq{Member: m}, nil)
 }
 
 // httpError: node đích đã trả lời bằng mã lỗi HTTP.

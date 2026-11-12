@@ -44,7 +44,39 @@ const (
 const (
 	TypeGenesis   = "member.genesis" // tạo cụm (1 node, tự ký)
 	TypeMemberAdd = "member.add"     // thêm node: 100% node hợp lệ + node mới ký
+	// Cô lập / bỏ cô lập / gỡ node X: quá nửa node hợp lệ, không tính X.
+	TypeMemberIsolate = "member.isolate"
+	TypeMemberRestore = "member.restore"
+	TypeMemberRemove  = "member.remove"
 )
+
+// MemberType: quyết định làm đổi danh sách cụm. Mỗi node chỉ ký các quyết định này khi admin
+// đã xác nhận trên chính node đó (server lo), để một node bị chiếm không tự cô lập / gỡ được
+// node khác chỉ bằng cách gửi đề nghị.
+func MemberType(t string) bool {
+	switch t {
+	case TypeMemberAdd, TypeMemberIsolate, TypeMemberRestore, TypeMemberRemove:
+		return true
+	}
+	return false
+}
+
+// MemberTarget: mã node mà một quyết định member.* nhắm tới ("" nếu không phải loại đó).
+func MemberTarget(d *Decision) string {
+	switch d.Type {
+	case TypeMemberAdd:
+		var p MemberAddPayload
+		if decodeStrict(d.Payload, &p) == nil {
+			return p.Member.ID
+		}
+	case TypeMemberIsolate, TypeMemberRestore, TypeMemberRemove:
+		var p MemberRefPayload
+		if decodeStrict(d.Payload, &p) == nil {
+			return p.ID
+		}
+	}
+	return ""
+}
 
 // appTypes: quyết định của ứng dụng (duyệt máy, cấu hình…): quá nửa node hợp lệ ký. Nội dung do
 // server kiểm và áp vào DB; phần chung chỉ kiểm chữ ký và thứ tự.
@@ -100,6 +132,12 @@ type Member struct {
 // MemberAddPayload: thêm một node vào cụm.
 type MemberAddPayload struct {
 	Member Member `json:"member"`
+}
+
+// MemberRefPayload: cô lập / bỏ cô lập / gỡ node theo mã.
+type MemberRefPayload struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason,omitempty"`
 }
 
 // GenesisPayload: quyết định đầu tiên tạo cụm với một node.
@@ -200,6 +238,9 @@ func Genesis(cluster, name string, addrs Addrs, priv ed25519.PrivateKey, now tim
 	return d, d.Sign(priv)
 }
 
+// Validate kiểm một mục node (tên, khóa, mã, địa chỉ).
+func (m *Member) Validate() error { return m.validate() }
+
 func (m *Member) validate() error {
 	if !nameRe.MatchString(m.Name) {
 		return fmt.Errorf("tên node %q: chữ thường, số, . _ - (tối đa 32 ký tự)", m.Name)
@@ -230,12 +271,16 @@ func (m *Member) validate() error {
 
 // State: trạng thái cụm dựng từ nhật ký (danh sách cụm + quyết định cuối).
 type State struct {
-	Cluster   string   `json:"cluster"`    // tên cụm
-	ClusterID string   `json:"cluster_id"` // mã băm quyết định đầu tiên
-	Epoch     uint64   `json:"epoch"`      // seq của quyết định cuối làm đổi danh sách cụm
-	Seq       uint64   `json:"seq"`        // seq quyết định cuối
-	Head      string   `json:"head"`       // mã băm quyết định cuối
-	Members   []Member `json:"members"`
+	Cluster   string `json:"cluster"`    // tên cụm
+	ClusterID string `json:"cluster_id"` // mã băm quyết định đầu tiên
+	Epoch     uint64 `json:"epoch"`      // seq của quyết định cuối làm đổi danh sách cụm
+	Seq       uint64 `json:"seq"`        // seq quyết định cuối
+	Head      string `json:"head"`       // mã băm quyết định cuối
+	// HeadTime: giờ ghi trong quyết định cuối (dùng để dựng quyết định member.* duy nhất).
+	HeadTime time.Time `json:"head_time"`
+	Members  []Member  `json:"members"`
+	// Removed: mã các node đã bị gỡ. Khóa đã gỡ không bao giờ được thêm lại (phải sinh khóa mới).
+	Removed []string `json:"removed,omitempty"`
 }
 
 // Member tìm node theo mã.
@@ -384,6 +429,9 @@ func (s *State) check(d *Decision) (*rule, error) {
 				return nil, fmt.Errorf("tên node %q đã được dùng", p.Member.Name)
 			}
 		}
+		if slices.Contains(s.Removed, p.Member.ID) {
+			return nil, errors.New("khóa node này đã bị gỡ khỏi cụm, phải sinh khóa mới để vào lại")
+		}
 		// Thêm node: 100% node hợp lệ + chính node mới (chứng minh nó giữ khóa riêng).
 		elig := map[string]ed25519.PublicKey{}
 		must := []string{}
@@ -391,11 +439,64 @@ func (s *State) check(d *Decision) (*rule, error) {
 			elig[id] = pub
 			must = append(must, id)
 		}
+		if err := s.canonical(d, p.Member.ID, ""); err != nil {
+			return nil, err
+		}
 		pub, _ := DecodePub(p.Member.PubKey)
 		elig[p.Member.ID] = pub
 		must = append(must, p.Member.ID)
 		return &rule{eligible: elig, need: len(elig), must: must, effect: func(next *State, _ string) {
 			next.Members = append(next.Members, p.Member)
+			next.Epoch = d.Seq
+		}}, nil
+	case d.Type == TypeMemberIsolate || d.Type == TypeMemberRestore || d.Type == TypeMemberRemove:
+		var p MemberRefPayload
+		if err := decodeStrict(d.Payload, &p); err != nil {
+			return nil, err
+		}
+		target, ok := s.Member(p.ID)
+		if !ok {
+			return nil, fmt.Errorf("node %q không có trong danh sách cụm", p.ID)
+		}
+		if len(p.Reason) > 200 {
+			return nil, errors.New("lý do tối đa 200 ký tự")
+		}
+		switch {
+		case d.Type == TypeMemberIsolate && target.Status != StatusActive:
+			return nil, errors.New("node đã bị cô lập")
+		case d.Type == TypeMemberRestore && target.Status != StatusIsolated:
+			return nil, errors.New("node không ở trạng thái cô lập")
+		}
+		if err := s.canonical(d, p.ID, p.ID); err != nil {
+			return nil, err
+		}
+		// Quá nửa node hợp lệ, không tính node bị nhắm tới.
+		elig := map[string]ed25519.PublicKey{}
+		for id, pub := range valid {
+			if id != p.ID {
+				elig[id] = pub
+			}
+		}
+		if len(elig) == 0 {
+			return nil, errors.New("không còn node hợp lệ nào khác để quyết định")
+		}
+		typ := d.Type
+		return &rule{eligible: elig, need: Majority(len(elig)), effect: func(next *State, _ string) {
+			for i := range next.Members {
+				if next.Members[i].ID != p.ID {
+					continue
+				}
+				switch typ {
+				case TypeMemberIsolate:
+					next.Members[i].Status = StatusIsolated
+				case TypeMemberRestore:
+					next.Members[i].Status = StatusActive
+				case TypeMemberRemove:
+					next.Members = append(next.Members[:i], next.Members[i+1:]...)
+					next.Removed = append(next.Removed, p.ID)
+				}
+				break
+			}
 			next.Epoch = d.Seq
 		}}, nil
 	case appTypes[d.Type]:
@@ -406,6 +507,50 @@ func (s *State) check(d *Decision) (*rule, error) {
 			effect: func(*State, string) {}}, nil
 	}
 	return nil, fmt.Errorf("%w: %q", ErrUnsupported, d.Type)
+}
+
+// Quyết định member.* có DẠNG DUY NHẤT: cùng một việc (loại + node bị nhắm tới) ở cùng một seq thì
+// node nào dựng cũng ra đúng một bản (cùng mã băm). Nhờ vậy khi admin xác nhận trên nhiều node
+// và mỗi node tự đề nghị, chữ ký của các node cộng dồn vào một quyết định thay vì chia phiếu cho
+// nhiều bản khác nhau. Vì thế các trường "người đề nghị", "giờ", "nonce" được tính từ trạng thái
+// cụm chứ không lấy từ node dựng; ai đã xác nhận thì thể hiện bằng chữ ký.
+
+// memberCanon: người đề nghị (node hợp lệ có mã nhỏ nhất, không tính exclude), giờ và nonce duy nhất.
+func (s *State) memberCanon(typ, target, exclude string) (proposer string, created time.Time, nonce string) {
+	for _, m := range s.Valid() {
+		if m.ID != exclude && (proposer == "" || m.ID < proposer) {
+			proposer = m.ID
+		}
+	}
+	sum := sha256.Sum256([]byte(fmt.Sprintf("scs-member/v1\n%d\n%s\n%s\n%s", s.Seq+1, s.Head, typ, target)))
+	return proposer, s.HeadTime.Add(time.Second).UTC(), hex.EncodeToString(sum[:16])
+}
+
+func (s *State) canonical(d *Decision, target, exclude string) error {
+	proposer, created, nonce := s.memberCanon(d.Type, target, exclude)
+	if d.Proposer != proposer || d.Nonce != nonce || !d.Created.Equal(created) || d.Admin != "" {
+		return errors.New("quyết định về danh sách cụm không đúng dạng duy nhất")
+	}
+	return nil
+}
+
+// MemberDecision dựng quyết định member.* dạng duy nhất cho seq kế tiếp (chưa ký).
+func (s *State) MemberDecision(typ string, payload any) (*Decision, error) {
+	b, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	d := &Decision{Seq: s.Seq + 1, Round: 1, Prev: s.Head, Type: typ, Payload: b}
+	target := MemberTarget(d)
+	if target == "" {
+		return nil, fmt.Errorf("%q không phải quyết định về danh sách cụm", typ)
+	}
+	exclude := target
+	if typ == TypeMemberAdd {
+		exclude = ""
+	}
+	d.Proposer, d.Created, d.Nonce = s.memberCanon(typ, target, exclude)
+	return d, nil
 }
 
 // ErrNotNext: quyết định không nối tiếp nhật ký của node (node chậm hơn hoặc nhanh hơn).
@@ -435,7 +580,7 @@ func (s *State) Apply(d *Decision) error {
 	}
 	next := s.clone()
 	r.effect(&next, hash)
-	next.Seq, next.Head = d.Seq, hash
+	next.Seq, next.Head, next.HeadTime = d.Seq, hash, d.Created
 	sort.Slice(next.Members, func(i, j int) bool { return next.Members[i].ID < next.Members[j].ID })
 	*s = next
 	return nil
@@ -497,6 +642,7 @@ func decodeStrict(b []byte, v any) error {
 func (s *State) clone() State {
 	c := *s
 	c.Members = slices.Clone(s.Members)
+	c.Removed = slices.Clone(s.Removed)
 	sort.Slice(c.Members, func(i, j int) bool { return c.Members[i].ID < c.Members[j].ID })
 	return c
 }

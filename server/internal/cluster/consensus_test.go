@@ -91,7 +91,7 @@ func newCluster(t *testing.T, count int) (*net, []*Node) {
 		pub := n.Key.Public().(ed25519.PublicKey)
 		m := cc.Member{ID: n.ID, Name: fmt.Sprintf("node-%d", i), PubKey: cc.EncodePub(pub), Status: cc.StatusActive,
 			Addrs: cc.Addrs{Cluster: []string{fmt.Sprintf("https://192.168.1.%d:5222", 10+i)}}}
-		d, err := cc.NewDecision(st.Seq+1, st.Head, cc.TypeMemberAdd, nodes[0].ID, cc.MemberAddPayload{Member: m}, time.Now())
+		d, err := st.MemberDecision(cc.TypeMemberAdd, cc.MemberAddPayload{Member: m})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -403,7 +403,7 @@ func TestHTTPCluster(t *testing.T) {
 			st := nodes[0].State()
 			m := cc.Member{ID: n.ID, Name: fmt.Sprintf("node-%d", i), PubKey: cc.EncodePub(n.Key.Public().(ed25519.PublicKey)),
 				Status: cc.StatusActive, Addrs: cc.Addrs{Cluster: []string{url}}}
-			d, _ := cc.NewDecision(st.Seq+1, st.Head, cc.TypeMemberAdd, nodes[0].ID, cc.MemberAddPayload{Member: m}, time.Now())
+			d, _ := st.MemberDecision(cc.TypeMemberAdd, cc.MemberAddPayload{Member: m})
 			for _, s := range append(append([]*Node{}, nodes...), n) {
 				d.Sign(s.Key)
 			}

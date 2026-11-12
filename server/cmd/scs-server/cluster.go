@@ -158,30 +158,29 @@ func orNone(s string) string {
 	return s
 }
 
-// clusterServer: cổng cụm (5222), chỉ chạy khi node đã thuộc một cụm.
-func clusterServer(cfg *config.Config, log *slog.Logger) (runner, error) {
-	n, err := cluster.Open(cfg.ClusterDir)
-	if err != nil {
-		return nil, fmt.Errorf("cụm: %w", err)
-	}
-	if !n.Initialized() {
+// clusterServer: cổng cụm (5222). Chạy khi node đã thuộc một cụm hoặc đang xin vào cụm.
+func clusterServer(cfg *config.Config, log *slog.Logger, n *cluster.Node) (runner, error) {
+	switch {
+	case n.Initialized():
+		st := n.State()
+		log.Info("cụm", "ten", st.Cluster, "ma_cum", cluster.Short(st.ClusterID), "node", n.ID,
+			"so_node_hop_le", len(st.Valid()), "cong", cfg.ClusterListen)
+	case n.Joining():
+		log.Info("node đang xin vào cụm, chờ admin duyệt trên mọi node của cụm", "node", n.ID,
+			"ma_khoa", cluster.KeyFingerprint(n.Key.Public().(ed25519.PublicKey)), "cong", cfg.ClusterListen)
+	default:
 		log.Info("node chưa thuộc cụm nào, không mở cổng cụm", "node", n.ID, "thu_muc", cfg.ClusterDir)
-		n.Close()
 		return nil, nil
 	}
-	st := n.State()
-	log.Info("cụm", "ten", st.Cluster, "ma_cum", cluster.Short(st.ClusterID), "node", n.ID,
-		"so_node_hop_le", len(st.Valid()), "cong", cfg.ClusterListen)
 	run, err := n.Server(cfg.ClusterListen, version, log)
 	if err != nil {
-		n.Close()
 		return nil, err
 	}
 	n.SetTransport(cluster.HTTPTransport{Node: n})
 	return func(ctx context.Context) error {
-		defer n.Close()
-		// Định kỳ bắt kịp nhật ký từ node khác (node vừa bật lại, hoặc lỡ một lần phát).
-		go n.Run(ctx, 30*time.Second, func(err error) { log.Warn("chưa bắt kịp nhật ký cụm", "err", err) })
+		// Định kỳ: node đang xin vào cụm thì thử lấy nhật ký; node trong cụm thì bắt kịp nhật ký và
+		// thử lại các việc admin đã xác nhận mà chưa đủ node.
+		go n.Run(ctx, 30*time.Second, func(err error) { log.Warn("cụm: việc định kỳ chưa xong", "err", err) })
 		return run(ctx)
 	}, nil
 }

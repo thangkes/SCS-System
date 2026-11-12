@@ -10,6 +10,7 @@ import (
 
 	"github.com/thangkes/SCS-System/common/protocol"
 	"github.com/thangkes/SCS-System/server/internal/auth"
+	"github.com/thangkes/SCS-System/server/internal/cluster"
 	"github.com/thangkes/SCS-System/server/internal/config"
 	"github.com/thangkes/SCS-System/server/internal/httpx"
 	"github.com/thangkes/SCS-System/server/internal/pki"
@@ -27,6 +28,8 @@ type Deps struct {
 	CA          *pki.CA       // CA cấp chứng chỉ agent; nil = chưa cấu hình SCS_CA_CERT/KEY
 	// ReleaseKey ký bản agent server phát hành; nil = chưa có SCS_RELEASE_KEY (không phát hành).
 	ReleaseKey ed25519.PrivateKey
+	// Cluster: node của cụm nhiều server (nil = không chạy phần cụm trong tiến trình này).
+	Cluster *cluster.Node
 }
 
 // Body tối đa: payload đã ký được mã hóa base64 (~4/3) cộng phần JSON bọc ngoài.
@@ -107,6 +110,12 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/devices/{id}/test-ring", admin(http.HandlerFunc(ag.testRing)))
 	mux.Handle("GET /admin/v1/agent/config", view(http.HandlerFunc(ag.configs)))
 	mux.Handle("POST /admin/v1/agent/config", admin(http.HandlerFunc(ag.setConfig)))
+	cl := clusterAPI{d}
+	mux.Handle("GET /admin/v1/cluster", view(http.HandlerFunc(cl.status)))
+	mux.Handle("POST /admin/v1/cluster/approve", admin(http.HandlerFunc(cl.approve)))
+	mux.Handle("POST /admin/v1/cluster/unapprove", admin(http.HandlerFunc(cl.unapprove)))
+	mux.Handle("POST /admin/v1/cluster/reject-join", admin(http.HandlerFunc(cl.rejectJoin)))
+	mux.Handle("POST /admin/v1/cluster/isolate-local", admin(http.HandlerFunc(cl.isolateLocal)))
 	return wrap(d, httpx.RejectProxied(d.Log)(mux), httpx.AggregatedAccessLog(d.Log, slog.LevelInfo))
 }
 

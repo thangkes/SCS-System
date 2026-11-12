@@ -46,6 +46,9 @@ type Node struct {
 	st   cc.State
 	logF *os.File
 	c    consensus
+	// local: yêu cầu xin vào cụm, xác nhận của admin, cô lập tại chỗ. joining: node này đang xin vào cụm.
+	local   localState
+	joining *Joining
 }
 
 // LoadOrCreateKey đọc khóa node; chưa có thì sinh mới (quyền 600). Trả khóa và có phải mới tạo.
@@ -122,6 +125,9 @@ func Open(dir string) (*Node, error) {
 	if err := n.loadVotes(); err != nil {
 		return nil, fmt.Errorf("đọc phiếu đã bỏ (%s): %w", VotesFile, err)
 	}
+	if err := n.loadLocal(); err != nil {
+		return nil, err
+	}
 	if n.st.Seq > 0 {
 		if _, ok := n.st.Member(n.ID); !ok {
 			return nil, fmt.Errorf("khóa node %s không có trong danh sách cụm của nhật ký (khóa bị thay?)", n.ID)
@@ -177,7 +183,18 @@ func (n *Node) State() cc.State {
 func (n *Node) Trusted(pub ed25519.PublicKey) (cc.Member, bool) {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	return n.st.Trusted(pub)
+	m, ok := n.st.Trusted(pub)
+	if ok && n.locallyIsolated(m.ID) {
+		return cc.Member{}, false // admin đã cô lập node này tại chỗ
+	}
+	return m, ok
+}
+
+// Joining: node đang xin vào cụm (chưa có nhật ký).
+func (n *Node) Joining() bool {
+	n.mu.RLock()
+	defer n.mu.RUnlock()
+	return n.joining != nil && n.st.Seq == 0
 }
 
 // Init tạo cụm mới với node này là node đầu tiên.

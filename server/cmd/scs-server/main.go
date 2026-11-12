@@ -18,6 +18,7 @@ import (
 
 	"github.com/thangkes/SCS-System/server/internal/app"
 	"github.com/thangkes/SCS-System/server/internal/auth"
+	"github.com/thangkes/SCS-System/server/internal/cluster"
 	"github.com/thangkes/SCS-System/server/internal/config"
 	"github.com/thangkes/SCS-System/server/internal/httpx"
 	"github.com/thangkes/SCS-System/server/internal/pki"
@@ -156,6 +157,13 @@ func run(args []string, stdout, stderr io.Writer) int {
 	} else if cmd == "ingest" || cmd == "all" {
 		log.Warn("chưa khai SCS_RELEASE_KEY: server không phát hành bản agent (tạo bằng: scs-server pki release)")
 	}
+	if cmd == "all" { // phần cụm chạy cùng tiến trình với web quản trị (trang "Cụm server" dùng chung node)
+		if base.Cluster, err = cluster.Open(cfg.ClusterDir); err != nil {
+			log.Error("không khởi động được", "err", fmt.Errorf("cụm: %w", err))
+			return 1
+		}
+		defer base.Cluster.Close()
+	}
 	runners, err := build(cmd, cfg, log, base)
 	if err != nil {
 		log.Error("không khởi động được", "err", err)
@@ -220,8 +228,8 @@ func build(cmd string, cfg *config.Config, log *slog.Logger, base app.Deps) ([]r
 		control := func(ctx context.Context) error { return auth.ServeControl(ctx, cfg.ControlSocket, am, al) }
 		rs = append(rs, r, control)
 	}
-	if cmd == "all" {
-		r, err := clusterServer(cfg, log.With("role", "cluster"))
+	if cmd == "all" && base.Cluster != nil {
+		r, err := clusterServer(cfg, log.With("role", "cluster"), base.Cluster)
 		if err != nil {
 			return nil, err
 		}
@@ -261,7 +269,7 @@ func httpServer(role, addr string, cfg *config.Config, mode httpx.ClientAuth,
 		Name: role,
 		Addr: addr,
 		Handler: handler(app.Deps{Cfg: cfg, Log: l, Version: version, ReadyChecks: base.ReadyChecks,
-			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey}),
+			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey, Cluster: base.Cluster}),
 		TLS: tlsCfg,
 		Log: l,
 	}
