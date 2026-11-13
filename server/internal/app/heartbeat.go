@@ -112,8 +112,9 @@ func heartbeatHandler(d Deps) http.Handler {
 		}
 		resp := protocol.Response{
 			OK: true, NextPollS: int(heartbeatEvery / time.Second), ServerTime: time.Now().UTC(),
-			Servers: d.Cfg.AgentServers,
+			Servers: agentServers(d),
 		}
+		d.Servers.Report(id, body.ServersHash, body.ServerURL)
 		// Bản agent và cấu hình: đọc lỗi thì heartbeat vẫn thành công, lần sau gửi.
 		arch := body.Arch
 		if !protocol.ValidArch(arch) {

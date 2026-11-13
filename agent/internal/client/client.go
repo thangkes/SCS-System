@@ -127,6 +127,19 @@ func (c *Client) SetServers(list []string) {
 	}
 }
 
+// Prefer: bắt đầu từ địa chỉ u (địa chỉ gọi được lần cuối, lưu trong state) nếu có trong danh sách.
+// Nhờ vậy sau khi server đổi mạng và địa chỉ lúc cài không còn dùng được, agent khởi động lại
+// không phải chờ hết thời gian chờ của địa chỉ lúc cài rồi mới chuyển.
+func (c *Client) Prefer(u string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, b := range c.bases {
+		if b == u {
+			c.cur = i
+		}
+	}
+}
+
 // Servers: danh sách địa chỉ đang dùng; Current: địa chỉ đang gọi.
 func (c *Client) Servers() []string {
 	c.mu.Lock()

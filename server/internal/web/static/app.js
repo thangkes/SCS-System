@@ -900,6 +900,133 @@
     refreshTimer = setInterval(() => { if (!$('#dialog').open) load(); }, 10000);
   }
 
+  // Địa chỉ server gửi cho agent: thêm địa chỉ mới trước khi đổi mạng, gỡ địa chỉ cũ khi hết máy dùng.
+  async function pageServers() {
+    setTitle('Địa chỉ server');
+    const page = view;
+    page.innerHTML = '<p class="hint">Đang tải…</p>';
+    let hosts = new Map();
+    async function load() {
+      let s;
+      try {
+        const [j, devs] = await Promise.all([
+          getJSON('/admin/v1/agent/servers'),
+          getJSON('/admin/v1/devices?status=approved').then((x) => x.devices).catch(() => []),
+        ]);
+        s = j.stats;
+        hosts = new Map(devs.map((d) => [d.id, d.hostname]));
+      } catch (err) { if (page === view) showLoadError(page, err); return; }
+      if (page !== view) return;
+      const pct = s.online ? Math.round((s.synced * 100) / s.online) : 0;
+      const inList = s.addrs.filter((a) => a.in_list);
+      const outside = s.addrs.filter((a) => !a.in_list);
+      const row = (a, i) => `
+        <tr><td><span class="mono strong">${esc(a.url)}</span>${a.note ? `<br><span class="hint">${esc(a.note)}</span>` : ''}</td>
+          <td class="num">${fmtNum(a.using)}</td>
+          <td class="hide-sm">${esc(a.added ? fmtTime(new Date(a.added)) : '')}</td>
+          <td><div class="btns">
+            <button class="btn btn-sm" data-act="up" data-url="${esc(a.url)}"${i === 0 ? ' disabled' : adminOnly()} aria-label="Lên">↑</button>
+            <button class="btn btn-sm" data-act="down" data-url="${esc(a.url)}"${i === inList.length - 1 ? ' disabled' : adminOnly()} aria-label="Xuống">↓</button>
+            <button class="btn btn-sm btn-danger" data-act="remove" data-url="${esc(a.url)}" data-using="${a.using}"${inList.length === 1 ? ' disabled title="Phải còn ít nhất một địa chỉ"' : adminOnly()}>Gỡ</button>
+          </div></td></tr>`;
+      page.innerHTML = `
+        ${s.file_error ? `<div class="card soon">${ICON.warn}<h2>File danh sách bị lỗi</h2><p class="mono">${esc(s.file_error)}</p>
+          <p>Server đang gửi danh sách cũ. Sửa bằng lệnh <span class="mono">scs-server servers set</span> trên server (menu mục 15).</p></div>` : ''}
+        <div class="grid-kpi">
+          <div class="card kpi"><span class="sub">Máy đang gọi về (${fmtNum(s.window_s / 60)} phút qua)</span><strong>${fmtNum(s.online)}</strong></div>
+          <div class="card kpi"><span class="sub">Đã nhận danh sách hiện tại</span><strong>${fmtNum(s.synced)} <small>(${pct}%)</small></strong></div>
+          <div class="card kpi"><span class="sub">Còn giữ danh sách cũ</span><strong>${fmtNum(s.previous)}</strong></div>
+          <div class="card kpi"><span class="sub">Agent bản cũ (không báo)</span><strong>${fmtNum(s.unknown)}</strong></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Danh sách gửi cho agent</h2><span class="sub">${fmtNum(inList.length)}/${fmtNum(s.max)} địa chỉ · thứ tự là thứ tự agent thử</span></div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Địa chỉ</th><th class="num">Máy đang dùng</th><th class="hide-sm">Thêm lúc</th><th></th></tr></thead>
+            <tbody>${inList.map(row).join('') || '<tr><td colspan="4" class="empty">Chưa có địa chỉ nào: agent chỉ dùng địa chỉ lúc cài.</td></tr>'}</tbody>
+          </table></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <label class="field">Địa chỉ mới
+                <input id="sv-url" placeholder="https://ten.ddns.net:16222" autocomplete="off" spellcheck="false"${adminOnly()}>
+                <small>Dạng https://&lt;IP hoặc tên miền&gt;:&lt;cổng&gt;. IP WAN / tên miền dùng cổng chuyển tiếp trên router về 6222.</small></label>
+              <label class="field">Ghi chú
+                <input id="sv-note" maxlength="80" placeholder="Địa điểm mới - mạng VNPT"${adminOnly()}></label>
+            </div>
+            <div class="form-actions">
+              <label class="check"><input type="checkbox" id="sv-first"${adminOnly()}> Đặt lên đầu</label>
+              <button class="btn btn-primary btn-sm" id="sv-add"${adminOnly()}>Thêm địa chỉ</button>
+            </div>
+          </div>
+        </div>
+        ${outside.length ? `<div class="card">
+          <div class="card-head"><h2>Máy còn gọi qua địa chỉ ngoài danh sách</h2><span class="sub">Địa chỉ đã gỡ hoặc địa chỉ lúc cài agent</span></div>
+          <div class="table-wrap"><table><thead><tr><th>Địa chỉ</th><th class="num">Máy</th></tr></thead>
+            <tbody>${outside.map((a) => `<tr><td class="mono">${esc(a.url)}</td><td class="num">${fmtNum(a.using)}</td></tr>`).join('')}</tbody></table></div>
+          <div class="card-body"><p class="hint">Agent luôn giữ địa chỉ lúc cài trong danh sách của nó. Khi địa chỉ đó không còn dùng được, agent tự chuyển sang địa chỉ trong danh sách và lần khởi động sau thử địa chỉ gọi được lần cuối trước.</p></div>
+        </div>` : ''}
+        ${s.pending.length ? `<div class="card">
+          <div class="card-head"><h2>Máy chưa nhận danh sách hiện tại</h2><span class="sub">Nhận ở lần heartbeat kế tiếp (≤ 5 phút)</span></div>
+          <div class="card-body"><p>${s.pending.map((id) => `<span class="pill no-dot mono">${esc(hosts.get(id) || `#${id}`)}</span>`).join(' ')}</p></div></div>` : ''}
+        <div class="card">
+          <div class="card-head"><h2>Đổi địa điểm / đổi mạng không mất kết nối</h2></div>
+          <div class="card-body">
+            <ol class="hint">
+              <li>Thêm địa chỉ mới (IP WAN mới hoặc tên miền DDNS) <strong>trước khi</strong> chuyển, lúc agent còn gọi được server.</li>
+              <li>Chờ ô "Đã nhận danh sách hiện tại" gần 100% (mỗi máy nhận ở heartbeat kế tiếp, tối đa khoảng 5 phút).</li>
+              <li>Chuyển server sang mạng mới. Agent thấy địa chỉ cũ không gọi được thì tự thử địa chỉ kế tiếp.</li>
+              <li>Khi cột "Máy đang dùng" của địa chỉ cũ về 0, gỡ địa chỉ cũ.</li>
+            </ol>
+            <p class="hint">Không biết trước IP mới thì không báo trước cho agent được: nên luôn có một tên miền DDNS trong danh sách.
+              Số liệu tính từ lúc server khởi động (${esc(fmtTime(new Date(s.since)))}), mỗi máy cập nhật qua heartbeat. Tự cập nhật mỗi 15 giây.</p>
+          </div>
+        </div>`;
+    }
+    async function change(body) {
+      const r = await api('/admin/v1/agent/servers', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      const j = await r.json().catch(() => ({}));
+      return { status: r.status, j };
+    }
+    page.addEventListener('click', async (e) => {
+      const b = e.target.closest('button');
+      if (!b || b.disabled) return;
+      try {
+        if (b.id === 'sv-add') {
+          const url = $('#sv-url').value.trim();
+          if (!url) { toast('Nhập địa chỉ trước'); return; }
+          const { status, j } = await change({ action: 'add', url, note: $('#sv-note').value.trim(), first: $('#sv-first').checked });
+          if (status !== 200) throw new Error(j.error || `lỗi ${status}`);
+          toast(`Đã thêm ${url}. Agent nhận trong vòng 5 phút.`);
+        } else if (b.dataset.act === 'remove') {
+          const url = b.dataset.url;
+          const using = Number(b.dataset.using || 0);
+          if (!(await confirmBox(`Gỡ ${url}?`,
+            `<p>Agent sẽ bỏ địa chỉ <span class="mono strong">${esc(url)}</span> ở lần heartbeat kế tiếp.</p>
+             ${using ? `<p><strong>Còn ${fmtNum(using)} máy đang gọi qua địa chỉ này.</strong> Sau khi nhận danh sách mới, các máy đó chỉ còn các địa chỉ khác (và địa chỉ lúc cài).</p>` : ''}`,
+            'Gỡ', true))) return;
+          let { status, j } = await change({ action: 'remove', url });
+          if (status === 409 && j.using) ({ status, j } = await change({ action: 'remove', url, force: true }));
+          if (status !== 200) throw new Error(j.error || `lỗi ${status}`);
+          toast(`Đã gỡ ${url}`);
+        } else if (b.dataset.act === 'up' || b.dataset.act === 'down') {
+          const { status, j } = await change({ action: b.dataset.act, url: b.dataset.url });
+          if (status !== 200) throw new Error(j.error || `lỗi ${status}`);
+        } else {
+          return;
+        }
+        load();
+      } catch (err) {
+        toast(`Không làm được: ${err.message}`);
+      }
+    });
+    await load();
+    refreshTimer = setInterval(() => {
+      const typing = document.activeElement && ['sv-url', 'sv-note'].includes(document.activeElement.id);
+      if (!$('#dialog').open && !typing) load();
+    }, 15000);
+  }
+
   function pageSoon(title, text) {
     setTitle(title);
     view.innerHTML = `<div class="card soon">${ICON.clock}<h2>${esc(title)}</h2><p>${esc(text)}</p></div>`;
@@ -915,6 +1042,7 @@
     rule: () => pageSoon('Rule quét log', 'Soạn, ký và gán bộ rule cho từng nhóm máy. Sẽ làm ở mốc M7.'),
     'cap-nhat': pageAgent,
     cum: pageCluster,
+    'dia-chi': pageServers,
   };
 
   function route() {

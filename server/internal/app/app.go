@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/thangkes/SCS-System/common/protocol"
+	"github.com/thangkes/SCS-System/server/internal/addrbook"
 	"github.com/thangkes/SCS-System/server/internal/auth"
 	"github.com/thangkes/SCS-System/server/internal/cluster"
 	"github.com/thangkes/SCS-System/server/internal/config"
@@ -30,6 +31,16 @@ type Deps struct {
 	ReleaseKey ed25519.PrivateKey
 	// Cluster: node của cụm nhiều server (nil = không chạy phần cụm trong tiến trình này).
 	Cluster *cluster.Node
+	// Servers: danh sách địa chỉ server gửi cho agent (nil = dùng SCS_AGENT_SERVERS, chỉ khi test).
+	Servers *addrbook.Book
+}
+
+// agentServers: danh sách địa chỉ gửi cho agent ở enroll / heartbeat.
+func agentServers(d Deps) []string {
+	if d.Servers != nil {
+		return d.Servers.URLs()
+	}
+	return d.Cfg.AgentServers
 }
 
 // Body tối đa: payload đã ký được mã hóa base64 (~4/3) cộng phần JSON bọc ngoài.
@@ -110,6 +121,9 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/devices/{id}/test-ring", admin(http.HandlerFunc(ag.testRing)))
 	mux.Handle("GET /admin/v1/agent/config", view(http.HandlerFunc(ag.configs)))
 	mux.Handle("POST /admin/v1/agent/config", admin(http.HandlerFunc(ag.setConfig)))
+	sv := serversAPI{d}
+	mux.Handle("GET /admin/v1/agent/servers", view(http.HandlerFunc(sv.list)))
+	mux.Handle("POST /admin/v1/agent/servers", admin(http.HandlerFunc(sv.change)))
 	cl := clusterAPI{d}
 	mux.Handle("GET /admin/v1/cluster", view(http.HandlerFunc(cl.status)))
 	mux.Handle("POST /admin/v1/cluster/approve", admin(http.HandlerFunc(cl.approve)))

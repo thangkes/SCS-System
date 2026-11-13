@@ -125,7 +125,7 @@ func enrollHandler(d Deps) http.Handler {
 			d.Log.Info("đã cấp chứng chỉ cho máy", "device", res.DeviceID, "hostname", body.Hostname,
 				"serial", iss.Serial, "het_han", iss.NotAfter.Format(time.DateOnly))
 			resp = protocol.EnrollResponse{Status: protocol.EnrollApproved, DeviceID: id,
-				CertificatePEM: string(iss.PEM), CAPEM: string(d.CA.CertPEM), Servers: d.Cfg.AgentServers}
+				CertificatePEM: string(iss.PEM), CAPEM: string(d.CA.CertPEM), Servers: agentServers(d)}
 		case DeviceRejected, DeviceRevoked:
 			resp.Status = protocol.EnrollRejected
 		}

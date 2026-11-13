@@ -59,7 +59,8 @@ func Run(ctx context.Context, d Deps) error {
 	for {
 		comps, _ := sysinfo.Components()
 		body := protocol.HeartbeatBody{UptimeS: int64(time.Since(start) / time.Second), RuleSetVersion: st.RuleSetVersion,
-			Arch: runtime.GOARCH, ConfigVersion: st.ConfigVersion}
+			Arch: runtime.GOARCH, ConfigVersion: st.ConfigVersion,
+			ServersHash: protocol.ServersHash(st.Servers), ServerURL: d.Client.Current()}
 		var resp protocol.Response
 		err := d.Client.Send(ctx, "/v1/heartbeat", protocol.TypeHeartbeat, st.DeviceID, comps.Hash(), body, &resp)
 
@@ -92,7 +93,11 @@ func Run(ctx context.Context, d Deps) error {
 				update.StampOK(d.StateDir, d.Version) // nếu đây là bản khung: nó gọi được server
 				marked = true
 			}
-			if st2, changed := apply(d, st, resp); changed {
+			st2, changed := apply(d, st, resp)
+			if cur := d.Client.Current(); cur != st2.LastServer {
+				st2.LastServer, changed = cur, true
+			}
+			if changed {
 				st = st2
 				if err := identity.SaveState(d.StateDir, st); err != nil {
 					d.Log.Error("không lưu được cấu hình server gửi xuống", "err", err)

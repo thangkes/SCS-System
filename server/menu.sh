@@ -372,6 +372,58 @@ cluster_after() {
 	fi
 }
 
+# ---- mục 15: danh sách địa chỉ server gửi cho agent (thêm / gỡ khi đổi mạng, không khởi động lại)
+servers_file() {
+	local f
+	f="$(env_get SCS_AGENT_SERVERS_FILE)"
+	echo "${f:-/var/lib/scs-server/data/agent-servers.json}"
+}
+
+servers_cmd() {
+	[[ -x "$SCS_BIN" ]] || { echo "  Chưa cài dịch vụ (chọn mục 3 trước)."; return 1; }
+	sudo -u scs "$SCS_BIN" servers "$@" -file "$(servers_file)"
+}
+
+do_servers() {
+	local c url note
+	while true; do
+		echo
+		servers_cmd list || return 0
+		echo
+		echo "  ${C_DIM}Đổi địa điểm / đổi mạng: thêm địa chỉ mới TRƯỚC khi chuyển, chờ agent nhận (≤ 5 phút; web,${C_0}"
+		echo "  ${C_DIM}trang \"Địa chỉ server\" cho biết bao nhiêu máy đã nhận), chuyển mạng, rồi mới gỡ địa chỉ cũ.${C_0}"
+		echo "  ${C_DIM}Không phải cấp lại chứng chỉ, không phải khởi động lại server.${C_0}"
+		echo
+		echo "   a) Thêm địa chỉ    g) Gỡ địa chỉ    0) Quay lại"
+		read -r -p "  Chọn: " c
+		case "$c" in
+			a | A)
+				ask "Địa chỉ mới (https://<IP WAN hoặc tên miền>:<cổng chuyển tiếp về 6222>)" ""
+				url="$REPLY"
+				[[ -n "$url" ]] || continue
+				[[ "$url" == https://* ]] || url="https://$url"
+				ask "Ghi chú (ví dụ: Địa điểm mới - VNPT; Enter để bỏ qua)" "-"
+				note="$REPLY"
+				[[ "$note" == "-" ]] && note=""
+				if confirm "Đặt lên đầu danh sách (agent thử địa chỉ này trước)?"; then
+					servers_cmd add "$url" -note "$note" -first
+				else
+					servers_cmd add "$url" -note "$note"
+				fi
+				;;
+			g | G)
+				ask "Địa chỉ cần gỡ (gõ đúng như danh sách trên)" ""
+				url="$REPLY"
+				[[ -n "$url" ]] || continue
+				echo "  ${C_DIM}Xem trên web (trang \"Địa chỉ server\") cột \"Máy đang dùng\" của địa chỉ này đã về 0 chưa.${C_0}"
+				confirm "Gỡ $url khỏi danh sách gửi cho agent?" && servers_cmd remove "$url"
+				;;
+			0 | q | Q | "") return 0 ;;
+			*) echo "  Không có mục \"$c\"." ;;
+		esac
+	done
+}
+
 do_cluster_status() {
 	cluster_cmd status || return 0
 	case "$(cluster_state)" in
@@ -448,7 +500,7 @@ while true; do
 
   ${C_B}Mạng và chứng chỉ${C_0}
    6) Cho thêm dải mạng vào web quản trị (7222), kể cả toàn mạng nội bộ
-   7) Đổi / thêm địa chỉ server (IP LAN, IP WAN, tên miền): cấp lại chứng chỉ, báo cho agent
+   7) Đổi IP LAN / thêm IP vào chứng chỉ server (cấp lại chứng chỉ, ghi danh sách cho agent)
 
   ${C_B}Vận hành${C_0}
    8) Lấy mã đăng nhập web
@@ -462,6 +514,9 @@ while true; do
   12) Trạng thái cụm, mã khóa của server này
   13) Tạo cụm mới (server đầu tiên)
   14) Xin vào cụm đã có
+
+  ${C_B}Địa chỉ cho agent${C_0}
+  15) Thêm / gỡ địa chỉ server gửi cho agent (đổi địa điểm, đổi mạng; không khởi động lại)
 
    0) Thoát
 EOF
@@ -483,6 +538,7 @@ EOF
 		12) do_cluster_status ;;
 		13) do_cluster_init ;;
 		14) do_cluster_join ;;
+		15) do_servers ;;
 		0 | q | Q | "") exit 0 ;;
 		*) echo "  Không có mục \"$choice\"." ;;
 	esac

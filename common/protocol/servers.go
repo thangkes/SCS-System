@@ -1,6 +1,8 @@
 package protocol
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net"
 	"net/url"
@@ -41,4 +43,16 @@ func CleanServers(list []string) []string {
 		}
 	}
 	return out
+}
+
+// ServersHash: dấu ngắn của một danh sách địa chỉ (sau CleanServers). Agent gửi lại dấu của danh
+// sách nó đang giữ trong heartbeat để server đếm được bao nhiêu máy đã nhận danh sách mới nhất.
+// Danh sách rỗng có dấu rỗng.
+func ServersHash(list []string) string {
+	list = CleanServers(list)
+	if len(list) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(strings.Join(list, "\n")))
+	return hex.EncodeToString(sum[:8])
 }

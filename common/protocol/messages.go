@@ -37,13 +37,18 @@ type EnrollResponse struct {
 
 // HeartbeatBody: gửi mỗi 5 phút.
 type HeartbeatBody struct {
-	UptimeS         int64          `json:"uptime_s"`
-	Arch            string         `json:"arch,omitempty"`           // amd64 | arm64: server chọn đúng bản agent
-	ConfigVersion   string         `json:"config_version,omitempty"` // AgentConfig.Version agent đang dùng
-	RuleSetVersion  string         `json:"rule_set_version"`
-	LogQueuePending int            `json:"log_queue_pending"`
-	Capabilities    []string       `json:"capabilities,omitempty"` // module agent đang có
-	Status          *MachineStatus `json:"status,omitempty"`
+	UptimeS         int64    `json:"uptime_s"`
+	Arch            string   `json:"arch,omitempty"`           // amd64 | arm64: server chọn đúng bản agent
+	ConfigVersion   string   `json:"config_version,omitempty"` // AgentConfig.Version agent đang dùng
+	RuleSetVersion  string   `json:"rule_set_version"`
+	LogQueuePending int      `json:"log_queue_pending"`
+	Capabilities    []string `json:"capabilities,omitempty"` // module agent đang có
+	// ServersHash: ServersHash của danh sách địa chỉ server agent đang giữ; ServerURL: địa chỉ
+	// agent vừa dùng để gọi heartbeat này. Server dùng hai trường để biết đã bao nhiêu máy nhận
+	// danh sách mới và còn bao nhiêu máy gọi qua từng địa chỉ (trước khi gỡ một địa chỉ cũ).
+	ServersHash string         `json:"servers_hash,omitempty"`
+	ServerURL   string         `json:"server_url,omitempty"`
+	Status      *MachineStatus `json:"status,omitempty"`
 }
 
 // Giới hạn số phần tử trong MachineStatus để một heartbeat luôn nhỏ (server cũng kiểm).

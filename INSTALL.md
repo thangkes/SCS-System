@@ -66,9 +66,21 @@ Script:
 - **Mở cho agent từ Internet** (làm lúc cài hoặc sau này): router **chuyển tiếp một cổng** (ví dụ `16222`) về `6222` của
   máy server, rồi menu mục **7** thêm IP WAN tĩnh hoặc tên miền DDNS để agent đã duyệt nhận làm địa chỉ dự phòng.
   Máy ở ngoài cài bằng gói đóng với `https://<IP WAN hoặc tên miền>:16222`.
-- **Agent tự chuyển địa chỉ:** mục 3/7 ghi danh sách địa chỉ server (IP LAN, IP WAN, tên miền) vào `SCS_AGENT_SERVERS`.
-  Server gửi danh sách này cho agent đã duyệt (lúc duyệt và mỗi heartbeat 5 phút); agent lưu lại, địa chỉ đang dùng
-  không kết nối được thì thử ngay địa chỉ kế tiếp. Máy cài bằng gói LAN mang ra ngoài vẫn gọi về được qua IP WAN.
+- **Agent tự chuyển địa chỉ:** server giữ danh sách địa chỉ server (IP LAN, IP WAN, tên miền DDNS, IP VPN; tối đa 8)
+  trong file `SCS_AGENT_SERVERS_FILE` (mặc định `/var/lib/scs-server/data/agent-servers.json`) và gửi cho agent đã
+  duyệt (lúc duyệt và mỗi heartbeat 5 phút); agent lưu lại, địa chỉ đang dùng không kết nối được thì thử ngay địa
+  chỉ kế tiếp, khởi động lại thì thử địa chỉ gọi được lần cuối trước. Máy cài bằng gói LAN mang ra ngoài vẫn gọi về
+  được qua IP WAN. Mục 3/7 ghi cả danh sách; thêm / gỡ từng địa chỉ: web trang **Địa chỉ server** hoặc menu
+  mục **15** (`scs-server servers list|add|remove|set`), có hiệu lực ngay, không khởi động lại, không cấp lại chứng chỉ.
+- **Đổi địa điểm / đổi mạng không mất kết nối hàng loạt:**
+  1. **Trước khi chuyển**, lúc agent còn gọi được server: thêm địa chỉ mới (IP WAN mới, tên miền DDNS) và mở
+     chuyển tiếp cổng trên router mới.
+  2. Chờ trang **Địa chỉ server** báo "Đã nhận danh sách hiện tại" gần 100% (mỗi máy nhận ở heartbeat kế tiếp).
+  3. Chuyển server sang mạng mới. Agent thấy địa chỉ cũ không gọi được thì tự chuyển sang địa chỉ kế tiếp.
+  4. Khi cột "Máy đang dùng" của địa chỉ cũ về 0, gỡ địa chỉ cũ (web hỏi lại nếu vẫn còn máy dùng).
+  Không biết trước IP mới thì không báo trước cho agent được: nên luôn có ít nhất một tên miền DDNS (hoặc IP VPN)
+  trong danh sách. Số liệu trên trang tính trong RAM từ lúc server khởi động (chạy `scs-server all`); agent bản cũ
+  vẫn nhận danh sách nhưng không báo đã nhận (đếm ở ô "Agent bản cũ").
 - Cổng web quản trị `7222` **không mở ra Internet**: mặc định chỉ chính máy server vào được. Menu mục **6** (hoặc
   câu hỏi ở mục 3) chọn: **toàn mạng nội bộ** (mọi dải IP riêng 10.x, 172.16–31.x, 192.168.x, hợp với công ty nhiều
   lớp mạng / VLAN định tuyến qua nhau), chỉ dải LAN của server, hoặc tự nhập các dải. Dòng lệnh:

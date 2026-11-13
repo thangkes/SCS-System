@@ -166,6 +166,7 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		return 1
 	}
 	c.SetServers(st.Servers) // địa chỉ server gửi xuống từ lần trước
+	c.Prefer(st.LastServer)
 	_, certErr := os.Stat(identity.CertPath(cfg.KeyDir))
 	if st.Status != identity.StatusApproved || certErr != nil {
 		st, err = enroll.Run(ctx, enroll.Deps{Log: log, Client: c, Key: key,

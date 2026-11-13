@@ -282,8 +282,18 @@ if [[ -n "$CA_PEM" && -r "$CA_PEM" ]]; then
 	install -o root -g root -m 644 "$CA_PEM" "$ETC_DIR/agent-ca.pem"
 fi
 
+# Danh sách địa chỉ gửi cho agent nằm trong file (sửa được lúc đang chạy: web trang "Địa chỉ server",
+# menu mục 15). SCS_AGENT_SERVERS chỉ dùng để tạo file lần đầu.
+servers_file="$(env_value "$ENV_FILE" SCS_AGENT_SERVERS_FILE)"
+servers_file="${servers_file:-data/agent-servers.json}"
+[[ "$servers_file" == /* ]] || { servers_file="$DATA_DIR/$servers_file"; set_env SCS_AGENT_SERVERS_FILE "$servers_file"; }
 if [[ "$AGENT_SERVERS" != "-" ]]; then
 	set_env SCS_AGENT_SERVERS "$AGENT_SERVERS"
+	if [[ -n "$AGENT_SERVERS" ]]; then
+		install -d -o "$SVC_USER" -g "$SVC_USER" -m 750 "$(dirname "$servers_file")"
+		sudo -u "$SVC_USER" "$OPT_DIR/scs-server" servers set "$AGENT_SERVERS" -file "$servers_file" >/dev/null ||
+			die "Không ghi được danh sách địa chỉ gửi cho agent vào $servers_file"
+	fi
 	ok "Địa chỉ gửi cho agent: ${AGENT_SERVERS:-(chỉ địa chỉ lúc cài)}"
 fi
 

@@ -55,6 +55,9 @@ type Config struct {
 	// (ví dụ https://192.168.1.10:6222,https://ten.ddns.net:16222). Gửi cho agent đã duyệt; agent
 	// thử lần lượt khi địa chỉ đang dùng không kết nối được. Rỗng = agent chỉ dùng địa chỉ lúc cài.
 	AgentServers []string
+	// AgentServersFile (SCS_AGENT_SERVERS_FILE): file danh sách địa chỉ trên, sửa được lúc đang chạy
+	// (web quản trị, `scs-server servers`). Chưa có file thì tạo từ SCS_AGENT_SERVERS; có rồi thì file thắng.
+	AgentServersFile string
 	// ReleaseKey (SCS_RELEASE_KEY): khóa ký bản agent (scs-server pki release). Trống = không phát
 	// hành bản agent. AgentDist (SCS_AGENT_DIST): thư mục bản agent đi kèm bản server này
 	// (install.sh chép vào), server nhập vào kho AgentReleases (SCS_AGENT_RELEASES) lúc khởi động.
@@ -127,13 +130,14 @@ func Load() (*Config, error) {
 		StorageRoot: get("SCS_STORAGE_ROOT", "./data/devices"),
 		AdminToken:  secret(get("SCS_ADMIN_TOKEN", "")),
 
-		ControlSocket: get("SCS_CONTROL_SOCKET", "data/run/control.sock"),
-		AgentServers:  getServers("SCS_AGENT_SERVERS", &errs),
-		ReleaseKey:    get("SCS_RELEASE_KEY", ""),
-		AgentDist:     get("SCS_AGENT_DIST", "/opt/scs-server/agent"),
-		AgentReleases: get("SCS_AGENT_RELEASES", "data/agent-releases"),
-		ClusterDir:    get("SCS_CLUSTER_DIR", "data/cluster"),
-		ClusterListen: get("SCS_CLUSTER_LISTEN", ":5222"),
+		ControlSocket:    get("SCS_CONTROL_SOCKET", "data/run/control.sock"),
+		AgentServers:     getServers("SCS_AGENT_SERVERS", &errs),
+		AgentServersFile: get("SCS_AGENT_SERVERS_FILE", "data/agent-servers.json"),
+		ReleaseKey:       get("SCS_RELEASE_KEY", ""),
+		AgentDist:        get("SCS_AGENT_DIST", "/opt/scs-server/agent"),
+		AgentReleases:    get("SCS_AGENT_RELEASES", "data/agent-releases"),
+		ClusterDir:       get("SCS_CLUSTER_DIR", "data/cluster"),
+		ClusterListen:    get("SCS_CLUSTER_LISTEN", ":5222"),
 	}
 	errs = append(errs, c.validate()...)
 	if len(errs) > 0 {

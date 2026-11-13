@@ -156,6 +156,8 @@ type State struct {
 	RuleSetVersion string    `json:"rule_set_version,omitempty"`
 	// Servers: địa chỉ server gửi xuống (LAN, IP WAN, tên miền), thử lần lượt khi mất kết nối.
 	Servers []string `json:"servers,omitempty"`
+	// LastServer: địa chỉ gọi server thành công lần cuối; khởi động lại thì thử địa chỉ này trước.
+	LastServer string `json:"last_server,omitempty"`
 	// Cấu hình server gửi xuống (đặt trên web). WatchServices nil = chưa nhận, dùng agent.env.
 	ConfigVersion string   `json:"config_version,omitempty"`
 	WatchServices []string `json:"watch_services,omitempty"`

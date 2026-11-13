@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/thangkes/SCS-System/server/internal/addrbook"
 	"github.com/thangkes/SCS-System/server/internal/app"
 	"github.com/thangkes/SCS-System/server/internal/auth"
 	"github.com/thangkes/SCS-System/server/internal/cluster"
@@ -44,6 +45,7 @@ Lệnh:
               cấp lại chứng chỉ server (đổi IP): pki server -ip ...
   rules       viết rule quét log: rules check | test | build (scs-server rules -h)
   cluster     cụm nhiều server: cluster init | status | ping (scs-server cluster -h)
+  servers     địa chỉ server gửi cho agent: servers list | add | remove | set (scs-server servers -h)
   version     in phiên bản
 
 Cấu hình lấy từ biến môi trường; tự nạp ./.env nếu có (xem .env.example).
@@ -74,6 +76,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runRules(args[1:], stdout, stderr)
 	case "cluster":
 		return runCluster(args[1:], stdout, stderr)
+	case "servers":
+		return runServers(args[1:], stdout, stderr)
 	case "ingest", "admin", "worker", "all", "login-code":
 	default:
 		fmt.Fprintf(stderr, "lệnh không hợp lệ: %q\n\n%s", cmd, usage)
@@ -156,6 +160,16 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 	} else if cmd == "ingest" || cmd == "all" {
 		log.Warn("chưa khai SCS_RELEASE_KEY: server không phát hành bản agent (tạo bằng: scs-server pki release)")
+	}
+	if cmd == "ingest" || cmd == "all" || cmd == "admin" {
+		// Một Book chung cho cổng agent và web: web thấy được số máy đã nhận danh sách địa chỉ.
+		// Chạy ingest và admin thành hai tiến trình thì web chỉ sửa được danh sách, không có số liệu.
+		base.Servers, err = addrbook.Open(cfg.AgentServersFile, cfg.AgentServers)
+		if err != nil {
+			log.Error("file danh sách địa chỉ gửi agent bị lỗi, tạm dùng SCS_AGENT_SERVERS (sửa bằng: scs-server servers set)",
+				"err", err)
+		}
+		log.Info("địa chỉ gửi cho agent", "file", cfg.AgentServersFile, "dia_chi", strings.Join(base.Servers.URLs(), ", "))
 	}
 	if cmd == "all" { // phần cụm chạy cùng tiến trình với web quản trị (trang "Cụm server" dùng chung node)
 		if base.Cluster, err = cluster.Open(cfg.ClusterDir); err != nil {
@@ -269,7 +283,7 @@ func httpServer(role, addr string, cfg *config.Config, mode httpx.ClientAuth,
 		Name: role,
 		Addr: addr,
 		Handler: handler(app.Deps{Cfg: cfg, Log: l, Version: version, ReadyChecks: base.ReadyChecks,
-			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey, Cluster: base.Cluster}),
+			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey, Cluster: base.Cluster, Servers: base.Servers}),
 		TLS: tlsCfg,
 		Log: l,
 	}
