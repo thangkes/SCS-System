@@ -75,16 +75,19 @@ func TestServersAdminAPI(t *testing.T) {
 	if w := call("GET", ""); w.Code != 200 || !strings.Contains(w.Body.String(), svLAN) {
 		t.Fatalf("đọc: %d %s", w.Code, w.Body)
 	}
-	for body, code := range map[string]int{
-		`{"action":"add","url":"` + svNew + `","note":"DDNS"}`: 200,
-		`{"action":"add","url":"` + svNew + `"}`:               409,
-		`{"action":"add","url":"http://x:1"}`:                  400,
-		`{"action":"up","url":"` + svNew + `"}`:                200,
-		`{"action":"x","url":"` + svNew + `"}`:                 400,
-		`{"action":"remove","url":"https://khong.co:1"}`:       404,
+	for _, c := range []struct { // chạy theo thứ tự: thêm trước rồi mới đưa lên
+		body string
+		code int
+	}{
+		{`{"action":"add","url":"` + svNew + `","note":"DDNS"}`, 200},
+		{`{"action":"add","url":"` + svNew + `"}`, 409},
+		{`{"action":"add","url":"http://x:1"}`, 400},
+		{`{"action":"up","url":"` + svNew + `"}`, 200},
+		{`{"action":"x","url":"` + svNew + `"}`, 400},
+		{`{"action":"remove","url":"https://khong.co:1"}`, 404},
 	} {
-		if w := call("POST", body); w.Code != code {
-			t.Errorf("%s: %d, phải là %d (%s)", body, w.Code, code, w.Body)
+		if w := call("POST", c.body); w.Code != c.code {
+			t.Errorf("%s: %d, phải là %d (%s)", c.body, w.Code, c.code, w.Body)
 		}
 	}
 	if got := b.URLs(); !reflect.DeepEqual(got, []string{svNew, svLAN}) {
