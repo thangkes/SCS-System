@@ -38,10 +38,18 @@ const (
 	MaxLineBytes  = 4096 // dòng log dài hơn bị cắt trước khi khớp
 	MaxSample     = 1024 // dòng gửi kèm sự kiện
 	MaxFieldValue = 256
+	MaxTags       = 8
+	MaxApplyKeys  = 8
+	MaxApplyVals  = 16
+	// SchemaMax: schema cao nhất bản này đọc được. Agent báo "rules/<SchemaMax>" trong heartbeat.
+	SchemaMax = 2
 )
 
 // RuleSet: một bộ rule, gán cho nhóm máy. Version đổi mỗi lần sửa để agent biết phải tải lại.
 type RuleSet struct {
+	// Schema: phiên bản cấu trúc bộ rule (bỏ trống = 1). Dùng tags / applies_to thì phải là 2;
+	// agent cũ (chỉ hiểu schema 1) từ chối cả bộ có trường lạ và giữ bộ đang dùng.
+	Schema      int    `json:"schema,omitempty"`
 	Name        string `json:"name"`
 	Version     string `json:"version"`
 	Description string `json:"description,omitempty"`
@@ -67,6 +75,11 @@ type Rule struct {
 	// CooldownS: sau khi báo, cùng rule + cùng khóa nhóm im lặng bấy nhiêu giây.
 	CooldownS int  `json:"cooldown_s,omitempty"`
 	Disabled  bool `json:"disabled,omitempty"`
+	// Tags: nhãn phân loại rule (lớp dịch vụ, nhóm, cờ báo cáo...), gửi kèm sự kiện. Cần schema 2.
+	Tags []string `json:"tags,omitempty"`
+	// AppliesTo: rule chỉ chạy trên máy có ngữ cảnh khớp (xem Context). Các khóa AND, các giá trị
+	// trong một khóa OR; bỏ trống = mọi máy. Máy không có khóa đó thì rule KHÔNG chạy. Cần schema 2.
+	AppliesTo map[string][]string `json:"applies_to,omitempty"`
 	// Tests: dòng ví dụ để kiểm rule khi viết (chỉ dùng ở server, bị bỏ khi đóng gói gửi agent).
 	Tests *Tests `json:"tests,omitempty"`
 }
@@ -91,6 +104,9 @@ var (
 	versionRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$`)
 	unitRe    = regexp.MustCompile(`^[A-Za-z0-9@_.:][A-Za-z0-9@_.:-]{0,127}$`)
 	fieldRe   = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+	tagRe     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
+	ctxKeyRe  = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)
+	ctxValRe  = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 )
 
 // ValidationError gom mọi lỗi của một bộ rule để người viết sửa một lần.
@@ -108,6 +124,9 @@ func (s *RuleSet) Validate() error {
 	if !versionRe.MatchString(s.Version) || strings.Contains(s.Version, "..") {
 		add("version %q: chỉ chữ, số, . _ + - (ví dụ 2026.11.10-01)", s.Version)
 	}
+	if s.Schema < 0 || s.Schema > SchemaMax {
+		add("schema %d: bản này chỉ đọc được schema 1 tới %d (cần agent / server mới hơn)", s.Schema, SchemaMax)
+	}
 	if len(s.Rules) == 0 {
 		add("rules: bộ rule trống")
 	}
@@ -123,6 +142,9 @@ func (s *RuleSet) Validate() error {
 		}
 		for _, e := range r.validate() {
 			add("%s: %s", where, e)
+		}
+		if (len(r.Tags) > 0 || r.AppliesTo != nil) && s.Schema < 2 {
+			add("%s: tags / applies_to cần khai \"schema: 2\" ở đầu bộ rule (agent cũ không đọc được)", where)
 		}
 		if seen[r.ID] {
 			add("%s: id bị trùng", where)
@@ -200,6 +222,36 @@ func (r *Rule) validate() []string {
 	if r.CooldownS < 0 || r.CooldownS > MaxWindowS {
 		add("cooldown_s: từ 0 tới %d giây", MaxWindowS)
 	}
+	if len(r.Tags) > MaxTags {
+		add("tags: tối đa %d nhãn", MaxTags)
+	}
+	for i, t := range r.Tags {
+		if !tagRe.MatchString(t) {
+			add("tags %q: chữ thường, số, - (tối đa 32 ký tự, ví dụ bao-mat, t2)", t)
+		}
+		if slices.Contains(r.Tags[:i], t) {
+			add("tags %q: bị trùng", t)
+		}
+	}
+	if r.AppliesTo != nil && len(r.AppliesTo) == 0 {
+		add("applies_to: để trống thì bỏ hẳn trường này (áp cho mọi máy)")
+	}
+	if len(r.AppliesTo) > MaxApplyKeys {
+		add("applies_to: tối đa %d khóa", MaxApplyKeys)
+	}
+	for k, vals := range r.AppliesTo {
+		if !ValidContextKey(k) {
+			add("applies_to khóa %q: chữ thường, số, _ (ví dụ role, os, store)", k)
+		}
+		if len(vals) == 0 || len(vals) > MaxApplyVals {
+			add("applies_to.%s: từ 1 tới %d giá trị", k, MaxApplyVals)
+		}
+		for _, v := range vals {
+			if !ValidContextValue(v) {
+				add("applies_to.%s %q: chữ thường, số, . _ - (ví dụ pri, ubuntu-22.04, 12345)", k, v)
+			}
+		}
+	}
 	if t := r.Tests; t != nil && (len(t.Match) > MaxTests || len(t.NoMatch) > MaxTests) {
 		add("tests: tối đa %d dòng mỗi loại", MaxTests)
 	}
@@ -250,7 +302,7 @@ func printable(s string) bool {
 
 // ForAgent trả bản sao bỏ tests (agent không cần) và rule đã tắt.
 func (s *RuleSet) ForAgent() *RuleSet {
-	out := &RuleSet{Name: s.Name, Version: s.Version, Description: s.Description}
+	out := &RuleSet{Schema: s.Schema, Name: s.Name, Version: s.Version, Description: s.Description}
 	for _, r := range s.Rules {
 		if r.Disabled {
 			continue

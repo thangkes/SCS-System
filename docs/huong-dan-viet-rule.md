@@ -7,7 +7,7 @@ Mục lục
 1. [Rule chạy ở đâu](#1-rule-chạy-ở-đâu)
 2. [Quy trình 6 bước](#2-quy-trình-6-bước)
 3. [Cấu trúc file rule](#3-cấu-trúc-file-rule)
-4. [Từng trường của một rule](#4-từng-trường-của-một-rule)
+4. [Từng trường của một rule](#4-từng-trường-của-một-rule) (4.1 schema 2: tags, applies_to)
 5. [Chọn nguồn log: file hay journald](#5-chọn-nguồn-log-file-hay-journald)
 6. [Viết regex cho match / exclude](#6-viết-regex-cho-match--exclude)
 7. [Đếm ngưỡng: aggregate, group_by, cooldown_s](#7-đếm-ngưỡng-aggregate-group_by-cooldown_s)
@@ -133,7 +133,65 @@ Quy tắc YAML cần nhớ:
 | `aggregate` | không | `{ window_s, threshold, group_by }`: chỉ báo khi trúng ≥ `threshold` lần trong `window_s` giây. Không có = trúng là báo. |
 | `cooldown_s` | không | Sau khi báo, im lặng bấy nhiêu giây (theo từng giá trị `group_by`). |
 | `disabled` | không | `true`: giữ rule trong file nhưng không gửi xuống agent. |
+| `tags` | không | Nhãn phân loại rule, gửi kèm sự kiện (cần `schema: 2`), xem [mục 4.1](#41-schema-2-tags-và-applies_to). |
+| `applies_to` | không | Rule chỉ chạy trên máy có ngữ cảnh khớp (cần `schema: 2`), xem [mục 4.1](#41-schema-2-tags-và-applies_to). |
 | `tests` | nên có | `match:` / `no_match:` là các dòng log mẫu, chỉ dùng khi kiểm, không gửi xuống agent. |
+
+### 4.1 Schema 2: tags và applies_to
+
+Một bộ rule dùng chung cho mọi máy; mỗi agent tự biết mình là máy nào để chỉ chạy rule phù hợp.
+Muốn dùng `tags` / `applies_to`, khai `schema: 2` ở đầu file:
+
+```yaml
+schema: 2
+name: cong-ty
+version: '2026.11.13-01'
+
+rules:
+  - id: SSH-FAIL-26-01
+    title: Đăng nhập SSH sai (Ubuntu 26.04, sshd-session)
+    severity: medium
+    source: journald
+    unit: ssh.service
+    match: 'sshd-session\[\d+\]: Failed password for (?P<user>\S+) from (?P<ip>[0-9a-fA-F.:]+)'
+    aggregate: { window_s: 300, threshold: 5, group_by: ip }
+    tags: [bao-mat, t0]
+    applies_to: { os: [ubuntu-26.04] }
+
+  - id: POS-SVC-DOWN-01
+    title: Phần mềm bán hàng dừng
+    severity: critical
+    source: journald
+    unit: init.scope
+    match: '^pos\.service: Failed with result'
+    tags: [dich-vu, t1]
+    applies_to: { role: [pri, sec] }   # chỉ máy chính
+```
+
+**`tags`**: tối đa 8 nhãn, mỗi nhãn chữ thường, số, `-` (tối đa 32 ký tự), không trùng. Không đổi cách khớp;
+nhãn đi kèm sự kiện để server / người trực phân loại (ví dụ lớp dịch vụ `t0`…`t4`, nhóm `bao-mat`, `phan-cung`,
+cờ `bao-cao-anm`).
+
+**`applies_to`**: `{ khoa: [gia_tri, ...], ... }`. Các khóa là **VÀ**, các giá trị trong một khóa là **HOẶC**.
+Bỏ `applies_to` = mọi máy. Máy **không có** khóa đó thì rule **không chạy** (an toàn hơn báo nhầm).
+Tối đa 8 khóa, 16 giá trị mỗi khóa; khóa chữ thường / số / `_`, giá trị chữ thường / số / `. _ -`.
+
+Ngữ cảnh máy (agent tự suy ra, xem bằng `sudo scs-agent rules`, dòng "Máy này"):
+
+| Khóa | Lấy từ | Giá trị |
+|---|---|---|
+| `role` | hostname `<mã>-TN1-PRI` / `-TN2-SEC` / `-TN3`… | `pri` / `sec` / `phu` (hostname sai quy ước: không có khóa) |
+| `store` | hostname | mã siêu thị, ví dụ `12345` |
+| `os` | `/etc/os-release` (`ID-VERSION_ID`) | ví dụ `ubuntu-22.04`, `ubuntu-26.04` |
+| khóa tự do | web, trang "Agent: cập nhật, cấu hình" → **Nhãn máy** | ví dụ `vung=mien-nam` |
+
+Nhãn đặt trên web theo 3 cấp (mọi máy / siêu thị / máy), gộp theo từng khóa (máy ghi đè siêu thị, siêu thị
+ghi đè chung) và **ghi đè** giá trị agent tự suy ra. Agent nhận trong vòng 5 phút qua heartbeat.
+
+**Tương thích**: agent bản cũ chỉ đọc schema 1, gặp bộ có `schema` / `tags` / `applies_to` sẽ **từ chối cả bộ** và
+giữ bộ đang dùng (không chạy nhầm rule viết cho máy khác). Agent mới báo `rules/2` trong heartbeat; khi server tự
+phát bộ rule (M7) sẽ chỉ gửi bộ schema 2 cho agent đã báo `rules/2`. Bộ không dùng trường mới thì giữ schema 1
+(bỏ dòng `schema`) để mọi agent đều đọc được.
 
 ## 5. Chọn nguồn log: file hay journald
 
@@ -277,6 +335,8 @@ scs-server rules test server/rules/mau-co-ban.yaml -log mau-auth.log
 #   -source NGUON   dòng trong file coi như đến từ nguồn nào (mặc định: nguồn của rule đầu tiên)
 #   -unit UNIT      với journald
 #   -step 1s        khoảng thời gian giả lập giữa hai dòng (thử aggregate)
+#   -ctx role=pri,os=ubuntu-22.04   giả lập ngữ cảnh máy: chỉ chạy rule có applies_to khớp
+#                   (bỏ trống: chạy mọi rule, không lọc)
 
 # Ví dụ thử rule kernel với log lấy bằng journalctl -k -o cat
 scs-server rules test server/rules/mau-co-ban.yaml -log mau-kernel.log -source journald -unit kernel
@@ -448,6 +508,9 @@ sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journa
 | Giá trị mỗi trường lấy ra | 256 byte |
 | Khóa nhóm đếm cùng lúc mỗi rule | 4096 |
 | Dòng tests | 20 mỗi loại |
+| `tags` mỗi rule | 8 |
+| `applies_to` | 8 khóa, 16 giá trị mỗi khóa |
+| Nhãn máy đặt trên web mỗi cấp | 16 |
 | Bộ rule đã ký | 1 MB |
 
 ## 14. An toàn
@@ -464,6 +527,7 @@ sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journa
 | Định nghĩa rule, kiểm tra, bộ máy khớp + đếm ngưỡng + cooldown (dùng chung) | **Đã có** (`common/rules`, có test) |
 | Đọc YAML, `scs-server rules check / test / build`, ký bộ rule | **Đã có** |
 | Agent nạp / cài bộ rule có chữ ký, `scs-agent rules` (xem, cài tay, chạy thử) | **Đã có** |
+| Schema 2: `tags`, `applies_to`, ngữ cảnh máy (hostname, os-release, nhãn trên web 3 cấp) | **Đã có** |
 | Agent đọc file log liên tục (nhớ vị trí đã đọc, xử lý xoay vòng log) và đọc journald | Chưa có (mốc A3) |
 | Server lưu bộ rule, gán bộ rule theo nhóm máy trên web, phát qua heartbeat (`rule_set_version`) | Chưa có (mốc M7) |
 | Agent gửi sự kiện lên server, hàng đợi khi mất mạng; server lưu sự kiện, tạo cảnh báo trên web | Chưa có (mốc A3 / M5) |

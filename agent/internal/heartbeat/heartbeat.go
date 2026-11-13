@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"runtime"
 	"slices"
+	"strconv"
 	"time"
 
 	"github.com/thangkes/SCS-System/agent/internal/client"
@@ -19,6 +20,7 @@ import (
 	"github.com/thangkes/SCS-System/agent/internal/sysinfo"
 	"github.com/thangkes/SCS-System/agent/internal/update"
 	"github.com/thangkes/SCS-System/common/protocol"
+	"github.com/thangkes/SCS-System/common/rules"
 )
 
 // Nhịp gọi (test đổi được).
@@ -60,7 +62,8 @@ func Run(ctx context.Context, d Deps) error {
 		comps, _ := sysinfo.Components()
 		body := protocol.HeartbeatBody{UptimeS: int64(time.Since(start) / time.Second), RuleSetVersion: st.RuleSetVersion,
 			Arch: runtime.GOARCH, ConfigVersion: st.ConfigVersion,
-			ServersHash: protocol.ServersHash(st.Servers), ServerURL: d.Client.Current()}
+			ServersHash: protocol.ServersHash(st.Servers), ServerURL: d.Client.Current(),
+			Capabilities: []string{protocol.CapRulesPrefix + strconv.Itoa(rules.SchemaMax)}}
 		var resp protocol.Response
 		err := d.Client.Send(ctx, "/v1/heartbeat", protocol.TypeHeartbeat, st.DeviceID, comps.Hash(), body, &resp)
 
@@ -137,14 +140,26 @@ func apply(d Deps, st identity.State, resp protocol.Response) (identity.State, b
 		changed = true
 	}
 	if c := resp.Config; c != nil && c.Version != st.ConfigVersion {
-		watch := make([]string, 0, len(c.WatchServices))
-		for _, s := range c.WatchServices {
-			if config.ValidServiceName(s) && len(watch) < protocol.MaxServices {
-				watch = append(watch, s)
+		var watch []string // nil: server không đặt, dùng agent.env
+		if c.WatchServices != nil {
+			watch = make([]string, 0, len(c.WatchServices))
+			for _, s := range c.WatchServices {
+				if config.ValidServiceName(s) && len(watch) < protocol.MaxServices {
+					watch = append(watch, s)
+				}
 			}
 		}
-		st.ConfigVersion, st.WatchServices = c.Version, watch
-		d.Log.Info("đã nhận cấu hình agent từ server", "dich_vu_theo_doi", watch)
+		var labels map[string]string
+		for k, v := range c.Labels {
+			if rules.ValidContextKey(k) && rules.ValidContextValue(v) && len(labels) < rules.MaxApplyKeys*2 {
+				if labels == nil {
+					labels = map[string]string{}
+				}
+				labels[k] = v
+			}
+		}
+		st.ConfigVersion, st.WatchServices, st.Labels = c.Version, watch, labels
+		d.Log.Info("đã nhận cấu hình agent từ server", "dich_vu_theo_doi", watch, "nhan_may", labels)
 		changed = true
 	}
 	return st, changed

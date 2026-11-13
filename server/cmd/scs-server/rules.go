@@ -19,10 +19,11 @@ const rulesUsage = `scs-server rules - viết và kiểm rule quét log (xem doc
 
   rules check FILE.yaml...              kiểm cú pháp, giới hạn và chạy phần tests của từng rule
   rules test  FILE.yaml -log LOG        chạy bộ rule trên một file log mẫu, in các sự kiện sẽ báo
-              [-source NGUON] [-unit UNIT] [-step 1s]
+              [-source NGUON] [-unit UNIT] [-step 1s] [-ctx role=pri,os=ubuntu-22.04]
                 -source: dòng trong LOG coi như đến từ nguồn nào (mặc định: nguồn của rule đầu tiên)
                 -unit:   với journald, unit của các dòng (log lấy bằng: journalctl -u UNIT -o cat)
                 -step:   khoảng cách thời gian giả lập giữa hai dòng (để thử aggregate)
+                -ctx:    ngữ cảnh máy giả lập: chỉ chạy rule có applies_to khớp (bỏ trống: mọi rule)
   rules build FILE.yaml [-key data/pki/release.key] [-o FILE.json]
                                         kiểm rồi ký thành bộ rule gửi agent (mặc định in ra stdout)
 `
@@ -95,6 +96,7 @@ func rulesTest(args []string, stdout, stderr io.Writer) int {
 	source := fs.String("source", "", "nguồn của các dòng")
 	unit := fs.String("unit", "", "unit journald của các dòng")
 	step := fs.Duration("step", time.Second, "khoảng thời gian giả lập giữa hai dòng")
+	ctxFlag := fs.String("ctx", "", "ngữ cảnh máy giả lập, ví dụ role=pri,os=ubuntu-22.04")
 	file, ok := splitFile(fs, args)
 	if !ok || *logPath == "" {
 		fmt.Fprint(stderr, rulesUsage)
@@ -105,14 +107,22 @@ func rulesTest(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "✖ %s\n%s\n", file, indent(err.Error()))
 		return 1
 	}
-	e, err := rules.Compile(s)
+	mctx, err := rules.ParseContext(*ctxFlag)
+	if err != nil {
+		fmt.Fprintln(stderr, "✖", err)
+		return 2
+	}
+	e, err := rules.CompileFor(s, mctx)
 	if err != nil {
 		fmt.Fprintln(stderr, "✖", err)
 		return 1
 	}
-	if *source == "" { // Compile bảo đảm có ít nhất một rule đang bật
+	if sk := e.Skipped(); len(sk) > 0 {
+		fmt.Fprintf(stdout, "Ngữ cảnh %s: bỏ %d rule không khớp applies_to: %s\n", mctx, len(sk), strings.Join(sk, ", "))
+	}
+	if *source == "" { // CompileFor bảo đảm có ít nhất một rule chạy
 		for _, r := range s.Rules {
-			if !r.Disabled {
+			if !r.Disabled && r.Applies(mctx) {
 				*source, *unit = r.Source, r.Unit
 				break
 			}

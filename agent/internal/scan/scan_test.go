@@ -52,9 +52,13 @@ func TestInstallLoadRun(t *testing.T) {
 	if _, err := Install(state, pub, bundle(t, other, "2")); err == nil {
 		t.Fatal("khóa khác: phải bị từ chối")
 	}
-	e, err := Load(state, pub)
-	if err != nil || e.Set().Version != "1" {
+	s, err := Load(state, pub)
+	if err != nil || s.Version != "1" {
 		t.Fatalf("phải giữ bộ cũ: %v", err)
+	}
+	e, err := rules.CompileFor(s, rules.Context{})
+	if err != nil {
+		t.Fatal(err)
 	}
 	log := "Out of memory: Killed process 42 (java) total-vm:1kB\nnothing here\n"
 	var got []rules.Event

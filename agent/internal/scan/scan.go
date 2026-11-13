@@ -28,8 +28,9 @@ var ErrNoBundle = errors.New("chưa có bộ rule")
 // BundlePath: nơi lưu bộ rule đang dùng.
 func BundlePath(stateDir string) string { return filepath.Join(stateDir, "rules", "current.json") }
 
-// Load nạp bộ rule đang dùng, kiểm chữ ký và dựng Engine.
-func Load(stateDir, pubPath string) (*rules.Engine, error) {
+// Load nạp bộ rule đang dùng và kiểm chữ ký + nội dung. Dựng Engine cho máy này bằng
+// rules.CompileFor(set, LocalContext(...)) để chỉ chạy rule có applies_to khớp.
+func Load(stateDir, pubPath string) (*rules.RuleSet, error) {
 	data, err := os.ReadFile(BundlePath(stateDir))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, ErrNoBundle
@@ -41,18 +42,19 @@ func Load(stateDir, pubPath string) (*rules.Engine, error) {
 }
 
 // Install kiểm một bộ rule mới (chữ ký + nội dung) rồi mới thay bộ đang dùng; sai thì giữ bộ cũ.
-func Install(stateDir, pubPath string, data []byte) (*rules.Engine, error) {
-	e, err := open(data, pubPath)
+// Bộ rule không có rule nào khớp ngữ cảnh máy này vẫn cài được (máy khác trong nhóm dùng).
+func Install(stateDir, pubPath string, data []byte) (*rules.RuleSet, error) {
+	s, err := open(data, pubPath)
 	if err != nil {
 		return nil, err
 	}
 	if err := writeAtomic(stateDir, BundlePath(stateDir), data); err != nil {
 		return nil, err
 	}
-	return e, nil
+	return s, nil
 }
 
-func open(data []byte, pubPath string) (*rules.Engine, error) {
+func open(data []byte, pubPath string) (*rules.RuleSet, error) {
 	if len(data) > 2*rules.MaxBundle {
 		return nil, errors.New("file bộ rule quá lớn")
 	}
@@ -68,7 +70,11 @@ func open(data []byte, pubPath string) (*rules.Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	return rules.Compile(s)
+	// Bộ phải có ít nhất một rule đang bật (chưa lọc theo máy).
+	if _, err := rules.Compile(s); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 func writeAtomic(stateDir, path string, data []byte) error {

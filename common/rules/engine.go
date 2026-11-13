@@ -28,6 +28,7 @@ type Event struct {
 	Count    int               `json:"count"`
 	Sample   string            `json:"sample"` // dòng khớp cuối cùng, đã cắt
 	Fields   map[string]string `json:"fields,omitempty"`
+	Tags     []string          `json:"tags,omitempty"` // tags của rule (schema 2)
 }
 
 // MaxKeysPerRule: số khóa nhóm (ví dụ số IP khác nhau) một rule giữ cùng lúc; vượt thì bỏ khóa mới
@@ -51,17 +52,26 @@ type keyState struct {
 type Engine struct {
 	set      *RuleSet
 	bySource map[string][]*compiled // khóa: đường dẫn file hoặc "journald"
+	skipped  []string               // rule bị bỏ vì applies_to không khớp ngữ cảnh máy
 	lastGC   time.Time
 }
 
-// Compile kiểm bộ rule (Validate) rồi dựng Engine. Rule đã tắt bị bỏ qua.
-func Compile(s *RuleSet) (*Engine, error) {
+// Compile kiểm bộ rule (Validate) rồi dựng Engine với mọi rule đang bật (không lọc ngữ cảnh).
+func Compile(s *RuleSet) (*Engine, error) { return CompileFor(s, nil) }
+
+// CompileFor như Compile nhưng chỉ giữ rule có applies_to khớp ngữ cảnh máy ctx (nil = không lọc).
+// Rule bị bỏ vì ngữ cảnh nằm trong Skipped. Không còn rule nào thì trả ErrNoRules.
+func CompileFor(s *RuleSet, ctx Context) (*Engine, error) {
 	if err := s.Validate(); err != nil {
 		return nil, err
 	}
 	e := &Engine{set: s, bySource: map[string][]*compiled{}}
 	for _, r := range s.Rules {
 		if r.Disabled {
+			continue
+		}
+		if !r.Applies(ctx) {
+			e.skipped = append(e.skipped, r.ID)
 			continue
 		}
 		c := &compiled{Rule: r, match: regexp.MustCompile(r.Match), groupIdx: -1, state: map[string]*keyState{}}
@@ -81,6 +91,9 @@ func Compile(s *RuleSet) (*Engine, error) {
 
 // Set: bộ rule Engine đang chạy.
 func (e *Engine) Set() *RuleSet { return e.set }
+
+// Skipped: mã các rule không chạy trên máy này vì applies_to không khớp ngữ cảnh.
+func (e *Engine) Skipped() []string { return slices.Clone(e.skipped) }
 
 // SourceSpec: một nguồn log agent phải đọc.
 type SourceSpec struct {
@@ -184,7 +197,7 @@ func (c *compiled) hit(l Line, text string, m []string) (Event, bool) {
 	ev := Event{
 		RuleID: c.ID, Severity: c.Severity, Source: l.Source, Unit: l.Unit,
 		First: st.hits[0], Last: l.Time, Count: len(st.hits),
-		Sample: truncate(text, MaxSample), Fields: fields(c.match, m),
+		Sample: truncate(text, MaxSample), Fields: fields(c.match, m), Tags: slices.Clone(c.Tags),
 	}
 	st.hits = st.hits[:0]
 	if c.CooldownS > 0 {

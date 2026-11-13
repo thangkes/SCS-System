@@ -48,6 +48,9 @@ type Registry interface {
 	// Cấu hình agent theo từng cấp. SetConfig với WatchServices nil = bỏ ghi đè (kế thừa cấp trên).
 	ListConfigs(ctx context.Context) ([]ConfigEntry, error)
 	SetConfig(ctx context.Context, c ConfigEntry) error
+	// SetLabels đặt nhãn ngữ cảnh máy ở một cấp (chỉ cột labels, giữ watch_services).
+	// Labels nil = bỏ nhãn ở cấp này.
+	SetLabels(ctx context.Context, c ConfigEntry) error
 }
 
 // Release: một bản agent cho một kiến trúc, đã ký bằng khóa phát hành.
@@ -81,17 +84,21 @@ const (
 
 // ConfigEntry: cấu hình agent ở một cấp. WatchServices nil = kế thừa cấp trên.
 type ConfigEntry struct {
-	Scope         string    `json:"scope"`
-	Key           string    `json:"key"`
-	WatchServices []string  `json:"watch_services"`
-	UpdatedAt     time.Time `json:"updated_at,omitzero"`
-	UpdatedBy     string    `json:"updated_by,omitempty"`
+	Scope         string   `json:"scope"`
+	Key           string   `json:"key"`
+	WatchServices []string `json:"watch_services"`
+	// Labels: nhãn ngữ cảnh máy (role, store, os, khóa tự do) dùng chọn rule theo applies_to.
+	// Gộp theo từng khóa: chung < siêu thị < máy. nil = cấp này không đặt nhãn.
+	Labels    map[string]string `json:"labels"`
+	UpdatedAt time.Time         `json:"updated_at,omitzero"`
+	UpdatedBy string            `json:"updated_by,omitempty"`
 }
 
 // AgentPlan: những gì một máy cần chạy.
 type AgentPlan struct {
 	Release       *Release
 	WatchServices []string
+	Labels        map[string]string // đã gộp các cấp; nil = không cấp nào đặt nhãn
 }
 
 // AgentAuth: thông tin để xác thực gói tin của một máy.

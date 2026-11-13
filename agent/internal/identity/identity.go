@@ -161,6 +161,8 @@ type State struct {
 	// Cấu hình server gửi xuống (đặt trên web). WatchServices nil = chưa nhận, dùng agent.env.
 	ConfigVersion string   `json:"config_version,omitempty"`
 	WatchServices []string `json:"watch_services,omitempty"`
+	// Labels: nhãn ngữ cảnh máy server gửi xuống (ghi đè role / store / os tự suy ra), dùng chọn rule.
+	Labels map[string]string `json:"labels,omitempty"`
 }
 
 // LoadState đọc trạng thái; chưa có file thì là máy mới.

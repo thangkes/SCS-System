@@ -8,16 +8,18 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/thangkes/SCS-System/agent/internal/config"
+	"github.com/thangkes/SCS-System/agent/internal/identity"
 	"github.com/thangkes/SCS-System/agent/internal/scan"
 	"github.com/thangkes/SCS-System/common/rules"
 )
 
 const rulesUsage = `scs-agent rules - xem và chạy thử bộ rule trên máy này
 
-  scs-agent rules                          bộ rule đang dùng: phiên bản, các rule, nguồn log cần đọc
+  scs-agent rules                          bộ rule đang dùng: ngữ cảnh máy, rule chạy / bỏ trên máy này, nguồn log
   scs-agent rules -install FILE.json       cài tay một bộ rule đã ký (scs-server rules build), cần root
   scs-agent rules -log FILE|- -source NGUON [-unit UNIT]
                                            chạy bộ rule đang dùng trên một file log (- là stdin), in sự kiện
@@ -43,18 +45,18 @@ func runRules(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	var e *rules.Engine
+	var set *rules.RuleSet
 	if *install != "" {
 		data, err := os.ReadFile(*install)
 		if err == nil {
-			e, err = scan.Install(cfg.StateDir, cfg.ReleasePub, data)
+			set, err = scan.Install(cfg.StateDir, cfg.ReleasePub, data)
 		}
 		if err != nil {
 			fmt.Fprintln(stderr, "✖ không cài được bộ rule (bộ đang dùng giữ nguyên):", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "✔ Đã cài bộ rule %s phiên bản %s\n", e.Set().Name, e.Set().Version)
-	} else if e, err = scan.Load(cfg.StateDir, cfg.ReleasePub); err != nil {
+		fmt.Fprintf(stdout, "✔ Đã cài bộ rule %s phiên bản %s\n", set.Name, set.Version)
+	} else if set, err = scan.Load(cfg.StateDir, cfg.ReleasePub); err != nil {
 		if errors.Is(err, scan.ErrNoBundle) {
 			fmt.Fprintf(stderr, "Máy chưa có bộ rule (%s).\n", scan.BundlePath(cfg.StateDir))
 		} else {
@@ -62,9 +64,24 @@ func runRules(args []string, stdout, stderr io.Writer) int {
 		}
 		return 1
 	}
+	// Ngữ cảnh máy: hostname, /etc/os-release, nhãn server gửi xuống (cấu hình agent).
+	var labels map[string]string
+	if st, err := identity.LoadState(cfg.StateDir); err == nil {
+		labels = st.Labels
+	}
+	mctx := scan.LocalContext(labels)
+	e, err := rules.CompileFor(set, mctx)
+	if errors.Is(err, rules.ErrNoRules) {
+		fmt.Fprintf(stdout, "Bộ rule %s %s: không có rule nào áp cho máy này (ngữ cảnh: %s).\n", set.Name, set.Version, mctx)
+		return 0
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "✖", err)
+		return 1
+	}
 
 	if *logPath == "" {
-		printRuleSet(stdout, e)
+		printRuleSet(stdout, e, mctx)
 		return 0
 	}
 	if *source == "" {
@@ -98,9 +115,10 @@ func runRules(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func printRuleSet(w io.Writer, e *rules.Engine) {
+func printRuleSet(w io.Writer, e *rules.Engine, mctx rules.Context) {
 	s := e.Set()
-	fmt.Fprintf(w, "Bộ rule : %s\nPhiên bản: %s\n", s.Name, s.Version)
+	schema := max(s.Schema, 1)
+	fmt.Fprintf(w, "Bộ rule : %s\nPhiên bản: %s (schema %d)\nMáy này : %s\n", s.Name, s.Version, schema, mctx)
 	if s.Description != "" {
 		fmt.Fprintf(w, "Mô tả   : %s\n", s.Description)
 	}
@@ -115,8 +133,20 @@ func printRuleSet(w io.Writer, e *rules.Engine) {
 		}
 		fmt.Fprintf(w, "  %s%s\n", sp.Source, units)
 	}
-	fmt.Fprintf(w, "\n%d rule:\n", len(s.Rules))
+	skipped := e.Skipped()
+	fmt.Fprintf(w, "\n%d rule (%d không áp cho máy này):\n", len(s.Rules), len(skipped))
 	for _, r := range s.Rules {
-		fmt.Fprintf(w, "  %-22s %-8s %s\n", r.ID, r.Severity, r.Title)
+		mark := " "
+		if slices.Contains(skipped, r.ID) {
+			mark = "-"
+		}
+		tags := ""
+		if len(r.Tags) > 0 {
+			tags = "  [" + strings.Join(r.Tags, ",") + "]"
+		}
+		fmt.Fprintf(w, "%s %-22s %-8s %s%s\n", mark, r.ID, r.Severity, r.Title, tags)
+	}
+	if len(skipped) > 0 {
+		fmt.Fprintln(w, "\n(-) applies_to không khớp ngữ cảnh máy này (dòng \"Máy này\" ở trên).")
 	}
 }

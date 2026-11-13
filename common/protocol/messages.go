@@ -155,6 +155,13 @@ type UpdateInfo struct {
 // AgentConfig: cấu hình nghiệp vụ server gửi xuống (đặt trên web: chung, theo siêu thị, theo máy).
 // Version là mã băm nội dung: agent gửi lại trong heartbeat, server chỉ gửi khi khác.
 type AgentConfig struct {
-	Version       string   `json:"version"`
+	Version string `json:"version"`
+	// WatchServices: null = server không đặt (agent dùng agent.env).
 	WatchServices []string `json:"watch_services"`
+	// Labels: nhãn ngữ cảnh máy (role, store, os, khóa tự do) ghi đè giá trị agent tự suy ra; dùng
+	// chọn rule theo applies_to. Gộp theo khóa: chung < siêu thị < máy.
+	Labels map[string]string `json:"labels,omitempty"`
 }
+
+// CapRulesPrefix: agent báo "rules/<schema cao nhất đọc được>" trong HeartbeatBody.Capabilities.
+const CapRulesPrefix = "rules/"

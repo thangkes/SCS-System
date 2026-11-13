@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/thangkes/SCS-System/common/protocol"
+	"github.com/thangkes/SCS-System/common/rules"
 	"github.com/thangkes/SCS-System/server/internal/httpx"
 )
 
@@ -123,13 +124,69 @@ func writeAtomic(path string, data []byte) error {
 }
 
 // configOf: cấu hình gửi cho agent; Version là mã băm nội dung để agent báo lại bản đang dùng.
-func configOf(watch []string) protocol.AgentConfig {
-	if watch == nil {
-		watch = []string{}
+// watch nil = server không đặt dịch vụ theo dõi (agent dùng agent.env). Chưa có nhãn thì mã băm
+// giữ như bản trước (agent đang chạy không phải nhận lại cấu hình).
+func configOf(watch []string, labels map[string]string) protocol.AgentConfig {
+	var b []byte
+	if labels == nil {
+		if watch == nil {
+			watch = []string{}
+		}
+		b, _ = json.Marshal(watch)
+	} else {
+		b, _ = json.Marshal(struct {
+			W []string          `json:"w"`
+			L map[string]string `json:"l"`
+		}{watch, labels}) // json sắp xếp khóa map nên cùng nội dung ra cùng mã băm
 	}
-	b, _ := json.Marshal(watch)
 	sum := sha256.Sum256(b)
-	return protocol.AgentConfig{Version: hex.EncodeToString(sum[:8]), WatchServices: watch}
+	return protocol.AgentConfig{Version: hex.EncodeToString(sum[:8]), WatchServices: watch, Labels: labels}
+}
+
+// maxLabels: số nhãn tối đa ở một cấp.
+const maxLabels = 16
+
+// setLabels: POST /admin/v1/agent/labels {"scope", "key", "labels": {"role": "pri", ...} | null}.
+// null = bỏ nhãn ở cấp này. Nhãn ghi đè ngữ cảnh agent tự suy ra (role / store từ hostname,
+// os từ /etc/os-release) để chọn rule theo applies_to.
+func (a agentAPI) setLabels(w http.ResponseWriter, r *http.Request) {
+	if !(deviceAPI{a.d}).ready(w) {
+		return
+	}
+	var c ConfigEntry
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<10)).Decode(&c); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "dữ liệu không hợp lệ")
+		return
+	}
+	switch {
+	case c.Scope == ScopeGlobal && c.Key == "":
+	case c.Scope == ScopeStore && storeCodeRe.MatchString(c.Key):
+	case c.Scope == ScopeDevice && deviceKeyRe.MatchString(c.Key):
+	default:
+		httpx.WriteError(w, http.StatusBadRequest, "cấp cấu hình không hợp lệ")
+		return
+	}
+	if c.Labels != nil && len(c.Labels) == 0 {
+		c.Labels = nil
+	}
+	if len(c.Labels) > maxLabels {
+		httpx.WriteError(w, http.StatusBadRequest, fmt.Sprintf("tối đa %d nhãn", maxLabels))
+		return
+	}
+	for k, v := range c.Labels {
+		if !rules.ValidContextKey(k) || !rules.ValidContextValue(v) {
+			httpx.WriteError(w, http.StatusBadRequest,
+				fmt.Sprintf("nhãn %q=%q: khóa chữ thường/số/_, giá trị chữ thường/số/. _ - (ví dụ role=pri, os=ubuntu-22.04)", k, v))
+			return
+		}
+	}
+	c.WatchServices = nil
+	c.UpdatedBy = actor(r)
+	if (deviceAPI{a.d}).fail(w, a.d.Registry.SetLabels(r.Context(), c), "lưu nhãn máy") {
+		return
+	}
+	a.d.Log.Info("đổi nhãn máy", "by", c.UpdatedBy, "cap", c.Scope, "khoa", c.Key, "nhan", c.Labels)
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // updateHandler: GET /v1/updates/{version}?arch=amd64 — máy đã duyệt tải bản agent.

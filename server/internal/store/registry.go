@@ -521,12 +521,34 @@ func (g *Registry) AgentPlan(ctx context.Context, id int64, arch string) (app.Ag
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return plan, err
 	}
-	return plan, nil
+	// Nhãn máy: gộp theo từng khóa, cấp cụ thể hơn ghi đè (chung < siêu thị < máy).
+	rows, err := g.pool.Query(ctx, `
+		SELECT labels FROM agent_config
+		WHERE labels IS NOT NULL AND (
+			(scope = 'device' AND scope_key = $1) OR (scope = 'store' AND scope_key = $2) OR scope = 'global')
+		ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'store' THEN 1 ELSE 2 END`, fmt.Sprint(id), storeKey)
+	if err != nil {
+		return plan, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m map[string]string
+		if err := rows.Scan(&m); err != nil {
+			return plan, err
+		}
+		for k, v := range m {
+			if plan.Labels == nil {
+				plan.Labels = map[string]string{}
+			}
+			plan.Labels[k] = v
+		}
+	}
+	return plan, rows.Err()
 }
 
 func (g *Registry) ListConfigs(ctx context.Context) ([]app.ConfigEntry, error) {
 	rows, err := g.pool.Query(ctx, `
-		SELECT scope, scope_key, watch_services, updated_at, updated_by FROM agent_config
+		SELECT scope, scope_key, watch_services, labels, updated_at, updated_by FROM agent_config
 		ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'store' THEN 1 ELSE 2 END, scope_key LIMIT 5000`)
 	if err != nil {
 		return nil, err
@@ -535,7 +557,7 @@ func (g *Registry) ListConfigs(ctx context.Context) ([]app.ConfigEntry, error) {
 	var out []app.ConfigEntry
 	for rows.Next() {
 		var c app.ConfigEntry
-		if err := rows.Scan(&c.Scope, &c.Key, &c.WatchServices, &c.UpdatedAt, &c.UpdatedBy); err != nil {
+		if err := rows.Scan(&c.Scope, &c.Key, &c.WatchServices, &c.Labels, &c.UpdatedAt, &c.UpdatedBy); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -547,7 +569,13 @@ func (g *Registry) SetConfig(ctx context.Context, c app.ConfigEntry) error {
 	return g.tx(ctx, func(tx pgx.Tx) error {
 		var err error
 		if c.WatchServices == nil {
-			_, err = tx.Exec(ctx, `DELETE FROM agent_config WHERE scope = $1 AND scope_key = $2`, c.Scope, c.Key)
+			// Bỏ dịch vụ theo dõi ở cấp này; dòng không còn nhãn thì xóa hẳn.
+			_, err = tx.Exec(ctx, `UPDATE agent_config SET watch_services = NULL, updated_at = now(), updated_by = $3
+				WHERE scope = $1 AND scope_key = $2`, c.Scope, c.Key, c.UpdatedBy)
+			if err == nil {
+				_, err = tx.Exec(ctx, `DELETE FROM agent_config WHERE scope = $1 AND scope_key = $2
+					AND watch_services IS NULL AND labels IS NULL`, c.Scope, c.Key)
+			}
 		} else {
 			_, err = tx.Exec(ctx, `
 				INSERT INTO agent_config (scope, scope_key, watch_services, updated_by) VALUES ($1, $2, $3, $4)
@@ -559,5 +587,33 @@ func (g *Registry) SetConfig(ctx context.Context, c app.ConfigEntry) error {
 		}
 		return audit(ctx, tx, c.UpdatedBy, "agent.config", 0, "",
 			map[string]any{"scope": c.Scope, "key": c.Key, "watch_services": c.WatchServices})
+	})
+}
+
+func (g *Registry) SetLabels(ctx context.Context, c app.ConfigEntry) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		var err error
+		if c.Labels == nil {
+			_, err = tx.Exec(ctx, `UPDATE agent_config SET labels = NULL, updated_at = now(), updated_by = $3
+				WHERE scope = $1 AND scope_key = $2`, c.Scope, c.Key, c.UpdatedBy)
+			if err == nil {
+				_, err = tx.Exec(ctx, `DELETE FROM agent_config WHERE scope = $1 AND scope_key = $2
+					AND watch_services IS NULL AND labels IS NULL`, c.Scope, c.Key)
+			}
+		} else {
+			raw, merr := json.Marshal(c.Labels)
+			if merr != nil {
+				return merr
+			}
+			_, err = tx.Exec(ctx, `
+				INSERT INTO agent_config (scope, scope_key, labels, updated_by) VALUES ($1, $2, $3::jsonb, $4)
+				ON CONFLICT (scope, scope_key) DO UPDATE SET labels = EXCLUDED.labels,
+					updated_at = now(), updated_by = EXCLUDED.updated_by`, c.Scope, c.Key, string(raw), c.UpdatedBy)
+		}
+		if err != nil {
+			return err
+		}
+		return audit(ctx, tx, c.UpdatedBy, "agent.labels", 0, "",
+			map[string]any{"scope": c.Scope, "key": c.Key, "labels": c.Labels})
 	})
 }

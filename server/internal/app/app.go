@@ -121,6 +121,7 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/devices/{id}/test-ring", admin(http.HandlerFunc(ag.testRing)))
 	mux.Handle("GET /admin/v1/agent/config", view(http.HandlerFunc(ag.configs)))
 	mux.Handle("POST /admin/v1/agent/config", admin(http.HandlerFunc(ag.setConfig)))
+	mux.Handle("POST /admin/v1/agent/labels", admin(http.HandlerFunc(ag.setLabels)))
 	sv := serversAPI{d}
 	mux.Handle("GET /admin/v1/agent/servers", view(http.HandlerFunc(sv.list)))
 	mux.Handle("POST /admin/v1/agent/servers", admin(http.HandlerFunc(sv.change)))

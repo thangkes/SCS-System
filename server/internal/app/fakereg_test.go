@@ -292,6 +292,21 @@ func (f *fakeRegistry) AgentPlan(ctx context.Context, id int64, arch string) (Ag
 		return AgentPlan{}, ErrNotFound
 	}
 	plan := AgentPlan{WatchServices: watch}
+	if d != nil {
+		for _, k := range []string{ScopeGlobal + "/", ScopeStore + "/" + d.StoreCode, ScopeDevice + "/" + strconv.FormatInt(id, 10)} {
+			f.mu.Lock()
+			c, ok := f.configs[k]
+			f.mu.Unlock()
+			for lk, lv := range c.Labels {
+				if ok {
+					if plan.Labels == nil {
+						plan.Labels = map[string]string{}
+					}
+					plan.Labels[lk] = lv
+				}
+			}
+		}
+	}
 	target := ro.All
 	if d.TestRing && ro.Test != "" {
 		target = ro.Test
@@ -318,7 +333,24 @@ func (f *fakeRegistry) SetConfig(_ context.Context, c ConfigEntry) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	k := c.Scope + "/" + c.Key
-	if c.WatchServices == nil {
+	old := f.configs[k]
+	c.Labels = old.Labels
+	if c.WatchServices == nil && c.Labels == nil {
+		delete(f.configs, k)
+	} else {
+		c.UpdatedAt = time.Now()
+		f.configs[k] = c
+	}
+	return nil
+}
+
+func (f *fakeRegistry) SetLabels(_ context.Context, c ConfigEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k := c.Scope + "/" + c.Key
+	old := f.configs[k]
+	c.WatchServices = old.WatchServices
+	if c.WatchServices == nil && c.Labels == nil {
 		delete(f.configs, k)
 	} else {
 		c.UpdatedAt = time.Now()

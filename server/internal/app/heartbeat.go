@@ -128,8 +128,8 @@ func heartbeatHandler(d Deps) http.Handler {
 					Size: rel.Size, Sig: rel.Sig}
 			}
 			// Chưa đặt cấu hình ở cấp nào thì không gửi: agent giữ cấu hình đang có.
-			if plan.WatchServices != nil {
-				if c := configOf(plan.WatchServices); c.Version != body.ConfigVersion {
+			if plan.WatchServices != nil || plan.Labels != nil {
+				if c := configOf(plan.WatchServices, plan.Labels); c.Version != body.ConfigVersion {
 					resp.Config = &c
 				}
 			}

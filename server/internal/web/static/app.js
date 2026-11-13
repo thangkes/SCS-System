@@ -665,8 +665,12 @@
     const running = {};
     devices.forEach((d) => { const v = d.agent_version || '—'; running[v] = (running[v] || 0) + 1; });
     const testers = devices.filter((d) => d.test_ring);
-    const globalCfg = cfg.configs.find((c) => c.scope === 'global');
-    const overrides = cfg.configs.filter((c) => c.scope !== 'global');
+    const globalCfg = cfg.configs.find((c) => c.scope === 'global' && c.watch_services !== null);
+    const overrides = cfg.configs.filter((c) => c.scope !== 'global' && c.watch_services !== null);
+    const labelRows = cfg.configs.filter((c) => c.labels);
+    const scopeOrder = { global: 0, store: 1, device: 2 };
+    labelRows.sort((a, b) => scopeOrder[a.scope] - scopeOrder[b.scope] || a.key.localeCompare(b.key));
+    const fmtLabels = (m) => Object.keys(m).sort().map((k) => `${k}=${m[k]}`).join(', ');
     const hostOf = (id) => devices.find((d) => String(d.id) === String(id))?.hostname || `máy #${id}`;
     const ringPill = (v) => (v ? `<span class="pill pill-ok no-dot mono">${esc(v)}</span>` : '<span class="pill no-dot">Chưa phát hành</span>');
 
@@ -726,11 +730,42 @@
             <input id="ov-watch" placeholder="pos.service"${adminOnly()}></label>
         </div>
         <div class="form-actions"><button class="btn btn-sm" id="ov-save"${adminOnly()}>Thêm / sửa ghi đè</button></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Nhãn máy (chọn rule)</h2><span class="sub">Gộp theo từng nhãn: chung &lt; siêu thị &lt; máy. Agent nhận trong vòng 5 phút</span></div>
+        <p class="hint">Agent tự biết <span class="mono">role</span> (pri / sec / phu) và <span class="mono">store</span> từ hostname, <span class="mono">os</span> (ví dụ ubuntu-22.04) từ /etc/os-release.
+          Nhãn ở đây ghi đè các giá trị đó hoặc thêm nhãn tự do; rule có <span class="mono">applies_to</span> chỉ chạy trên máy có nhãn khớp.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Áp cho</th><th>Nhãn</th><th class="hide-sm">Sửa lúc</th><th></th></tr></thead>
+          <tbody>${labelRows.map((c) => `
+            <tr><td>${c.scope === 'global' ? 'Mọi máy' : c.scope === 'store' ? `Siêu thị <span class="mono">${esc(c.key)}</span>` : `Máy <span class="mono">${esc(hostOf(c.key))}</span>`}</td>
+              <td class="mono">${esc(fmtLabels(c.labels))}</td>
+              <td class="hide-sm">${esc(c.updated_at ? fmtTime(new Date(c.updated_at)) : '')}${c.updated_by ? ` · ${esc(c.updated_by)}` : ''}</td>
+              <td><button class="btn btn-sm btn-danger" data-lb-del="${esc(c.scope)}" data-key="${esc(c.key)}"${adminOnly()}>Bỏ nhãn</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Chưa đặt nhãn nào: agent dùng role / store / os tự suy ra.</td></tr>'}
+          </tbody></table></div>
+        <div class="form-grid">
+          <label class="field">Áp cho
+            <select id="lb-scope"${adminOnly()}><option value="global">Mọi máy</option><option value="store">Siêu thị (mã)</option><option value="device">Máy (hostname)</option></select></label>
+          <label class="field">Mã siêu thị / hostname
+            <input id="lb-key" placeholder="bỏ trống khi áp cho mọi máy"${adminOnly()}></label>
+          <label class="field full">Nhãn
+            <input id="lb-labels" placeholder="role=pri, vung=mien-nam" autocomplete="off" spellcheck="false"${adminOnly()}>
+            <small>khoa=gia_tri, cách nhau dấu phẩy. Chữ thường, số, . _ -. Lưu sẽ thay toàn bộ nhãn ở cấp này.</small></label>
+        </div>
+        <div class="form-actions"><button class="btn btn-sm" id="lb-save"${adminOnly()}>Lưu nhãn</button></div>
       </div>`;
 
     const saveCfg = async (scope, key, watch, okMsg) => {
       try {
         await postJSON('/admin/v1/agent/config', { scope, key, watch_services: watch });
+        toast(okMsg);
+        pageAgent();
+      } catch (err) { toast(`Không lưu được: ${err.message}`); }
+    };
+
+    const saveLabels = async (scope, key, labels, okMsg) => {
+      try {
+        await postJSON('/admin/v1/agent/labels', { scope, key, labels });
         toast(okMsg);
         pageAgent();
       } catch (err) { toast(`Không lưu được: ${err.message}`); }
@@ -752,6 +787,26 @@
       if (stop && !stop.disabled) {
         try { await postJSON('/admin/v1/agent/rollout', { ring: stop.dataset.ringStop, version: '' }); toast('Đã dừng phát hành'); pageAgent(); }
         catch (err) { toast(`Không dừng được: ${err.message}`); }
+        return;
+      }
+      const lbDel = e.target.closest('[data-lb-del]');
+      if (lbDel && !lbDel.disabled) { saveLabels(lbDel.dataset.lbDel, lbDel.dataset.key, null, 'Đã bỏ nhãn'); return; }
+      if (e.target.closest('#lb-save')) {
+        const scope = $('#lb-scope').value;
+        let key = $('#lb-key').value.trim();
+        if (scope === 'global') key = '';
+        else if (scope === 'device') {
+          const d = devices.find((x) => x.hostname.toLowerCase() === key.toLowerCase());
+          if (!d) { toast('Không có máy đang hoạt động với hostname này'); return; }
+          key = String(d.id);
+        } else if (!/^[0-9]{1,10}$/.test(key)) { toast('Mã siêu thị chỉ gồm chữ số'); return; }
+        const labels = {};
+        for (const part of $('#lb-labels').value.split(',').map((x) => x.trim()).filter(Boolean)) {
+          const i = part.indexOf('=');
+          if (i < 1) { toast(`"${part}" phải có dạng khoa=gia_tri`); return; }
+          labels[part.slice(0, i).trim()] = part.slice(i + 1).trim();
+        }
+        saveLabels(scope, key, Object.keys(labels).length ? labels : null, 'Đã lưu nhãn');
         return;
       }
       const del = e.target.closest('[data-cfg-del]');
