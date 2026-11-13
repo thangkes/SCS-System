@@ -386,10 +386,17 @@ func TestMemberDecisionCanonical(t *testing.T) {
 	}
 	// Bản tự chế (nonce / giờ / người đề nghị / admin khác) bị từ chối dù đủ chữ ký.
 	for name, mutate := range map[string]func(d *Decision){
-		"nonce khác":         func(d *Decision) { d.Nonce = strings.Repeat("ab", 16) },
-		"giờ khác":           func(d *Decision) { d.Created = d.Created.Add(time.Minute) },
-		"người đề nghị khác": func(d *Decision) { d.Proposer = id(2) },
-		"ghi tên admin":      func(d *Decision) { d.Admin = "ai-do" },
+		"nonce khác": func(d *Decision) { d.Nonce = strings.Repeat("ab", 16) },
+		"giờ khác":   func(d *Decision) { d.Created = d.Created.Add(time.Minute) },
+		"người đề nghị khác": func(d *Decision) { // node hợp lệ bất kỳ khác người đề nghị chuẩn
+			for i := range 3 {
+				if id(i) != d.Proposer {
+					d.Proposer = id(i)
+					return
+				}
+			}
+		},
+		"ghi tên admin": func(d *Decision) { d.Admin = "ai-do" },
 	} {
 		d, _ := s.MemberDecision(TypeMemberIsolate, p)
 		mutate(d)
