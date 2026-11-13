@@ -89,6 +89,7 @@ func Run(ctx context.Context, d Deps) error {
 				if err := update.MarkGood(d.StateDir, d.Version); err != nil {
 					d.Log.Warn("không ghi được trạng thái bản cập nhật", "err", err)
 				}
+				update.StampOK(d.StateDir, d.Version) // nếu đây là bản khung: nó gọi được server
 				marked = true
 			}
 			if st2, changed := apply(d, st, resp); changed {

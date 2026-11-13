@@ -1,0 +1,11 @@
+# Định kỳ kiểm xem có bản agent mới đã chạy tốt để thay bản khung không.
+[Unit]
+Description=SCS-Agent: định kỳ thay bản khung
+
+[Timer]
+OnBootSec=15min
+OnUnitActiveSec=30min
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

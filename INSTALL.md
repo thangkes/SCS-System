@@ -118,6 +118,13 @@ với server và chờ admin duyệt. Duyệt xong, agent nhận qua heartbeat (
   mới, kiểm **chữ ký của khóa phát hành** (khóa công khai đóng trong gói, root sở hữu), rồi tự khởi động lại chạy bản
   đó. Bản mới **chết 3 lần** (trong cùng một lần bật máy) mà chưa gửi được heartbeat thì agent quay về bản khung
   và 24 giờ sau mới thử lại bản đó. Máy tắt / khởi động lại hay mất mạng tới server **không** bị tính là lỗi.
+- **bản khung cũng được thay từ server**, không phải cài lại máy: khi một bản agent mới đã chạy tốt trên máy được
+  1 giờ, tác vụ `scs-agent-promote.timer` (chạy bằng root, 30 phút một lần) kiểm lại chữ ký rồi chép bản đó vào
+  `/opt/scs-agent` làm bản khung, giữ bản khung cũ. Lần khởi động sau, nếu bản khung mới không gọi được server trong
+  30 phút thì máy tự trả lại bản khung cũ và không dùng bản đó làm bản khung nữa. Xem tình trạng:
+  `systemctl list-timers scs-agent-promote.timer`, `journalctl -u scs-agent-promote -n 20`,
+  `cat /opt/scs-agent/bootstrap.json`. Máy cài bằng gói cũ (trước bản này) chưa có tác vụ này: cài lại một lần
+  bằng gói mới (không phải duyệt lại).
 
 Không phải đóng gói hay cài lại khi có bản mới hoặc đổi cấu hình.
 

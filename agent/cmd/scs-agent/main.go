@@ -42,6 +42,7 @@ Lệnh:
   status       xem cấu hình, trạng thái đăng ký và trạng thái máy sẽ gửi trong heartbeat
   ping         kiểm tra kết nối và chứng chỉ server (-server URL -ca FILE: thử trước khi cài)
   rules        xem bộ rule đang dùng, cài tay, chạy thử trên file log (scs-agent rules -h)
+  promote      (root, do scs-agent-promote.timer gọi) thay bản khung bằng bản mới đã chạy tốt, có kiểm chữ ký
   version      in phiên bản
 
 Hostname phải đúng quy ước <mã siêu thị>-TN<số>[-PRI|-SEC]:
@@ -67,7 +68,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "rules":
 		return runRules(args[1:], stdout, stderr)
-	case "run", "fingerprint", "status", "ping":
+	case "run", "fingerprint", "status", "ping", "promote":
 	default:
 		fmt.Fprintf(stderr, "lệnh không hợp lệ: %q\n\n%s", cmd, usage)
 		return 2
@@ -77,6 +78,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	cfgPath := fs.String("config", "", "file cấu hình (mặc định "+config.DefaultFile+")")
 	server := fs.String("server", "", "ping: địa chỉ server cần thử (mặc định lấy từ cấu hình)")
 	caFile := fs.String("ca", "", "ping: CA của server (mặc định lấy từ cấu hình)")
+	installDir := fs.String("install-dir", "/opt/scs-agent", "promote: thư mục cài bản khung")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -103,8 +105,28 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return printStatus(stdout, stderr, cfg)
 	case "ping":
 		return ping(stdout, stderr, cfg)
+	case "promote":
+		return promote(stdout, stderr, cfg, *installDir)
 	}
 	return runAgent(stdout, stderr, cfg)
+}
+
+// promote: một lượt thay bản khung (xem internal/update/promote.go). Phải chạy bằng root.
+func promote(stdout, stderr io.Writer, cfg *config.Config, installDir string) int {
+	if os.Geteuid() != 0 && os.Geteuid() != -1 {
+		fmt.Fprintln(stderr, "promote phải chạy bằng root (dịch vụ scs-agent-promote gọi lệnh này)")
+		return 1
+	}
+	msg, err := update.Promote(cfg.StateDir, installDir, cfg.ReleasePub)
+	if err != nil {
+		fmt.Fprintln(stderr, "✖", err)
+		return 1
+	}
+	if msg == "" {
+		msg = "không có gì để làm"
+	}
+	fmt.Fprintln(stdout, msg)
+	return 0
 }
 
 // runAgent: vòng chạy chính: đăng ký và chờ duyệt (A1), rồi heartbeat; gửi log ở A3.
@@ -118,6 +140,8 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		log.Error("không khởi động được", "err", err)
 		return 1
 	}
+	// Bản khung ghi dấu vừa khởi động (tác vụ thay bản khung dùng để biết bản khung mới có chạy được không).
+	update.StampStart(cfg.StateDir, version)
 	// Bản khung: có bản cập nhật đã kiểm chữ ký thì chuyển sang chạy bản đó (không quay lại đây).
 	update.Launch(log, cfg.StateDir, cfg.ReleasePub, version)
 	if _, err := fleet.ParseHostname(sysinfo.Hostname()); err != nil {

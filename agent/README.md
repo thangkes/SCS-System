@@ -34,6 +34,11 @@ sudo bash scripts/install.sh --server https://<IP WAN>:<cổng> --ca agent-ca.pe
 
 Xem [../INSTALL.md](../INSTALL.md) mục 2. Dịch vụ: `deploy/systemd/scs-agent.service`.
 
+Bản cài lần đầu ("bản khung", `/opt/scs-agent/scs-agent`, root sở hữu) kiểm chữ ký rồi chuyển sang bản server phát hành.
+Bản khung cũng được thay từ server: `deploy/systemd/scs-agent-promote.timer` chạy `scs-agent promote` bằng root mỗi 30
+phút; bản mới đã chạy tốt 1 giờ và qua kiểm chữ ký thì được chép vào `/opt`, giữ bản cũ để tự quay về nếu bản khung mới
+không gọi được server (`internal/update/promote.go`).
+
 ## Lệnh
 
 ```bash

@@ -1,0 +1,36 @@
+# Thay bản khung của SCS-Agent bằng bản mới đã chạy tốt (xem agent/internal/update/promote.go).
+# Chạy bằng root vì bản khung thuộc root; chỉ thay bản qua được kiểm chữ ký bằng
+# /opt/scs-agent/release.pub. Do scs-agent-promote.timer gọi, không chạy thường trực.
+[Unit]
+Description=SCS-Agent: thay bản khung bằng bản đã kiểm chữ ký
+ConditionPathExists=/opt/scs-agent/release.pub
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/scs-agent/scs-agent promote -config /etc/scs-agent/agent.env
+Nice=10
+IOSchedulingClass=idle
+
+# Chỉ ghi được thư mục cài; không có mạng; chỉ giữ quyền đọc thư mục của user scs-agent.
+ProtectSystem=strict
+ReadWritePaths=/opt/scs-agent
+PrivateNetwork=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHome=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_DAC_OVERRIDE CAP_DAC_READ_SEARCH
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native

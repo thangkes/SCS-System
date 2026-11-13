@@ -63,6 +63,8 @@ type Current struct {
 	// Tries: số lần bản này đã chết khi chưa được ghi nhận chạy tốt.
 	Tries int  `json:"tries"`
 	Good  bool `json:"good"`
+	// GoodAt: lúc bản này lần đầu gửi heartbeat tốt (để biết đã chạy ổn bao lâu trước khi làm bản khung).
+	GoodAt time.Time `json:"good_at,omitempty"`
 	// Started + BootID: đã chuyển sang bản này trong lần bật máy nào. Lần khởi động sau cùng
 	// boot_id nghĩa là tiến trình trước đã chết (tính một lần); khác boot_id là máy đã khởi
 	// động lại (không tính).
@@ -243,10 +245,11 @@ func Apply(ctx context.Context, dl Downloader, info protocol.UpdateInfo, stateDi
 // MarkGood: bản đang chạy (version) đã gửi heartbeat thành công.
 func MarkGood(stateDir, version string) error {
 	cur, err := Load(stateDir)
-	if err != nil || cur.Version != version || cur.Good {
+	if err != nil || cur.Version != version || (cur.Good && !cur.GoodAt.IsZero()) {
 		return err
 	}
-	cur.Good, cur.Tries = true, 0
+	// Bản đã được ghi nhận tốt từ trước (bởi bản agent cũ, chưa có GoodAt) thì tính giờ từ bây giờ.
+	cur.Good, cur.Tries, cur.GoodAt = true, 0, now().UTC()
 	return save(stateDir, cur)
 }
 
@@ -304,6 +307,7 @@ func Launch(log *slog.Logger, stateDir, pubPath, selfVersion string) {
 		fail("file bản cập nhật thiếu hoặc sai chữ ký", err)
 		return
 	}
+	StampOK(stateDir, selfVersion) // bản khung đã khởi động, kiểm được chữ ký và chuyển được: nó chạy tốt
 	log.Info("chuyển sang chạy bản cập nhật", "tu", selfVersion, "sang", cur.Version, "lan_thu", cur.Tries)
 	if err := execBinary(path); err != nil {
 		log.Error("không chạy được bản cập nhật, chạy bản đang cài", "err", err)

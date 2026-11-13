@@ -243,7 +243,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
 
 <section id="update">
   <h2>6. Agent khung và cập nhật từ server <span class="st st-done">Đã làm</span></h2>
-  <p>Máy tại điểm bán chỉ cài <strong>một lần bản agent khung</strong>. Bản khung cố định, root sở hữu (<code>/opt/scs-agent/scs-agent</code>), dịch vụ không sửa được. Mọi bản sau do server phát hành, agent tự kéo về. Không đẩy cập nhật xuống hàng nghìn máy, không phải đóng gói hay cài lại.</p>
+  <p>Máy tại điểm bán chỉ cài <strong>một lần bản agent khung</strong>. Bản khung do root sở hữu (<code>/opt/scs-agent/scs-agent</code>), dịch vụ agent không sửa được. Mọi bản sau do server phát hành, agent tự kéo về; kể cả bản khung cũng được thay bằng bản đã chạy tốt (xem cuối mục). Không đẩy cập nhật xuống hàng nghìn máy, không phải đóng gói hay cài lại.</p>
   <ol class="steps">
     <li><span class="who">Server</span><br>Mỗi lần cập nhật server (menu mục 4) build kèm <strong>bản agent cùng phiên bản</strong> (linux amd64, arm64). Server nhập vào kho, ký bằng <strong>khóa phát hành</strong> Ed25519 (tách khỏi khóa CA), lưu vào DB.</li>
     <li><span class="who">Admin</span><br>Trang <strong>Agent</strong> trên web: bấm <em>Phát hành nhóm thử</em> (các máy đánh dấu "nhóm thử" trong chi tiết máy), theo dõi số máy đang chạy từng bản, ổn rồi bấm <em>Phát hành tất cả</em>. Dừng phát hành thì máy giữ bản đang chạy; phát hành lại bản cũ là quay về.</li>
@@ -251,7 +251,16 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
     <li><span class="who">Bản khung</span><br>Lúc khởi động, kiểm chữ ký <strong>lần nữa</strong> rồi chuyển sang chạy bản đã tải (exec). Bản mới gửi được heartbeat thì được ghi nhận là chạy tốt.</li>
     <li><span class="who">Tự quay về</span><br>Bản mới chết 3 lần (trong cùng một lần bật máy) mà chưa gửi được heartbeat: bản khung đánh dấu bản đó hỏng, chạy tiếp chính nó, 24 giờ sau mới thử lại. Máy tắt / khởi động lại (đổi boot_id) hay mất mạng không bị tính là lỗi.</li>
   </ol>
-  <div class="note">Bản khung đóng vai watchdog: nó luôn còn trên máy, hiếm khi phải thay, và là đường lui khi bản cập nhật lỗi.</div>
+  <div class="note">Bản khung đóng vai watchdog: nó luôn còn trên máy và là đường lui khi bản cập nhật lỗi.</div>
+  <h3>Thay bản khung từ server</h3>
+  <p>Bản khung thuộc root để tiến trình agent không tự sửa được, nên việc thay nó do một tác vụ chạy bằng root làm (<code>scs-agent-promote.timer</code>, 30 phút một lần, gọi <code>scs-agent promote</code>). Tác vụ này không tin gì trong thư mục trạng thái (nơi agent ghi được) ngoài thứ kiểm được bằng chữ ký.</p>
+  <ol class="steps">
+    <li><span class="who">Điều kiện</span><br>Bản agent mới đã gửi heartbeat tốt trên chính máy đó được 1 giờ.</li>
+    <li><span class="who">Tác vụ root</span><br>Đọc file bản đó (không theo symlink), kiểm SHA-256 và chữ ký bằng <code>release.pub</code> của root, chạy thử <code>version</code>, rồi chép vào <code>/opt/scs-agent</code>. Bản khung cũ giữ ở <code>scs-agent.prev</code>.</li>
+    <li><span class="who">Xác nhận</span><br>Lần khởi động sau, bản khung mới ghi dấu đã khởi động; gọi được server (hoặc chuyển được sang bản khác) thì ghi dấu chạy tốt, bản cũ được dọn.</li>
+    <li><span class="who">Tự quay về</span><br>Đã khởi động mà 30 phút chưa chạy tốt: trả lại bản khung cũ, không dùng bản đó làm bản khung nữa.</li>
+  </ol>
+  <p>Kẻ chiếm được tiến trình agent chỉ ép được máy dùng một bản <em>khác cũng có chữ ký của server</em> (ví dụ bản cũ) làm bản khung, hoặc ép quay về bản khung trước; không cài được bản tự chế. Máy cài bằng gói trước bản này chưa có tác vụ, cần cài lại một lần.</p>
   <div class="warn"><strong>Rủi ro còn lại:</strong> file tải về nằm trong thư mục mà user <code>scs-agent</code> ghi được; ai đã chiếm được user này có thể đổi file giữa lúc kiểm chữ ký và lúc chạy. Người đó vốn đã có khóa máy, nên mức tác động thấp. Khóa phát hành hiện nằm trên server (quyền 600); khi lên quy mô lớn nên chuyển sang ký offline.</div>
 </section>
 
@@ -532,7 +541,7 @@ rules:
     <tr><td>A0 · A1</td><td>Agent: cấu hình, khóa máy, nhận dạng máy, đăng ký và chờ duyệt</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>A2</td><td>Heartbeat, nhiều địa chỉ server, cấu hình từ server <span class="st st-done">Đã làm</span>; gửi trạng thái máy <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>A3</td><td>Quét log theo rule (khung rule + lệnh chạy thử đã có), đọc log liên tục, hàng đợi khi mất mạng</td><td><span class="st st-part">Một phần</span></td></tr>
-    <tr><td>A6</td><td>Agent khung tự cập nhật, kiểm chữ ký, tự quay về</td><td><span class="st st-done">Đã làm</span></td></tr>
+    <tr><td>A6</td><td>Agent khung tự cập nhật, kiểm chữ ký, tự quay về; thay cả bản khung từ server (tác vụ root, tự quay về khi lỗi)</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Triển khai</td><td>Menu cài / cập nhật server, gói cài agent một file; server chạy thử trên Ubuntu trong mạng nội bộ</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>C1</td><td>Cụm: khóa riêng từng server thay CA, chứng chỉ tự ký, cổng 5222, nhật ký quyết định có chữ ký</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>C2</td><td>Cụm: đề nghị, ký quá nửa, bắt kịp nhật ký, phát hiện ký hai lần / tách nhánh <span class="st st-done">Đã làm</span>; đưa duyệt máy và cấu hình agent vào nhật ký <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
@@ -557,7 +566,7 @@ rules:
     <li><strong>Mạng:</strong> triển khai trong mạng nội bộ nhiều lớp (VLAN định tuyến qua nhau); agent gọi server bằng IP nội bộ, mở ra Internet về sau nếu cần.</li>
     <li><strong>TPM:</strong> chưa dùng ở giai đoạn 1; khóa máy là file quyền 600.</li>
     <li><strong>Trạng thái trong heartbeat:</strong> đã định nghĩa (ổ đĩa, RAM, swap, tải CPU, RAID phần mềm, đồng bộ NTP, dịch vụ theo dõi).</li>
-    <li><strong>Cập nhật agent:</strong> agent khung cố định, bản mới do server phát hành theo nhóm, không dùng gói .deb.</li>
+    <li><strong>Cập nhật agent:</strong> bản mới do server phát hành theo nhóm, không dùng gói .deb; bản khung được thay bằng bản đã chạy tốt, có kiểm chữ ký.</li>
     <li><strong>Lưu trữ:</strong> DB là nơi lưu chính, dữ liệu theo ngày giữ 60 ngày, cảnh báo chỉ hiện trên web.</li>
   </ul>
 </section>

@@ -75,8 +75,8 @@ command -v systemctl >/dev/null || die "Máy không dùng systemd" "Chỉ hỗ t
 # ---------------------------------------------------------------- gỡ cài
 if [[ $MODE == uninstall ]]; then
 	step "Gỡ SCS-Agent"
-	systemctl disable --now scs-agent 2>/dev/null || true
-	rm -f "$UNIT_DST" "$LINK"
+	systemctl disable --now scs-agent scs-agent-promote.timer 2>/dev/null || true
+	rm -f "$UNIT_DST" "$LINK" /etc/systemd/system/scs-agent-promote.service /etc/systemd/system/scs-agent-promote.timer
 	systemctl daemon-reload
 	ok "Đã dừng và gỡ dịch vụ scs-agent"
 	if [[ $PURGE -eq 1 ]]; then
@@ -249,10 +249,27 @@ chmod 640 "$ETC_DIR/agent.env"
 ok "Cấu hình: $ETC_DIR/agent.env"
 
 install -o root -g root -m 644 "$UNIT_SRC" "$UNIT_DST"
+# Tác vụ thay bản khung (chạy bằng root, định kỳ): bản agent mới đã chạy tốt và qua kiểm chữ ký
+# thì được chép vào /opt làm bản khung, nên về sau không phải cài lại máy để đổi bản khung.
+PROMOTE_SRC="$(dirname "$UNIT_SRC")"
+PROMOTE=0
+if [[ -f "$PROMOTE_SRC/scs-agent-promote.service" && -f "$PROMOTE_SRC/scs-agent-promote.timer" && -f "$OPT_DIR/release.pub" ]]; then
+	install -o root -g root -m 644 "$PROMOTE_SRC/scs-agent-promote.service" /etc/systemd/system/scs-agent-promote.service
+	install -o root -g root -m 644 "$PROMOTE_SRC/scs-agent-promote.timer" /etc/systemd/system/scs-agent-promote.timer
+	PROMOTE=1
+fi
+# Cài tay lại bằng gói này: bản khung là bản trong gói, bỏ trạng thái thay bản khung cũ.
+rm -f "$OPT_DIR/bootstrap.json" "$OPT_DIR/scs-agent.prev"
 systemctl daemon-reload
 systemctl enable scs-agent >/dev/null
 systemctl restart scs-agent
 ok "Đã cài dịch vụ scs-agent, tự chạy khi khởi động máy"
+if [[ $PROMOTE -eq 1 ]]; then
+	systemctl enable --now scs-agent-promote.timer >/dev/null
+	ok "Bản khung tự được thay khi server phát hành bản mới và bản đó chạy tốt trên máy này (scs-agent-promote.timer)"
+else
+	warn "Gói không có tác vụ thay bản khung hoặc không có khóa phát hành: bản khung chỉ đổi khi cài lại"
+fi
 
 # ---------------------------------------------------------------- 3. kết quả
 step "3. Kết quả"
