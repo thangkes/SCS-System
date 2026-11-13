@@ -10,11 +10,12 @@ func (s *RuleSet) RunTests() []string {
 		if r.Tests == nil {
 			continue
 		}
-		one := &RuleSet{Name: "test", Version: "test", Rules: []Rule{r}}
+		// Giữ schema của bộ gốc: rule dùng tags / applies_to cần schema 2.
+		one := &RuleSet{Schema: s.Schema, Name: "test", Version: "test", Rules: []Rule{r}}
 		one.Rules[0].Aggregate, one.Rules[0].CooldownS, one.Rules[0].Disabled = nil, 0, false
 		e, err := Compile(one)
 		if err != nil {
-			fails = append(fails, fmt.Sprintf("rule %s: %v", r.ID, err))
+			fails = append(fails, err.Error()) // lỗi Validate đã ghi sẵn "rule <ID>: ..."
 			continue
 		}
 		// Không aggregate, không cooldown: mỗi dòng khớp báo ngay, các dòng không ảnh hưởng nhau.

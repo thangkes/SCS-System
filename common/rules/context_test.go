@@ -158,3 +158,12 @@ func buildRaw(data []byte, name, version string, priv ed25519.PrivateKey) (*Bund
 	return &Bundle{Name: name, Version: version, SHA256: sha, Payload: base64.StdEncoding.EncodeToString(data),
 		Sig: base64.StdEncoding.EncodeToString(ed25519.Sign(priv, signingInput(name, version, sha)))}, nil
 }
+
+// RunTests phải giữ schema của bộ gốc (lỗi cũ: rule có tags / applies_to + tests bị báo thiếu schema 2).
+func TestRunTestsSchema2(t *testing.T) {
+	s := ctxSet()
+	s.Rules[1].Tests = &Tests{Match: []string{"sshd[1]: x"}, NoMatch: []string{"cron: x"}}
+	if fails := s.RunTests(); len(fails) > 0 {
+		t.Fatal(fails)
+	}
+}
