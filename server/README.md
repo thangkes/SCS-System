@@ -1,6 +1,6 @@
 # SCS-Server
 
-Phía trung tâm: Ingest, Enrollment, Rule, Update, Workers, Admin API (dashboard làm sau).
+Phía trung tâm: Ingest, Enrollment, Rule, Update, Workers, web quản trị và Admin API (đăng nhập bằng mã SSH hoặc tài khoản Gmail, 8 mức quyền).
 
 - Nền tảng: Ubuntu
 - Ngôn ngữ: Go (lõi), TypeScript (dashboard)
@@ -63,7 +63,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=0.1.0" -o bin/s
 | Lệnh | Việc | Cổng mặc định |
 |---|---|---|
 | `ingest` | Cổng duy nhất cho agent: đăng ký (không cần chứng chỉ), heartbeat, log, gia hạn chứng chỉ, tải rule và gói cập nhật (bắt buộc chứng chỉ client khi có `SCS_TLS_CLIENT_CA`) | `:6222` |
-| `admin` | Web HTTPS xác nhận máy và theo dõi, đăng nhập bằng mã 6 số; luôn HTTPS (dev tự ký); chỉ nhận kết nối từ `SCS_ADMIN_ALLOW` (mặc định localhost, thêm dải VPN) | `:7222` |
+| `admin` | Web HTTPS xác nhận máy và theo dõi, đăng nhập bằng mã 6 số (lấy qua SSH, hoặc tài khoản email nhận mã qua Gmail); luôn HTTPS (dev tự ký); chỉ nhận kết nối từ `SCS_ADMIN_ALLOW` (mặc định localhost, thêm dải VPN) | `:7222` |
 | `worker` | Xử lý hàng đợi | — |
 | `all` | Chạy tất cả (dev) | — |
 | `login-code` | In mã đăng nhập web hiện hành (chạy trên máy server, cùng user với dịch vụ); `-watch` để tự in mã mới; `-unlock` mở khóa khi bị khóa do nhập sai nhiều | — |
@@ -163,7 +163,8 @@ binary, `internal/store/migrations/`); DB chưa lên thì thử lại mỗi 5 gi
 | `device_periods` | **giai đoạn** OK / cảnh báo / mất liên lạc của từng máy, kèm tóm tắt theo rule (số lần, dòng log mẫu); mỗi máy một giai đoạn mở | 60 ngày sau khi đóng |
 | `alerts` | cảnh báo hiện trên web (giai đoạn cảnh báo, mất liên lạc, máy chờ duyệt, hostname sai, IP lạ) | 60 ngày |
 | `agent_releases`, `agent_rollout`, `agent_config` | bản agent, nhóm phát hành, cấu hình / nhãn máy 3 cấp | lâu dài |
-| `audit` | nhật ký thao tác, chỉ ghi thêm | lâu dài |
+| `accounts` | tài khoản web quản trị: tên đăng nhập, email, trạng thái (chờ duyệt / hoạt động / khóa), mức quyền 1–7, ai duyệt, lần đăng nhập cuối. Không có mật khẩu, không lưu mã | lâu dài |
+| `audit` | nhật ký thao tác, chỉ ghi thêm (cả đăng ký, duyệt, đổi quyền, xóa tài khoản) | lâu dài |
 
 Mọi máy đăng ký đều chờ admin duyệt. Ràng buộc nằm trong DB: hostname hợp lệ phải đúng quy ước PRI/SEC, mỗi vị trí
 TN trong siêu thị và mỗi hostname chỉ một máy đang hoạt động, mỗi gói có nonce (gửi lại không ghi trùng).
@@ -209,7 +210,8 @@ journalctl -u scs-server -f            # xem log
 - Chứng chỉ TLS server tự nạp lại khi file đổi (step-ca gia hạn), không cần restart; còn dưới 7 ngày thì cảnh báo
   trong log. Đổi client CA thì phải restart.
 - Log: SCS-Server ghi vào journald (tự xoay vòng); container Docker giữ tối đa 5 × 10 MB mỗi container.
-- Khởi động lại server thì mọi người đăng nhập lại (phiên nằm trong RAM) và mã đăng nhập đổi.
+- Khởi động lại server thì mọi người đăng nhập lại (phiên nằm trong RAM), mã đăng nhập SSH đổi và mã đã gửi qua
+  mail (đăng nhập, xác minh đăng ký) mất hiệu lực; tài khoản vẫn còn trong DB.
 - Gỡ dịch vụ: `sudo bash scripts/install.sh --uninstall` (giữ cấu hình và dữ liệu).
 
 ## Chống quá tải và tấn công trên cổng agent (6222)
@@ -230,7 +232,8 @@ Khi chạy bằng systemd, đặt `LimitNOFILE` lớn hơn `SCS_INGEST_MAX_CONNS
 
 ## Giao diện web
 
-Mở `https://<IP-server>:7222/` (qua VPN hoặc trên máy server), nhập mã 6 số và tên của bạn.
+Mở `https://<IP-server>:7222/` (qua VPN hoặc trên máy server). Trang đăng nhập có tab **Mã SSH** (mã 6 số lấy
+bằng `scs-login-code` + tên của bạn) và, khi đã cấu hình gửi mail, tab **Email** và **Đăng ký** (mục "Tài khoản và mức quyền" bên dưới).
 
 ### Đăng nhập bằng mã 6 số (giống NASfone)
 

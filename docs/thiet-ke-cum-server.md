@@ -259,9 +259,10 @@ Không đưa vào nhật ký quyết định: thay đổi quá nhiều (mỗi m�
 - Web chạy trên mọi node. Khi admin xem một máy hay một siêu thị, node đang mở web **gửi câu hỏi tới mọi node** qua 5222 (chỉ đọc), chờ tối đa 5 giây, rồi **ghép kết quả theo thời gian**.
 - **Node không trả lời** thì web ghi rõ "Node B không trả lời, thiếu dữ liệu từ B", không lặng lẽ hiện thiếu.
 - Máy chuyển kênh nên lịch sử của nó nằm ở nhiều node; trạng thái chung ([mục 7](#7-trạng-thái-chung-siêu-thị-máy)) cho biết máy từng gửi về những node nào, để chỉ hỏi đúng các node đó.
-- Câu hỏi giữa các node có chữ ký của node hỏi, kèm tên admin và quyền (Admin / Chỉ xem); node được hỏi ghi nhật ký thao tác.
+- Câu hỏi giữa các node có chữ ký của node hỏi, kèm tên người dùng và mức quyền (0 quản trị gốc … 7 chỉ xem, xem server/README.md "Tài khoản và mức quyền"); node được hỏi ghi nhật ký thao tác.
 - **Thay đổi** (duyệt máy, đổi cấu hình…) trên web là **đề nghị** gửi vào nhật ký quyết định ([mục 5](#5-nhật-ký-quyết-định-và-quy-tắc-quá-nửa)). Web hiện trạng thái "đang chờ đủ chữ ký (2/3)".
-- Phiên đăng nhập và mã đăng nhập vẫn riêng từng node.
+- Phiên đăng nhập và mã đăng nhập vẫn riêng từng node. Tài khoản email (bảng `accounts`) hiện cũng riêng từng node:
+  muốn dùng trên node khác thì đăng ký và duyệt lại ở node đó (đồng bộ tài khoản trong cụm chưa thiết kế).
 
 ## 9. Agent trong cụm
 

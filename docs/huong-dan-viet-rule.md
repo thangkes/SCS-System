@@ -428,7 +428,7 @@ Trạng thái được **tính lại mỗi lần xem** (không lưu riêng), nê
 **Ba cách dùng, cùng một kho:**
 
 - **Thông báo**: trang Tổng quan và đầu menu server báo số bộ **cần duyệt và ký** (chưa ký / cần ký lại); thanh bên web hiện số bên cạnh "Rule quét log".
-- **Web quản trị**, trang **"Rule quét log"**: lọc Chưa ký / Đã ký / Cần ký lại / Lỗi, xem nội dung từng bộ, thêm file `.yaml`, Duyệt & ký, tải bản ký, xóa. Xem cần quyền Chỉ xem; thêm, duyệt, xóa cần quyền Admin.
+- **Web quản trị**, trang **"Rule quét log"**: lọc Chưa ký / Đã ký / Cần ký lại / Lỗi, xem nội dung từng bộ, thêm file `.yaml`, Duyệt & ký, tải bản ký, xóa. Xem cần quyền Chỉ xem (mức 7); thêm, duyệt, xóa và gán bộ rule cho máy cần mức 2 "Duyệt và phát hành rule" trở lên (mức 0–2).
 - **Menu server mục 16**: thêm file (nhập đường dẫn, ví dụ `~/scs-rules/cong-ty.yaml`), duyệt và ký, xuất bộ đã ký ra thư mục nhà để chép sang agent, xóa.
 - **Lệnh** (chạy bằng user `scs`, từ thư mục `/`):
 

@@ -140,7 +140,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
     <text x="425" y="104" text-anchor="middle" class="sub">đăng ký, heartbeat, tải bản agent</text>
     <rect class="box" x="306" y="132" width="238" height="58" rx="8"/>
     <text x="425" y="155" text-anchor="middle" font-weight="600">admin · cổng 7222</text>
-    <text x="425" y="174" text-anchor="middle" class="sub">web quản trị + API, mã đăng nhập 6 số</text>
+    <text x="425" y="174" text-anchor="middle" class="sub">web quản trị + API, mã SSH / mã qua Gmail</text>
     <rect class="box" x="306" y="202" width="238" height="54" rx="8"/>
     <text x="425" y="224" text-anchor="middle" font-weight="600">worker · CA · kho bản agent</text>
     <text x="425" y="242" text-anchor="middle" class="sub">cấp chứng chỉ máy, ký bản phát hành</text>
@@ -182,7 +182,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
   <div class="tbl"><table>
     <tr><th>Cổng</th><th>Dùng cho</th><th>Ai vào được</th></tr>
     <tr><td><code>6222</code></td><td>Agent: đăng ký, heartbeat, tải bản agent (sau này: log, rule)</td><td>Mọi nơi agent gọi tới (LAN, VLAN khác, Internet qua chuyển tiếp cổng). Bảo vệ bằng TLS 1.3, chứng chỉ máy và admin duyệt, không dựa vào tường lửa. Giới hạn 64 kết nối mỗi IP, 40.000 tổng</td></tr>
-    <tr><td><code>7222</code></td><td>Web quản trị (luôn HTTPS)</td><td>Chỉ các dải trong <code>SCS_ADMIN_ALLOW</code>; IP khác bị đóng kết nối trước cả bước bắt tay TLS. Menu cho chọn "toàn mạng nội bộ" (10/8, 172.16/12, 192.168/16) cho công ty nhiều lớp mạng, hoặc cả Internet khi admin gõ xác nhận (chỉ mã 6 số bảo vệ; tăng cứng trang quản trị chưa làm)</td></tr>
+    <tr><td><code>7222</code></td><td>Web quản trị (luôn HTTPS)</td><td>Chỉ các dải trong <code>SCS_ADMIN_ALLOW</code>; IP khác bị đóng kết nối trước cả bước bắt tay TLS. Menu cho chọn "toàn mạng nội bộ" (10/8, 172.16/12, 192.168/16) cho công ty nhiều lớp mạng, hoặc cả Internet khi admin gõ xác nhận (bảo vệ bằng mã 6 số lấy qua SSH hoặc gửi về Gmail của tài khoản đã duyệt; chứng chỉ thật và khóa mã SSH theo từng IP chưa làm)</td></tr>
     <tr><td><code>5222</code></td><td>Liên lạc giữa các server trong cụm</td><td>Chỉ mở khi server đã thuộc một cụm hoặc đang xin vào. TLS 1.3 hai chiều; chỉ nhận server có khóa trong danh sách cụm, trừ yêu cầu xin vào cụm (giới hạn số lượng, admin duyệt trên mọi server). Xem <code>docs/thiet-ke-cum-server.md</code>.</td></tr>
   </table></div>
   <h3>Agent gọi server bằng địa chỉ nào cũng được</h3>
@@ -387,7 +387,8 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
     <li>Không hardcode API key, mật khẩu hay khóa mã hóa chung trong source; mật khẩu chỉ nằm trong file cấu hình quyền 600.</li>
     <li>Khóa CA và khóa phát hành: quyền 600, user dịch vụ <code>scs</code>; quy mô lớn thì chuyển khóa phát hành và khóa ký rule sang ký offline / HSM.</li>
     <li>Khóa máy agent: quyền 600, user <code>scs-agent</code>; dịch vụ chạy với systemd hardening, chỉ thêm quyền đọc serial phần cứng.</li>
-    <li>Web quản trị: mã đăng nhập 6 số đổi mỗi phút (đọc trên server bằng <code>scs-login-code</code>), phân quyền Admin / Chỉ xem, khóa khi nhập sai nhiều lần, không chạy sau reverse proxy.</li>
+    <li>Web quản trị: mã đăng nhập 6 số đổi mỗi phút (đọc trên server bằng <code>scs-login-code</code>), mã Admin = quản trị gốc (mức 0), mã Chỉ xem (mức 7); khóa khi nhập sai nhiều lần, không chạy sau reverse proxy.</li>
+    <li>Tài khoản web quản trị bằng Gmail: đăng ký, xác minh mã qua mail, quản trị gốc duyệt và đặt mức quyền 1–7 (cụm server, rule, agent + bản cập nhật, địa chỉ server, xác nhận sự cố, thông tin agent, chỉ xem; mức trên có quyền mức dưới). Đăng nhập bằng mã gửi về mail, hạn 5 phút, nhập một lần. Gửi mail qua SMTP bắt buộc STARTTLS (<code>SCS_SMTP_*</code>).</li>
     <li>Giới hạn tần suất và số kết nối theo IP trên cổng agent; giới hạn kích thước body theo từng route.</li>
   </ul>
 </section>

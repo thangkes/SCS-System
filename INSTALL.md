@@ -52,7 +52,7 @@ Script:
   và tự điền `SCS_TLS_*`, `SCS_CA_*`;
 - cài và khởi động `scs-server.service` (tự chạy khi khởi động máy, chết thì tự bật lại);
 - chép bản CA cho agent ra `/etc/scs-server/agent-ca.pem` (chỉ là chứng chỉ, không bí mật);
-- cài lệnh `scs-login-code` để lấy mã đăng nhập web.
+- cài lệnh `scs-login-code` để lấy mã đăng nhập web (mã **Admin** = quản trị gốc, mã **Chỉ xem**).
 
 ### 1.3 Mạng và vào web từ máy khác trong LAN
 
@@ -87,8 +87,8 @@ Script:
   `INTERNET` để xác nhận). Dòng lệnh: `sudo bash server/scripts/install.sh --admin-allow private` (hoặc
   `--admin-allow 10.10.0.0/16`, lặp lại được; `--admin-allow internet` = mọi IP, gõ thẳng `0.0.0.0/0` bị từ chối).
   Script thêm vào `SCS_ADMIN_ALLOW` và mở ufw cho đúng các dải đó nếu ufw đang bật.
-  **Mở cả Internet:** web chỉ được bảo vệ bằng mã 6 số, người lạ có thể gửi mã sai để khóa đăng nhập (mở khóa trên
-  server: `sudo scs-login-code -unlock`), chứng chỉ tự ký; router phải chuyển tiếp cổng 7222. An toàn hơn: VPN
+  **Mở cả Internet:** web chỉ được bảo vệ bằng mã 6 số (mã SSH, hoặc mã gửi về Gmail nếu bật tài khoản email, mục 1.5),
+  người lạ có thể gửi mã SSH sai để khóa đăng nhập bằng mã SSH (mở khóa trên server: `sudo scs-login-code -unlock`), chứng chỉ tự ký; router phải chuyển tiếp cổng 7222. An toàn hơn: VPN
   (WireGuard, Tailscale) rồi chỉ cho dải VPN. Vào từ trong cùng mạng với server thì dùng IP LAN (nhiều modem không
   cho gọi IP WAN của chính mình từ bên trong).
 - Riêng web quản trị 7222: muốn trình duyệt không báo sai tên, chứng chỉ server phải ghi IP bạn gõ trên trình duyệt (IP LAN, IP VPN):
