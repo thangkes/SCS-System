@@ -318,11 +318,17 @@ td .sub { display: block; color: var(--faint); font-size: 12px; }
 .period-offline { border-left-color: var(--warn); }
 .period-head { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
 .period-rules { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
+.period-rest summary, .sample-more summary { cursor: pointer; list-style: none; }
+.period-rest summary::-webkit-details-marker, .sample-more summary::-webkit-details-marker { display: none; }
+.period-rest > .period-rules { margin-top: 4px; }
+.sample-full { margin-top: 4px; max-height: 240px; overflow: auto; }
+.clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.more-row { margin: -4px 0 12px; }
 .rule-notice { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 16px; }
 .rule-notice .btn { margin-left: auto; }
 #notify-btn.on svg { color: var(--accent); fill: var(--accent-soft); }
 .break-all { overflow-wrap: anywhere; word-break: break-all; }
-.err-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--bad); }
+.err-text { max-height: 50vh; overflow: auto; margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--bad); }
 .callout { padding: 10px 12px; border-radius: 8px; font-size: 13px; background: var(--warn-soft); color: var(--warn); }
 
 /* ---------- Hệ thống ---------- */

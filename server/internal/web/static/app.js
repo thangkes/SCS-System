@@ -533,13 +533,26 @@
     return parts.join(' · ') || 'không đổi';
   }
 
-  async function loadTimeline(d) {
+  // Giới hạn hiển thị trong chi tiết máy (tránh tràn khi máy có nhiều giai đoạn / dòng log dài).
+  const TL_PAGE = 10;       // giai đoạn mỗi lần "Xem thêm"
+  const TL_RULES = 3;       // rule hiện sẵn mỗi giai đoạn (còn lại gập)
+  const TL_SAMPLE = 160;    // ký tự dòng log mẫu hiện sẵn (dài hơn thì bấm xem cả dòng)
+  const TL_CHANGES = 5;     // lần đổi trạng thái hiện sẵn
+
+  function sampleHTML(text) {
+    if (!text) return '';
+    if (text.length <= TL_SAMPLE) return `<div class="mono hint break-all sample clamp-3">${esc(text)}</div>`;
+    return `<details class="sample-more"><summary class="mono hint break-all">${esc(text.slice(0, TL_SAMPLE))}… <span class="sub">(xem cả dòng)</span></summary>
+      <div class="mono hint break-all sample-full">${esc(text)}</div></details>`;
+  }
+
+  async function loadTimeline(d, shown = TL_PAGE, shownChanges = TL_CHANGES) {
     const box = $('#dev-timeline');
     if (!box) return;
     let tl;
     let policy = { autoclose_min: 1440, offline_min: 15 };
     try {
-      const j = await getJSON(`/admin/v1/devices/${d.id}/periods?limit=50`);
+      const j = await getJSON(`/admin/v1/devices/${d.id}/periods?limit=${Math.min(shown + 1, 200)}`);
       tl = j.timeline;
       policy = j.policy || policy;
     } catch (err) {
@@ -552,7 +565,9 @@
       const start = new Date(p.started_at);
       const open = !p.ended_at;
       const end = open ? (lastSeen && lastSeen > start ? lastSeen : new Date()) : new Date(p.ended_at);
-      const rules = Object.entries(p.rules || {}).sort((a, b) => b[1].count - a[1].count).slice(0, 6);
+      const all = Object.entries(p.rules || {}).sort((a, b) => b[1].count - a[1].count);
+      const ruleLi = ([id, r]) => `<li><span class="mono">${esc(id)}</span> ${pill(SEV[r.severity] || SEV.low)} ×${fmtNum(r.count)}${sampleHTML(r.sample)}</li>`;
+      const rest = all.slice(TL_RULES);
       return `<li class="period period-${esc(p.kind)}">
         <div class="period-head">${pill(PERIOD_KIND[p.kind] || ['', p.kind])}
           ${p.severity && p.kind === 'alert' ? pill(SEV[p.severity] || SEV.low) : ''}
@@ -563,16 +578,26 @@
           ${open && p.kind === 'alert' ? `<button class="btn btn-sm btn-primary" data-resolve="${p.id}"${adminOnly()}>Đã xử lý</button>
             <span class="sub">${p.severity === 'critical' ? 'chỉ admin đóng' : `tự đóng khi yên ${esc(fmtDur(policy.autoclose_min * 60000))}`}</span>` : ''}
         </div>
-        ${rules.length ? `<ul class="period-rules">${rules.map(([id, r]) => `<li><span class="mono">${esc(id)}</span>
-          ${pill(SEV[r.severity] || SEV.low)} ×${fmtNum(r.count)}${r.sample ? `<div class="mono hint break-all">${esc(r.sample)}</div>` : ''}</li>`).join('')}</ul>` : ''}
+        ${all.length ? `<ul class="period-rules">${all.slice(0, TL_RULES).map(ruleLi).join('')}</ul>` : ''}
+        ${rest.length ? `<details class="period-rest"><summary class="sub">và ${fmtNum(rest.length)} rule khác</summary>
+          <ul class="period-rules">${rest.map(ruleLi).join('')}</ul></details>` : ''}
         ${p.note ? `<p class="hint">Ghi chú: ${esc(p.note)}</p>` : ''}
       </li>`;
     };
-    const changes = (tl.status_changes || []).slice(0, 6);
+    const changes = tl.status_changes || []; // server trả tối đa 50 lần gần nhất
+    const periods = tl.periods.slice(0, shown);
+    const morePeriods = tl.periods.length > shown;
+    const shownCh = changes.slice(0, shownChanges);
     box.innerHTML = `<h3>Dòng thời gian</h3>
-      ${tl.periods.length ? `<ul class="periods">${tl.periods.map(item).join('')}</ul>` : '<p class="hint">Chưa có (máy chưa gửi heartbeat nào).</p>'}
-      ${changes.length ? `<h3>Trạng thái thay đổi</h3><ul class="periods">${changes.slice(0, 5).map((c, i) => `<li><span class="sub">${esc(fmtTime(new Date(c.at)))}</span>
-        <div class="hint break-all">${esc(statusDiff(c.changes, changes[i + 1] && changes[i + 1].changes))}</div></li>`).join('')}</ul>` : ''}`;
+      ${periods.length ? `<ul class="periods">${periods.map(item).join('')}</ul>` : '<p class="hint">Chưa có (máy chưa gửi heartbeat nào).</p>'}
+      ${morePeriods ? `<div class="more-row"><button class="btn btn-sm" data-tl-more>Xem thêm ${TL_PAGE} giai đoạn cũ hơn</button></div>` : ''}
+      ${shownCh.length ? `<h3>Trạng thái thay đổi</h3><ul class="periods">${shownCh.map((c, i) => `<li><span class="sub">${esc(fmtTime(new Date(c.at)))}</span>
+        <div class="hint break-all clamp-3">${esc(statusDiff(c.changes, changes[i + 1] && changes[i + 1].changes))}</div></li>`).join('')}</ul>
+        ${changes.length > shownChanges ? `<div class="more-row"><button class="btn btn-sm" data-ch-more>Xem thêm ${Math.min(10, changes.length - shownChanges)} lần đổi</button></div>` : ''}` : ''}`;
+    const tlMore = box.querySelector('[data-tl-more]');
+    if (tlMore) tlMore.addEventListener('click', () => loadTimeline(d, shown + TL_PAGE, shownChanges));
+    const chMore = box.querySelector('[data-ch-more]');
+    if (chMore) chMore.addEventListener('click', () => loadTimeline(d, shown, shownChanges + 10));
     box.querySelectorAll('[data-resolve]').forEach((b) => b.addEventListener('click', async () => {
       if (!(await confirmBox('Đã xử lý sự cố này?',
         '<p>Đóng giai đoạn cảnh báo và bắt đầu giai đoạn OK mới.</p><label class="field">Ghi chú (tùy chọn)<input id="resolve-note" maxlength="500"></label>',
@@ -583,7 +608,7 @@
         await postJSON(`/admin/v1/periods/${b.dataset.resolve}/resolve`, { note });
         toast('Đã đóng sự cố');
         refreshAlertCount();
-        loadTimeline(d);
+        loadTimeline(d, shown, shownChanges);
       } catch (err) {
         b.disabled = false;
         toast(`Không đóng được: ${err.message}`);
@@ -668,7 +693,8 @@
   async function pageAlerts() {
     setTitle('Cảnh báo');
     const page = view;
-    const state = { sev: '', all: false, list: [], policy: { autoclose_min: 1440, offline_min: 15 } };
+    const state = { sev: '', all: false, list: [], page: 0, policy: { autoclose_min: 1440, offline_min: 15 } };
+    const AL_PAGE = 30;
     page.innerHTML = `
       <div class="card">
         <div class="toolbar">
@@ -682,11 +708,19 @@
         <div class="table-wrap"><table>
           <thead><tr><th>Mức</th><th>Loại</th><th>Máy</th><th class="hide-sm">Chi tiết</th><th class="num hide-sm">Số lần</th><th>Lần cuối</th><th></th></tr></thead>
           <tbody id="al-rows"><tr><td colspan="7" class="empty">Đang tải…</td></tr></tbody></table></div>
+        <div class="pager"><span id="al-range"></span><div class="btns">
+          <button class="btn btn-sm" id="al-prev">Trước</button><button class="btn btn-sm" id="al-next">Sau</button></div></div>
       </div>`;
 
     const render = () => {
-      const rows = state.list.filter((a) => !state.sev || a.severity === state.sev);
-      $('#al-count').textContent = `${fmtNum(rows.length)} cảnh báo${state.all ? '' : ' đang mở'}`;
+      const all = state.list.filter((a) => !state.sev || a.severity === state.sev);
+      const pages = Math.max(1, Math.ceil(all.length / AL_PAGE));
+      state.page = Math.min(state.page, pages - 1);
+      const rows = all.slice(state.page * AL_PAGE, state.page * AL_PAGE + AL_PAGE);
+      $('#al-count').textContent = `${fmtNum(all.length)} cảnh báo${state.all ? '' : ' đang mở'}`;
+      $('#al-range').textContent = all.length > AL_PAGE ? `Trang ${state.page + 1} / ${pages}` : '';
+      $('#al-prev').disabled = state.page === 0;
+      $('#al-next').disabled = state.page >= pages - 1;
       $('#al-rows').innerHTML = rows.map((a) => `
         <tr>
           <td>${pill(SEV[a.severity] || SEV.low)}</td>
@@ -722,10 +756,13 @@
     $('#sev-chips').addEventListener('click', (e) => {
       const b = e.target.closest('[data-sev]'); if (!b) return;
       state.sev = b.dataset.sev;
+      state.page = 0;
       $$('.chip', $('#sev-chips')).forEach((c) => c.classList.toggle('active', c === b));
       render();
     });
-    $('#al-all').addEventListener('change', (e) => { state.all = e.target.checked; load(); });
+    $('#al-all').addEventListener('change', (e) => { state.all = e.target.checked; state.page = 0; load(); });
+    $('#al-prev').addEventListener('click', () => { state.page--; render(); });
+    $('#al-next').addEventListener('click', () => { state.page++; render(); });
     $('#al-rows').addEventListener('click', async (e) => {
       const b = e.target.closest('[data-ack]'); if (!b || b.disabled) return;
       if (b.dataset.kind === 'event' && !(await confirmBox('Đã xử lý sự cố này?',
