@@ -355,13 +355,8 @@
     const toSign = ruleList.filter((e) => e.status === 'chua-ky' || e.status === 'can-ky-lai');
 
     const serious = alerts.filter((a) => a.severity === 'high' || a.severity === 'critical').length;
-    const byStore = {};
-    approved.forEach((d) => {
-      const s = (byStore[d.store_code] ||= { store: d.store_code, count: 0, pos: [] });
-      s.count++;
-      if (d.tn) s.pos.push(`TN${d.tn}`);
-    });
-    const stores = Object.values(byStore).sort((a, b) => a.store.localeCompare(b.store));
+    // Số siêu thị có máy đang hoạt động (máy chưa có mã siêu thị không tính).
+    const stores = [...new Set(approved.map((d) => d.store_code).filter(Boolean))];
 
     page.innerHTML = `
       ${toSign.length ? `<div class="callout rule-notice">
@@ -380,21 +375,117 @@
           <div class="card-head"><h2>Cảnh báo mới</h2><div class="right"><a href="#/canh-bao" class="btn btn-sm">Xem tất cả</a></div></div>
           <ul class="list">${alerts.slice(0, 6).map(alertItem).join('') || '<li><div class="grow empty">Không có cảnh báo đang mở.</div></li>'}</ul>
         </div>
-        <div class="card">
-          <div class="card-head"><h2>Siêu thị</h2><span class="sub">Máy đang hoạt động theo siêu thị</span></div>
-          <div class="table-wrap"><table>
-            <thead><tr><th>Siêu thị</th><th class="num">Số máy</th><th class="hide-sm">Vị trí</th></tr></thead>
-            <tbody>${stores.map((s) => `
-              <tr class="clickable" data-store="${esc(s.store)}">
-                <td class="strong">${esc(s.store)}</td><td class="num">${s.count}</td>
-                <td class="hide-sm mono">${esc(s.pos.sort().join(', ') || '—')}</td>
-              </tr>`).join('') || '<tr><td colspan="3" class="empty">Chưa có máy nào được duyệt.</td></tr>'}
-            </tbody></table></div>
-        </div>
+        <div class="card srv" id="srv-card">${serverCard(lastStats, approved)}</div>
       </div>`;
-    $$('tr[data-store]', page).forEach((tr) => tr.addEventListener('click', () => {
-      location.hash = `#/may?q=${encodeURIComponent(tr.dataset.store)}`;
-    }));
+    overviewDevices = approved;
+    sizeMeters(page);
+    clearInterval(refreshTimer);
+    refreshStats();
+    refreshTimer = setInterval(refreshStats, 10000);
+  }
+
+  // ---------------------------------------------------------------- khung Server (chỉ xem)
+  let lastStats = null;     // số liệu server lần gần nhất (vẽ lại trang không bị trống)
+  let overviewDevices = []; // máy đang hoạt động, để đếm máy gọi về trong 15 phút
+
+  async function refreshStats() {
+    const card = $('#srv-card'); if (!card) return;
+    try {
+      lastStats = await getJSON('/admin/v1/server/stats');
+    } catch (err) {
+      lastStats = { error: err.message };
+    }
+    const c = $('#srv-card'); if (c) { c.innerHTML = serverCard(lastStats, overviewDevices); sizeMeters(c); }
+  }
+
+  // Độ rộng thanh: đặt qua CSSOM (CSP chặn thuộc tính style viết trong HTML).
+  function sizeMeters(el) {
+    $$('.meter-bar span[data-p]', el).forEach((b) => { b.style.width = `${b.dataset.p}%`; });
+  }
+
+  const fmtBytes = (n) => {
+    if (!(n >= 0)) return '—';
+    const u = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+    return `${n >= 100 || i === 0 ? Math.round(n) : n.toFixed(1)} ${u[i]}`;
+  };
+  const fmtRate = (bps) => {
+    if (!(bps >= 0)) return '—';
+    const bits = bps * 8;
+    if (bits < 1000) return `${Math.round(bits)} bit/s`;
+    if (bits < 1e6) return `${(bits / 1e3).toFixed(1)} Kbit/s`;
+    if (bits < 1e9) return `${(bits / 1e6).toFixed(1)} Mbit/s`;
+    return `${(bits / 1e9).toFixed(2)} Gbit/s`;
+  };
+  const fmtUptime = (sec) => {
+    if (!(sec > 0)) return '—';
+    const d = Math.floor(sec / 86400), h = Math.floor((sec % 86400) / 3600), m = Math.floor((sec % 3600) / 60);
+    return d ? `${d} ngày ${h} giờ` : h ? `${h} giờ ${m} phút` : `${m} phút`;
+  };
+  const perMin = (v) => (v >= 10 ? fmtNum(Math.round(v)) : (Math.round(v * 10) / 10).toLocaleString('vi-VN'));
+
+  // meter: thanh phần trăm, đổi màu từ 70% / 90%.
+  function meter(label, pct, value, note) {
+    const has = pct >= 0;
+    const p = has ? Math.min(100, Math.max(0, pct)) : 0;
+    const cls = !has ? '' : p >= 90 ? 'is-bad' : p >= 70 ? 'is-warn' : 'is-ok';
+    return `<div class="meter ${cls}">
+      <div class="meter-top"><span class="meter-label">${esc(label)}</span><span class="meter-val">${esc(value)}</span></div>
+      <div class="meter-bar" role="img" aria-label="${esc(label)} ${has ? Math.round(p) + '%' : 'không rõ'}"><span data-p="${p.toFixed(1)}"></span></div>
+      ${note ? `<div class="meter-note">${esc(note)}</div>` : ''}</div>`;
+  }
+
+  function stat(label, value, note) {
+    return `<div class="srv-stat"><span class="label">${esc(label)}</span><span class="value">${esc(value)}</span>${note ? `<span class="note">${esc(note)}</span>` : ''}</div>`;
+  }
+
+  function serverCard(j, devices) {
+    const head = (sub) => `<div class="card-head"><h2>Server</h2><span class="sub">${sub}</span></div>`;
+    if (!j) return `${head('Đang tải…')}<p class="hint srv-pad">Đang lấy số liệu…</p>`;
+    if (j.error) return `${head('Chỉ xem')}<p class="hint srv-pad">Không lấy được số liệu server: ${esc(j.error)}</p>`;
+    const st = j.stats, h = st.host, n = st.net, c = st.scs;
+    const memUsed = h.mem_total ? h.mem_total - h.mem_avail : -1;
+    const diskUsed = h.disk_total ? h.disk_total - h.disk_free : -1;
+    const now = Date.now();
+    const recent = (devices || []).filter((d) => d.last_seen && now - new Date(d.last_seen).getTime() < 15 * 60000).length;
+    const since = n.today_since ? new Date(n.today_since) : null;
+    const todayLbl = since && (since.getHours() || since.getMinutes()) ? `từ ${since.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}` : 'hôm nay';
+    const ifaces = (n.ifaces || []).map((i) => `
+      <div class="srv-if">
+        <div class="srv-if-head"><span class="mono strong">${esc(i.name)}</span><span class="mono sub">${esc((i.addrs || []).join(', ') || 'không có IPv4')}</span></div>
+        <div class="srv-if-rates">
+          <span title="Đang nhận">↓ ${esc(fmtRate(i.rx_bps))}</span><span title="Đang gửi">↑ ${esc(fmtRate(i.tx_bps))}</span>
+        </div>
+        <div class="srv-if-today">${esc(todayLbl)}: nhận ${esc(fmtBytes(i.rx_today))} · gửi ${esc(fmtBytes(i.tx_today))}</div>
+      </div>`).join('') || `<p class="hint">${h.linux ? 'Không thấy card mạng.' : 'Chỉ đọc được trên Linux.'}</p>`;
+    const load = h.load ? `tải ${h.load.map((x) => x.toFixed(2)).join(' · ')} · ${h.cpus} lõi` : `${h.cpus} lõi`;
+    return `${head(`${esc(h.name || '')} · máy chạy ${esc(fmtUptime(h.uptime_s))} · tự cập nhật 10 giây · chỉ xem`)}
+      <div class="srv-body">
+        <section class="srv-sec">
+          <h3>Mạng</h3>
+          ${ifaces}
+          <div class="srv-row">${stat('Kết nối agent đang mở', c.ingest_here ? fmtNum(n.ingest_conns) : '—', 'cổng 6222')}</div>
+        </section>
+        <section class="srv-sec">
+          <h3>Tài nguyên máy</h3>
+          ${meter('CPU', h.cpu_pct ?? -1, h.cpu_pct != null ? `${Math.round(h.cpu_pct)}%` : '—', load)}
+          ${meter('RAM', memUsed >= 0 ? (100 * memUsed) / h.mem_total : -1, memUsed >= 0 ? `${fmtBytes(memUsed)} / ${fmtBytes(h.mem_total)}` : '—')}
+          ${meter('Ổ đĩa dữ liệu', diskUsed >= 0 ? (100 * diskUsed) / h.disk_total : -1, diskUsed >= 0 ? `${fmtBytes(diskUsed)} / ${fmtBytes(h.disk_total)}` : '—', h.disk_path ? `còn trống ${fmtBytes(h.disk_free)} · ${h.disk_path}` : '')}
+        </section>
+        <section class="srv-sec">
+          <h3>Hoạt động SCS</h3>
+          <div class="srv-grid">
+            ${stat('Heartbeat / phút', c.ingest_here ? perMin(c.heartbeats_min) : '—')}
+            ${stat('Sự kiện log / phút', c.ingest_here ? perMin(c.log_events_min) : '—')}
+            ${stat('Máy gọi về 15 phút', `${fmtNum(recent)} / ${fmtNum((devices || []).length)}`)}
+            ${stat('RAM scs-server', fmtBytes(c.rss || -1))}
+            ${stat('Dung lượng DB', j.db_size >= 0 ? fmtBytes(j.db_size) : '—')}
+            ${stat('scs-server chạy', fmtUptime((now - new Date(c.started).getTime()) / 1000))}
+          </div>
+          ${c.ingest_here ? '' : '<p class="hint">Cổng agent chạy ở tiến trình khác: không có số heartbeat / kết nối.</p>'}
+        </section>
+      </div>`;
   }
 
   function kpi(label, value, meta, cls = '') {
@@ -406,62 +497,132 @@
   }
 
   // ---------------------------------------------------------------- trang: Máy
+  // Gom theo mã siêu thị; viền màu theo máy tệ nhất trong siêu thị (cảnh báo đang mở):
+  //   đỏ  = cảnh báo nghiêm trọng (critical) hoặc mất liên lạc: cần người xử lý
+  //   vàng = cảnh báo khác đang mở (mức cao tự đóng sau 24 giờ, mức thấp, IP lạ...) hoặc có máy chờ duyệt
+  //   xanh = mọi máy OK
+  const RANK = { ok: 0, warn: 1, bad: 2 };
+  const worst = (a, b) => (RANK[b] > RANK[a] ? b : a);
+  const alertLevel = (a) => (a.severity === 'critical' || a.kind === 'offline' ? 'bad' : 'warn');
+  const LEVEL_TXT = { ok: 'OK', warn: 'Đang chờ xử lý', bad: 'Cần xử lý' };
+
   async function pageDevices(params) {
     setTitle('Máy');
     const page = view;
-    const state = { q: params.get('q') || '', status: params.get('status') || 'approved', page: 0, list: [] };
-    const PAGE = 15;
+    const state = { q: params.get('q') || '', status: params.get('status') || 'approved', page: 0, list: [],
+      alerts: [], pending: [], open: new Set() };
+    const PAGE = 20; // siêu thị mỗi trang
 
     page.innerHTML = `
       <div class="card">
         <div class="toolbar">
-          <input type="search" id="dev-q" placeholder="Tìm hostname, siêu thị, IP, mã khóa, bộ rule…" value="${esc(state.q)}" aria-label="Tìm máy">
+          <input type="search" id="dev-q" placeholder="Tìm mã siêu thị, hostname, IP, mã khóa, bộ rule…" value="${esc(state.q)}" aria-label="Tìm máy">
           <select id="dev-status" aria-label="Lọc trạng thái">
             <option value="approved">Đang hoạt động</option><option value="revoked">Đã thu hồi</option>
             <option value="rejected">Đã từ chối</option>
           </select>
           <span class="count" id="dev-count"></span>
+          <div class="right store-legend" aria-hidden="true">
+            <span class="lg lg-bad">Cần xử lý</span><span class="lg lg-warn">Đang chờ xử lý</span><span class="lg lg-ok">OK</span>
+          </div>
         </div>
-        <div class="table-wrap"><table>
-          <thead><tr><th>Máy</th><th>Siêu thị</th><th>Vị trí</th><th>Liên lạc lần cuối</th><th class="hide-sm">IP</th><th class="hide-sm">Agent</th><th class="hide-sm">Bộ rule</th></tr></thead>
-          <tbody id="dev-rows"><tr><td colspan="7" class="empty">Đang tải…</td></tr></tbody>
-        </table></div>
+        <div id="dev-groups" class="store-groups"><p class="empty">Đang tải…</p></div>
         <div class="pager"><span id="dev-range"></span><div class="btns">
           <button class="btn btn-sm" id="dev-prev">Trước</button><button class="btn btn-sm" id="dev-next">Sau</button></div></div>
       </div>`;
     $('#dev-status').value = state.status;
 
+    const devRow = (d, lvl) => `
+      <tr class="clickable" data-id="${d.id}">
+        <td><span class="dot-lvl lvl-${lvl}" title="${esc(LEVEL_TXT[lvl])}"></span><span class="strong mono">${esc(d.hostname)}</span><span class="sub mono">${esc(d.key_id)}</span></td>
+        <td class="mono">${esc(d.tn ? `TN${d.tn}${d.role ? ' · ' + d.role : ''}` : '—')}</td>
+        <td>${d.last_seen ? esc(ago(new Date(d.last_seen))) : '—'}</td>
+        <td class="hide-sm mono">${esc(d.last_ip || d.enroll_ip)}</td>
+        <td class="hide-sm mono">${esc(d.agent_version || '—')}</td>
+        <td class="hide-sm">${ruleCell(d.rules)}</td>
+      </tr>`;
+
     const render = () => {
+      const colored = state.status === 'approved';
+      const byDev = {}, byStore = {};
+      if (colored) {
+        state.alerts.forEach((a) => {
+          const l = alertLevel(a);
+          if (a.device_id) byDev[a.device_id] = worst(byDev[a.device_id] || 'ok', l);
+          else if (a.store_code && a.kind !== 'enroll_request') byStore[a.store_code] = worst(byStore[a.store_code] || 'ok', l);
+        });
+      }
+      const pendingBy = {};
+      if (colored) state.pending.forEach((d) => { const k = d.store_code || ''; pendingBy[k] = (pendingBy[k] || 0) + 1; });
+
       const q = state.q.trim().toLowerCase();
-      const rows = state.list.filter((d) => !q ||
-        [d.hostname, d.store_code, d.last_ip, d.enroll_ip, d.key_id, d.rules && d.rules.name && `${d.rules.name}@${d.rules.version}`]
-          .some((v) => (v || '').toLowerCase().includes(q)));
-      const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+      const hit = (d) => [d.hostname, d.store_code, d.last_ip, d.enroll_ip, d.key_id, d.rules && d.rules.name && `${d.rules.name}@${d.rules.version}`]
+        .some((v) => (v || '').toLowerCase().includes(q));
+      const groups = {};
+      state.list.forEach((d) => {
+        const k = d.store_code || '';
+        (groups[k] ||= { code: k, devs: [] }).devs.push(d);
+      });
+      let list = Object.values(groups).map((g) => {
+        g.devs.sort((x, y) => (x.tn || 99) - (y.tn || 99) || x.hostname.localeCompare(y.hostname));
+        g.lv = g.devs.map((d) => (colored ? byDev[d.id] || 'ok' : 'none'));
+        g.level = !colored ? 'none' : g.lv.reduce(worst, byStore[g.code] || 'ok');
+        g.pending = pendingBy[g.code] || 0;
+        if (g.pending) g.level = worst(g.level, 'warn');
+        g.bad = g.lv.filter((l) => l === 'bad').length;
+        g.warn = g.lv.filter((l) => l === 'warn').length;
+        g.last = g.devs.reduce((m, d) => (d.last_seen && d.last_seen > m ? d.last_seen : m), '');
+        g.show = !q || g.code.toLowerCase().includes(q) ? g.devs : g.devs.filter(hit);
+        return g;
+      }).filter((g) => g.show.length);
+      // Đỏ trước, rồi vàng, rồi xanh; cùng màu thì theo mã, máy chưa có mã siêu thị xếp cuối.
+      list.sort((x, y) => (RANK[y.level] ?? 0) - (RANK[x.level] ?? 0) || (!x.code - !y.code) || x.code.localeCompare(y.code));
+
+      const nDev = list.reduce((n, g) => n + g.show.length, 0);
+      const pages = Math.max(1, Math.ceil(list.length / PAGE));
       state.page = Math.min(state.page, pages - 1);
-      const slice = rows.slice(state.page * PAGE, state.page * PAGE + PAGE);
-      $('#dev-count').textContent = `${fmtNum(rows.length)} máy`;
-      $('#dev-range').textContent = rows.length ? `Trang ${state.page + 1} / ${pages}` : '';
+      const slice = list.slice(state.page * PAGE, state.page * PAGE + PAGE);
+      const cnt = colored ? { bad: list.filter((g) => g.level === 'bad').length, warn: list.filter((g) => g.level === 'warn').length } : null;
+      $('#dev-count').textContent = `${fmtNum(list.length)} siêu thị · ${fmtNum(nDev)} máy` +
+        (cnt && (cnt.bad || cnt.warn) ? ` · ${fmtNum(cnt.bad)} cần xử lý, ${fmtNum(cnt.warn)} đang chờ` : '');
+      $('#dev-range').textContent = list.length > PAGE ? `Trang ${state.page + 1} / ${pages}` : '';
       $('#dev-prev').disabled = state.page === 0;
       $('#dev-next').disabled = state.page >= pages - 1;
-      $('#dev-rows').innerHTML = slice.map((d) => `
-        <tr class="clickable" data-id="${d.id}">
-          <td><span class="strong mono">${esc(d.hostname)}</span><span class="sub mono">${esc(d.key_id)}</span></td>
-          <td>${esc(d.store_code || '—')}</td>
-          <td class="mono">${esc(d.tn ? `TN${d.tn}${d.role ? ' · ' + d.role : ''}` : '—')}</td>
-          <td>${d.last_seen ? esc(ago(new Date(d.last_seen))) : '—'}</td>
-          <td class="hide-sm mono">${esc(d.last_ip || d.enroll_ip)}</td>
-          <td class="hide-sm mono">${esc(d.agent_version || '—')}</td>
-          <td class="hide-sm">${ruleCell(d.rules)}</td>
-        </tr>`).join('') || `<tr><td colspan="7" class="empty">${state.list.length ? 'Không có máy nào khớp tìm kiếm.' : 'Không có máy nào.'}</td></tr>`;
+      const exact = q && list.length === 1;
+      $('#dev-groups').innerHTML = slice.map((g) => {
+        const open = state.open.has(g.code) || exact || (q && !g.code.toLowerCase().includes(q));
+        const pos = g.devs.map((d) => (d.tn ? `TN${d.tn}` : '')).filter(Boolean).join(' · ');
+        const badges = [
+          g.bad ? `<span class="pill pill-bad no-dot">${fmtNum(g.bad)} cần xử lý</span>` : '',
+          g.warn ? `<span class="pill pill-warn no-dot">${fmtNum(g.warn)} đang chờ</span>` : '',
+          g.pending ? `<span class="pill pill-warn no-dot">${fmtNum(g.pending)} chờ duyệt</span>` : '',
+        ].join('');
+        return `<div class="store-group lvl-${g.level}${open ? ' open' : ''}">
+          <button type="button" class="store-head" data-store="${esc(g.code)}" aria-expanded="${open}">
+            <span class="chev" aria-hidden="true"></span>
+            <span class="store-code mono">${esc(g.code || 'Chưa có mã siêu thị')}</span>
+            <span class="store-meta">${fmtNum(g.devs.length)} máy${pos ? ` · ${esc(pos)}` : ''}</span>
+            <span class="store-badges">${badges}${g.level !== 'none' && !badges ? `<span class="pill pill-ok no-dot">OK</span>` : ''}</span>
+            <span class="store-last hide-sm">${g.last ? esc(ago(new Date(g.last))) : '—'}</span>
+          </button>
+          ${open ? `<div class="table-wrap"><table class="store-devs">
+            <thead><tr><th>Máy</th><th>Vị trí</th><th>Liên lạc lần cuối</th><th class="hide-sm">IP</th><th class="hide-sm">Agent</th><th class="hide-sm">Bộ rule</th></tr></thead>
+            <tbody>${g.show.map((d) => devRow(d, g.lv[g.devs.indexOf(d)])).join('')}</tbody></table></div>` : ''}
+        </div>`;
+      }).join('') || `<p class="empty">${state.list.length ? 'Không có máy nào khớp tìm kiếm.' : 'Không có máy nào.'}</p>`;
     };
 
     const load = async () => {
       try {
-        const list = (await getJSON(`/admin/v1/devices?status=${encodeURIComponent(state.status)}`)).devices;
-        const sig = state.status + JSON.stringify(list);
+        const approved = state.status === 'approved';
+        const [list, alerts, pending] = await Promise.all([
+          getJSON(`/admin/v1/devices?status=${encodeURIComponent(state.status)}`).then((j) => j.devices),
+          approved ? getJSON('/admin/v1/alerts').then((j) => j.alerts) : [],
+          approved ? getJSON('/admin/v1/devices?status=pending').then((j) => j.devices) : [],
+        ]);
+        const sig = state.status + JSON.stringify([list, alerts.map((a) => [a.id, a.device_id, a.severity, a.kind]), pending.map((d) => d.id)]);
         if (sig === state.sig) return; // không đổi: không vẽ lại
-        state.sig = sig;
-        state.list = list;
+        Object.assign(state, { sig, list, alerts, pending });
       } catch (err) {
         if (page === view) showLoadError(page, err);
         return;
@@ -470,10 +631,17 @@
     };
 
     $('#dev-q').addEventListener('input', (e) => { state.q = e.target.value; state.page = 0; render(); });
-    $('#dev-status').addEventListener('change', (e) => { state.status = e.target.value; state.page = 0; load(); });
+    $('#dev-status').addEventListener('change', (e) => { state.status = e.target.value; state.page = 0; state.open.clear(); load(); });
     $('#dev-prev').addEventListener('click', () => { state.page--; render(); });
     $('#dev-next').addEventListener('click', () => { state.page++; render(); });
-    $('#dev-rows').addEventListener('click', (e) => {
+    $('#dev-groups').addEventListener('click', (e) => {
+      const h = e.target.closest('.store-head');
+      if (h) {
+        const k = h.dataset.store;
+        if (state.open.has(k)) state.open.delete(k); else state.open.add(k);
+        render();
+        return;
+      }
       const tr = e.target.closest('tr[data-id]');
       if (tr) showDevice(state.list.find((d) => String(d.id) === tr.dataset.id), load);
     });

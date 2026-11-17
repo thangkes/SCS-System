@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,6 +29,8 @@ type Server struct {
 	// DisableHTTP2: chỉ dùng HTTP/1.1. HTTP/2 cho mỗi kết nối chạy 250 request song song,
 	// nhân giới hạn theo kết nối lên 250 lần; agent không cần HTTP/2.
 	DisableHTTP2 bool
+	// Conns: nếu có, giữ số kết nối đang mở (trang Tổng quan hiện số kết nối agent).
+	Conns *atomic.Int64
 }
 
 const shutdownTimeout = 10 * time.Second
@@ -44,6 +47,9 @@ func (s *Server) Run(ctx context.Context) error {
 	}
 	if s.MaxConns > 0 || s.MaxConnsPerIP > 0 {
 		ln = newConnLimitListener(ln, s.MaxConns, s.MaxConnsPerIP, s.Log)
+	}
+	if s.Conns != nil {
+		ln = &countListener{Listener: ln, n: s.Conns}
 	}
 	idle := s.IdleTimeout
 	if idle == 0 {

@@ -41,6 +41,7 @@ func logsHandler(d Deps) http.Handler {
 			httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
 			return
 		}
+		activity(d).Logs(len(evs))
 		httpx.WriteJSON(w, http.StatusOK, protocol.Response{OK: true, ServerTime: time.Now().UTC()})
 	})
 }

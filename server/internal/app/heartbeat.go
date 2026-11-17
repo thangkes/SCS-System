@@ -125,6 +125,7 @@ func heartbeatHandler(d Deps) http.Handler {
 			httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
 			return
 		}
+		activity(d).Heartbeat()
 		resp := protocol.Response{
 			OK: true, NextPollS: int(heartbeatEvery / time.Second), ServerTime: time.Now().UTC(),
 			Servers: agentServers(d),

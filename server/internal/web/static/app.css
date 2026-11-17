@@ -445,3 +445,64 @@ td.actions { white-space: nowrap; text-align: right; }
 td select { height: 30px; font-size: 13px; max-width: 190px; }
 .level-list { margin: 0; padding: 14px 18px 4px 46px; display: grid; gap: 4px; font-size: 13px; }
 .card > .hint { padding: 0 18px 14px; }
+
+/* ---------- Máy: gom theo mã siêu thị, viền màu theo trạng thái ---------- */
+.toolbar .right { margin-left: auto; }
+.store-legend { display: flex; gap: 12px; font-size: 12px; color: var(--muted); }
+.store-legend .lg::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.lg-ok::before { background: var(--ok); }
+.lg-warn::before { background: var(--warn); }
+.lg-bad::before { background: var(--bad); }
+.store-groups { display: grid; gap: 10px; padding: 14px 18px; }
+.store-groups > .empty { margin: 8px 0; }
+.store-group { border: 1px solid var(--line); border-left: 5px solid var(--line); border-radius: 10px; background: var(--panel); overflow: hidden; }
+.store-group.lvl-ok { border-left-color: var(--ok); }
+.store-group.lvl-warn { border-left-color: var(--warn); background: color-mix(in srgb, var(--warn-soft) 45%, var(--panel)); }
+.store-group.lvl-bad { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad-soft) 55%, var(--panel)); }
+.store-head {
+  width: 100%; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 11px 14px;
+  border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.store-head:hover { background: color-mix(in srgb, var(--text) 4%, transparent); }
+.store-head:focus-visible { outline: 2px solid var(--ok); outline-offset: -2px; }
+.chev { width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(-45deg); transition: transform .15s; flex: none; }
+.store-group.open .chev { transform: rotate(45deg); }
+.store-code { font-weight: 750; font-size: 15px; }
+.store-meta { color: var(--muted); font-size: 12.5px; }
+.store-badges { display: flex; gap: 6px; flex-wrap: wrap; }
+.store-last { margin-left: auto; color: var(--faint); font-size: 12px; }
+.store-devs { border-top: 1px solid var(--line); }
+.dot-lvl { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; background: var(--faint); }
+.dot-lvl.lvl-ok { background: var(--ok); }
+.dot-lvl.lvl-warn { background: var(--warn); }
+.dot-lvl.lvl-bad { background: var(--bad); box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 22%, transparent); }
+.dot-lvl.lvl-none { display: none; }
+@media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
+
+/* ---------- Tổng quan: khung Server (chỉ xem) ---------- */
+.srv-pad { padding: 14px 18px; }
+.srv-body { display: grid; gap: 0; }
+.srv-sec { padding: 14px 18px; display: grid; gap: 10px; border-top: 1px solid var(--line); }
+.srv-sec:first-child { border-top: 0; }
+.srv-sec h3 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.srv-if { display: grid; gap: 3px; }
+.srv-if-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.srv-if-rates { display: flex; gap: 18px; font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.srv-if-today { color: var(--faint); font-size: 12px; }
+.srv-row { display: flex; gap: 18px; }
+.srv-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; }
+.srv-stat { display: grid; gap: 1px; }
+.srv-stat .label { color: var(--muted); font-size: 12px; }
+.srv-stat .value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.srv-stat .note { color: var(--faint); font-size: 11.5px; }
+.meter { display: grid; gap: 4px; }
+.meter-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; }
+.meter-label { font-weight: 600; }
+.meter-val { font-variant-numeric: tabular-nums; color: var(--muted); }
+.meter-bar { height: 8px; border-radius: 99px; background: color-mix(in srgb, var(--text) 9%, transparent); overflow: hidden; }
+.meter-bar span { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--faint); transition: width .4s ease; }
+.meter.is-ok .meter-bar span { background: var(--ok); }
+.meter.is-warn .meter-bar span { background: var(--warn); }
+.meter.is-bad .meter-bar span { background: var(--bad); }
+.meter-note { color: var(--faint); font-size: 11.5px; overflow-wrap: anywhere; }
+@media (prefers-reduced-motion: reduce) { .meter-bar span { transition: none; } }

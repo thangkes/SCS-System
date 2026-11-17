@@ -27,6 +27,7 @@ import (
 	"github.com/thangkes/SCS-System/server/internal/pki"
 	"github.com/thangkes/SCS-System/server/internal/rulestore"
 	"github.com/thangkes/SCS-System/server/internal/store"
+	"github.com/thangkes/SCS-System/server/internal/sysstat"
 )
 
 // version được gán lúc build: -ldflags "-X main.version=1.0.0"
@@ -236,6 +237,12 @@ func loadEnv(path string) (loaded string, warnings []string, err error) {
 
 func build(cmd string, cfg *config.Config, log *slog.Logger, base app.Deps) ([]runner, error) {
 	var rs []runner
+	if cmd == "admin" || cmd == "all" {
+		// Số liệu máy server cho trang Tổng quan (chỉ xem). Lệnh all: cổng agent cùng tiến trình nên có
+		// cả số heartbeat, sự kiện, kết nối agent; chạy admin riêng thì chỉ có số của máy.
+		base.Stats = sysstat.New(nil, cfg.StorageRoot, cmd == "all")
+		rs = append(rs, base.Stats.Run)
+	}
 	if cmd == "ingest" || cmd == "all" {
 		if cfg.IngestInsecure() && !cfg.AllowInsecureIngest() {
 			return nil, fmt.Errorf("cổng agent %s nghe ra ngoài nhưng thiếu SCS_TLS_CERT hoặc SCS_TLS_CLIENT_CA "+
@@ -319,7 +326,7 @@ func httpServer(role, addr string, cfg *config.Config, mode httpx.ClientAuth,
 		Name: role,
 		Addr: addr,
 		Handler: handler(app.Deps{Cfg: cfg, Log: l, Version: version, ReadyChecks: base.ReadyChecks,
-			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey, Cluster: base.Cluster, Servers: base.Servers, Rules: base.Rules, Live: base.Live}),
+			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey, Cluster: base.Cluster, Servers: base.Servers, Rules: base.Rules, Live: base.Live, Stats: base.Stats}),
 		TLS: tlsCfg,
 		Log: l,
 	}
@@ -329,6 +336,9 @@ func httpServer(role, addr string, cfg *config.Config, mode httpx.ClientAuth,
 		srv.MaxConns, srv.MaxConnsPerIP = cfg.IngestMaxConns, cfg.IngestMaxConnsPerIP
 		srv.IdleTimeout = 30 * time.Second
 		srv.DisableHTTP2 = true
+		if base.Stats != nil {
+			srv.Conns = &base.Stats.Act.IngestConns
+		}
 		l.Info("giới hạn kết nối", "tong", cfg.IngestMaxConns, "moi_ip", cfg.IngestMaxConnsPerIP)
 	}
 	// Web quản trị chỉ cho VPN / máy server truy cập (SCS_ADMIN_ALLOW).

@@ -17,6 +17,7 @@ import (
 	"github.com/thangkes/SCS-System/server/internal/httpx"
 	"github.com/thangkes/SCS-System/server/internal/pki"
 	"github.com/thangkes/SCS-System/server/internal/rulestore"
+	"github.com/thangkes/SCS-System/server/internal/sysstat"
 	"github.com/thangkes/SCS-System/server/internal/web"
 )
 
@@ -39,6 +40,16 @@ type Deps struct {
 	Rules *rulestore.Store
 	// Live: thông báo tức thời cho web quản trị (nil = không có luồng, trang tự tải lại định kỳ).
 	Live *Live
+	// Stats: số liệu máy server và hoạt động cho trang Tổng quan (nil = không có).
+	Stats *sysstat.Sampler
+}
+
+// activity: bộ đếm hoạt động của cổng agent (nil an toàn).
+func activity(d Deps) *sysstat.Activity {
+	if d.Stats == nil {
+		return nil
+	}
+	return d.Stats.Act
 }
 
 // agentServers: danh sách địa chỉ gửi cho agent ở enroll / heartbeat.
@@ -148,6 +159,7 @@ func AdminHandler(d Deps) http.Handler {
 	} else {
 		mux.Handle("GET /admin/v1/stream", view(httpx.NotImplemented("thông báo tức thời")))
 	}
+	mux.Handle("GET /admin/v1/server/stats", view(http.HandlerFunc(statsAPI(d))))
 	ru := rulesAPI{d}
 	mux.Handle("GET /admin/v1/rules", view(http.HandlerFunc(ru.list)))
 	mux.Handle("GET /admin/v1/rules/source", view(http.HandlerFunc(ru.source)))

@@ -184,6 +184,20 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
   (hoặc `all`) kiểm mỗi phút.
 - API web: `GET /admin/v1/devices/{id}/periods`, `POST /admin/v1/periods/{id}/resolve`.
 
+## Trang Máy và khung Server
+
+- **Trang Máy** gom máy theo mã siêu thị (hostname `<mã>-TN…`; máy chưa có mã nằm cuối). Viền trái tô theo máy tệ
+  nhất trong siêu thị, tính từ cảnh báo đang mở: **đỏ** = cảnh báo nghiêm trọng (critical, phải có người đóng) hoặc
+  mất liên lạc; **vàng** = cảnh báo khác đang mở (mức cao tự đóng sau 24 giờ, mức thấp, IP lạ, hostname sai...) hoặc
+  có máy chờ duyệt; **xanh** = OK. Đỏ xếp trước, rồi vàng, rồi xanh. Bấm mã siêu thị để xổ danh sách máy (chấm màu
+  từng máy); tìm theo hostname thì tự mở siêu thị chứa máy đó.
+- **Tổng quan → khung Server** (chỉ xem, không có nút thao tác), tự cập nhật 10 giây: từng card mạng (IP, tốc độ
+  nhận / gửi, lưu lượng từ 0 giờ), số kết nối agent đang mở; CPU, RAM, ổ chứa thư mục dữ liệu (thanh vàng từ 70%,
+  đỏ từ 90%), thời gian máy chạy; heartbeat / phút, sự kiện log / phút, số máy gọi về trong 15 phút, RAM scs-server,
+  dung lượng DB. API `GET /admin/v1/server/stats` (mức Chỉ xem). Server đọc `/proc` mỗi 10 giây trong RAM, không ghi
+  DB; dung lượng DB hỏi tối đa mỗi phút một lần. Số heartbeat / kết nối agent chỉ có khi chạy `scs-server all`
+  (cổng agent cùng tiến trình, cách menu cài); số đếm về 0 khi khởi động lại.
+
 ## Thông báo tức thời trên web
 
 `GET /admin/v1/stream` (Server-Sent Events, cùng cổng 7222, cùng phiên đăng nhập, không dùng dịch vụ ngoài). Khi có
