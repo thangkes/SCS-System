@@ -495,6 +495,71 @@ do_cluster_join() {
 	echo "  Đủ mọi server duyệt thì server này tự vào cụm (kiểm bằng mục 12)."
 }
 
+# ---- mục 16: kho bộ rule — thêm file rule, tự chia chưa ký / đã ký / lỗi, duyệt (ký), xuất bản đã ký
+rules_cmd() {
+	[[ -x "$SCS_BIN" ]] || { echo "  Chưa cài dịch vụ (chọn mục 3 trước)."; return 1; }
+	# Chạy từ "/" (xem cluster_cmd); thư mục kho, khóa phát hành, thư mục cụm lấy từ server.env.
+	(cd / && sudo -u scs "$SCS_BIN" rules "$@" -env-file "$ENV_FILE")
+}
+
+do_rules() {
+	local c f name
+	while true; do
+		echo
+		rules_cmd list || return 0
+		echo
+		echo "  ${C_DIM}Rule chỉ đọc log và khớp regex, không chạy được lệnh trên máy. Duyệt = ký bằng khóa phát hành${C_0}"
+		echo "  ${C_DIM}của server (server trong cụm: duyệt bộ mới trên web để các server khác cùng ký). Sửa rule đã ký${C_0}"
+		echo "  ${C_DIM}thì tăng version rồi thêm lại. Web quản trị: trang \"Rule quét log\".${C_0}"
+		echo
+		echo "   a) Thêm file rule   d) Duyệt và ký   x) Xuất bộ đã ký   r) Xóa   0) Quay lại"
+		read -r -p "  Chọn: " c
+		case "$c" in
+			a | A)
+				ask "Đường dẫn file rule .yaml (ví dụ ~/scs-rules/bo-moi.yaml)" ""
+				f="${REPLY/#\~/$HOME}"
+				[[ -n "$f" ]] || continue
+				[[ -f "$f" && -r "$f" ]] || { echo "  ${C_RED}Không đọc được file $f${C_0}"; continue; }
+				rules_cmd add - <"$f"
+				;;
+			d | D)
+				ask "Tên file cần duyệt (cột File ở trên, ví dụ bo-moi@2026.11.20-01.yaml)" ""
+				f="$REPLY"
+				[[ -n "$f" ]] || continue
+				echo "  Bộ rule sau khi ký sẽ được dùng cho agent. Kiểm tra kỹ nội dung trước khi duyệt."
+				confirm "Duyệt và ký $f?" && rules_cmd approve "$f"
+				;;
+			x | X)
+				ask "Bộ đã ký cần xuất (TÊN@PHIÊN_BẢN, ví dụ bo-moi@2026.11.20-01)" ""
+				name="$REPLY"
+				[[ -n "$name" && "$name" != */* ]] || continue
+				f="$HOME/$name.json"
+				if rules_cmd export "$name" >"$f.tmp"; then
+					mv "$f.tmp" "$f"
+					echo "  ${C_GRN}✔${C_0} Đã ghi $f"
+					echo "  Chép sang máy agent:  scp $f <user>@<IP máy>:/tmp/"
+					echo "  Trên máy agent:       sudo scs-agent rules -install /tmp/$name.json"
+				else
+					rm -f "$f.tmp"
+				fi
+				;;
+			r | R)
+				ask "Tên file cần xóa (cột File)" ""
+				f="$REPLY"
+				[[ -n "$f" ]] || continue
+				confirm "Xóa file nguồn $f?" || continue
+				if confirm "Xóa luôn bản đã ký của bộ này (agent đã cài không bị ảnh hưởng)?"; then
+					rules_cmd remove "$f" -bundle
+				else
+					rules_cmd remove "$f"
+				fi
+				;;
+			0 | q | Q | "") return 0 ;;
+			*) echo "  Không có mục \"$c\"." ;;
+		esac
+	done
+}
+
 # ---------------------------------------------------------------- menu
 while true; do
 	clear 2>/dev/null || true
@@ -531,6 +596,9 @@ while true; do
   ${C_B}Địa chỉ cho agent${C_0}
   15) Thêm / gỡ địa chỉ server gửi cho agent (đổi địa điểm, đổi mạng; không khởi động lại)
 
+  ${C_B}Rule quét log${C_0}
+  16) Kho bộ rule: thêm, xem chưa ký / đã ký / lỗi, duyệt (ký), xuất cho agent
+
    0) Thoát
 EOF
 	echo
@@ -552,6 +620,7 @@ EOF
 		13) do_cluster_init ;;
 		14) do_cluster_join ;;
 		15) do_servers ;;
+		16) do_rules ;;
 		0 | q | Q | "") exit 0 ;;
 		*) echo "  Không có mục \"$choice\"." ;;
 	esac

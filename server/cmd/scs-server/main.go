@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"errors"
 	"flag"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	"github.com/thangkes/SCS-System/server/internal/config"
 	"github.com/thangkes/SCS-System/server/internal/httpx"
 	"github.com/thangkes/SCS-System/server/internal/pki"
+	"github.com/thangkes/SCS-System/server/internal/rulestore"
 	"github.com/thangkes/SCS-System/server/internal/store"
 )
 
@@ -171,6 +173,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		log.Info("địa chỉ gửi cho agent", "file", cfg.AgentServersFile, "dia_chi", strings.Join(base.Servers.URLs(), ", "))
 	}
+	if cmd == "admin" || cmd == "all" { // kho bộ rule cho trang web "Rule quét log"
+		var pub ed25519.PublicKey
+		if base.ReleaseKey != nil {
+			pub = base.ReleaseKey.Public().(ed25519.PublicKey)
+		}
+		if base.Rules, err = rulestore.Open(cfg.RulesDir, pub); err != nil {
+			log.Error("không mở được kho bộ rule: trang Rule quét log sẽ báo lỗi", "dir", cfg.RulesDir, "err", err)
+		}
+	}
 	if cmd == "all" { // phần cụm chạy cùng tiến trình với web quản trị (trang "Cụm server" dùng chung node)
 		if base.Cluster, err = cluster.Open(cfg.ClusterDir); err != nil {
 			log.Error("không khởi động được", "err", fmt.Errorf("cụm: %w", err))
@@ -283,7 +294,7 @@ func httpServer(role, addr string, cfg *config.Config, mode httpx.ClientAuth,
 		Name: role,
 		Addr: addr,
 		Handler: handler(app.Deps{Cfg: cfg, Log: l, Version: version, ReadyChecks: base.ReadyChecks,
-			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey, Cluster: base.Cluster, Servers: base.Servers}),
+			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey, Cluster: base.Cluster, Servers: base.Servers, Rules: base.Rules}),
 		TLS: tlsCfg,
 		Log: l,
 	}

@@ -26,7 +26,7 @@ const rulesUsage = `scs-server rules - viết và kiểm rule quét log (xem doc
                 -ctx:    ngữ cảnh máy giả lập: chỉ chạy rule có applies_to khớp (bỏ trống: mọi rule)
   rules build FILE.yaml [-key data/pki/release.key] [-o FILE.json]
                                         kiểm rồi ký thành bộ rule gửi agent (mặc định in ra stdout)
-`
+` + ruleStoreUsage
 
 func runRules(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
@@ -40,6 +40,9 @@ func runRules(args []string, stdout, stderr io.Writer) int {
 		return rulesTest(args[1:], stdout, stderr)
 	case "build":
 		return rulesBuild(args[1:], stdout, stderr)
+	}
+	if ruleStoreCmd(args[0]) {
+		return runRuleStore(args[0], args[1:], stdout, stderr)
 	}
 	fmt.Fprintf(stderr, "lệnh rules không hợp lệ: %q\n\n%s", args[0], rulesUsage)
 	return 2

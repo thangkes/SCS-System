@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/thangkes/SCS-System/common/protocol"
@@ -88,7 +89,35 @@ var appTypes = map[string]bool{
 	"device.test_ring":  true,
 	"agent.config":      true,
 	"agent.release":     true,
+	TypeRulesetPublish:  true,
 	"note":              true, // ghi chú tự do của admin (dùng để thử cụm)
+}
+
+// TypeRulesetPublish: cụm duyệt một bộ rule (quá nửa node). Nội dung là RulesetPayload: chỉ tên,
+// phiên bản và SHA-256 phần agent nhận, không mang cả bộ rule. Node nào có file nguồn khớp SHA
+// thì được ký bộ đó cho agent của mình; khác SHA là nội dung khác, phải đổi phiên bản.
+const TypeRulesetPublish = "ruleset.publish"
+
+// RulesetPayload: nội dung quyết định ruleset.publish.
+type RulesetPayload struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+}
+
+var (
+	rulesetNameRe    = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+	rulesetVersionRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z._+-]{0,63}$`)
+	sha256Re         = regexp.MustCompile(`^[0-9a-f]{64}$`)
+)
+
+// Validate kiểm định dạng (giống luật tên / phiên bản của common/rules).
+func (p RulesetPayload) Validate() error {
+	if !rulesetNameRe.MatchString(p.Name) || !rulesetVersionRe.MatchString(p.Version) ||
+		strings.Contains(p.Version, "..") || !sha256Re.MatchString(p.SHA256) {
+		return errors.New("quyết định ruleset.publish: tên, phiên bản hoặc SHA-256 sai định dạng")
+	}
+	return nil
 }
 
 // AppType: loại quyết định của ứng dụng (quá nửa) có hợp lệ không.
@@ -502,6 +531,15 @@ func (s *State) check(d *Decision) (*rule, error) {
 	case appTypes[d.Type]:
 		if !json.Valid(d.Payload) || len(d.Payload) == 0 || d.Payload[0] != '{' {
 			return nil, errors.New("nội dung quyết định phải là một đối tượng JSON")
+		}
+		if d.Type == TypeRulesetPublish { // mọi node tự kiểm định dạng, không cần server gắn thêm
+			var p RulesetPayload
+			if err := decodeStrict(d.Payload, &p); err != nil {
+				return nil, err
+			}
+			if err := p.Validate(); err != nil {
+				return nil, err
+			}
 		}
 		return &rule{eligible: valid, need: Majority(len(valid)), must: []string{d.Proposer},
 			effect: func(*State, string) {}}, nil

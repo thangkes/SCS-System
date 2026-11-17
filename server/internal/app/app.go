@@ -15,6 +15,7 @@ import (
 	"github.com/thangkes/SCS-System/server/internal/config"
 	"github.com/thangkes/SCS-System/server/internal/httpx"
 	"github.com/thangkes/SCS-System/server/internal/pki"
+	"github.com/thangkes/SCS-System/server/internal/rulestore"
 	"github.com/thangkes/SCS-System/server/internal/web"
 )
 
@@ -33,6 +34,8 @@ type Deps struct {
 	Cluster *cluster.Node
 	// Servers: danh sách địa chỉ server gửi cho agent (nil = dùng SCS_AGENT_SERVERS, chỉ khi test).
 	Servers *addrbook.Book
+	// Rules: kho bộ rule (file nguồn, bản đã ký); nil = chưa mở được (trang Rule báo lỗi).
+	Rules *rulestore.Store
 }
 
 // agentServers: danh sách địa chỉ gửi cho agent ở enroll / heartbeat.
@@ -131,6 +134,13 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/cluster/unapprove", admin(http.HandlerFunc(cl.unapprove)))
 	mux.Handle("POST /admin/v1/cluster/reject-join", admin(http.HandlerFunc(cl.rejectJoin)))
 	mux.Handle("POST /admin/v1/cluster/isolate-local", admin(http.HandlerFunc(cl.isolateLocal)))
+	ru := rulesAPI{d}
+	mux.Handle("GET /admin/v1/rules", view(http.HandlerFunc(ru.list)))
+	mux.Handle("GET /admin/v1/rules/source", view(http.HandlerFunc(ru.source)))
+	mux.Handle("GET /admin/v1/rules/bundle", view(http.HandlerFunc(ru.bundle)))
+	mux.Handle("POST /admin/v1/rules", admin(http.HandlerFunc(ru.add)))
+	mux.Handle("POST /admin/v1/rules/approve", admin(http.HandlerFunc(ru.approve)))
+	mux.Handle("POST /admin/v1/rules/remove", admin(http.HandlerFunc(ru.remove)))
 	return wrap(d, httpx.RejectProxied(d.Log)(mux), httpx.AggregatedAccessLog(d.Log, slog.LevelInfo))
 }
 

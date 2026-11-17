@@ -68,7 +68,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=0.1.0" -o bin/s
 | `all` | Chạy tất cả (dev) | — |
 | `login-code` | In mã đăng nhập web hiện hành (chạy trên máy server, cùng user với dịch vụ); `-watch` để tự in mã mới; `-unlock` mở khóa khi bị khóa do nhập sai nhiều | — |
 | `pki` | Tạo CA nội bộ, chứng chỉ server, khóa phát hành: `pki init`, `pki server`, `pki release` | — |
-| `rules` | Viết rule quét log: `rules check`, `rules test`, `rules build` ([hướng dẫn](../docs/huong-dan-viet-rule.md)) | — |
+| `rules` | Viết rule quét log: `rules check`, `rules test`, `rules build`; kho bộ rule trên server (`SCS_RULES_DIR`): `rules list`, `add`, `approve`, `remove`, `export` ([hướng dẫn](../docs/huong-dan-viet-rule.md)) | — |
 | `cluster` | Cụm nhiều server: `cluster init`, `status`, `ping`, `join` (xem mục "Cụm nhiều server" bên dưới) | `:5222` |
 | `version` | In phiên bản | — |
 

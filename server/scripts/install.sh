@@ -273,6 +273,10 @@ fi
 cluster_dir_cfg="$(env_value "$ENV_FILE" SCS_CLUSTER_DIR)"
 cluster_dir_cfg="${cluster_dir_cfg:-data/cluster}"
 [[ "$cluster_dir_cfg" == /* ]] || set_env SCS_CLUSTER_DIR "$DATA_DIR/$cluster_dir_cfg"
+# Kho bộ rule (web "Rule quét log", menu mục 16): cũng ghi đường dẫn tuyệt đối, cùng lý do.
+rules_dir_cfg="$(env_value "$ENV_FILE" SCS_RULES_DIR)"
+rules_dir_cfg="${rules_dir_cfg:-data/rules}"
+[[ "$rules_dir_cfg" == /* ]] || set_env SCS_RULES_DIR "$DATA_DIR/$rules_dir_cfg"
 if [[ -f "$AGENT_BIN/VERSION" ]]; then
 	install -d -o root -g root -m 755 "$OPT_DIR/agent"
 	rm -f "$OPT_DIR/agent"/scs-agent-linux-* "$OPT_DIR/agent/VERSION"

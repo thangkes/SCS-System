@@ -136,6 +136,10 @@ func Open(dir string) (*Node, error) {
 	return n, nil
 }
 
+// ReadLog đọc nhật ký quyết định trong thư mục cụm mà không mở node (lệnh chạy tay khi dịch vụ đang
+// chạy). Chưa có nhật ký thì trả rỗng. Không kiểm lại chữ ký: dịch vụ đã kiểm trước khi ghi.
+func ReadLog(dir string) ([]*cc.Decision, error) { return readLog(filepath.Join(dir, LogFile)) }
+
 func readLog(path string) ([]*cc.Decision, error) {
 	f, err := os.Open(path)
 	if errors.Is(err, os.ErrNotExist) {

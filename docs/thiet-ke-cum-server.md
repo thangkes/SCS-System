@@ -349,6 +349,8 @@ agent tải, kiểm SHA-256 và chữ ký của quá nửa node theo danh sách 
 
 `ruleset.publish`, **quá nửa** node ký (không cần admin xác nhận từng node, vì rule không chạy được lệnh trên máy). Agent kiểm chữ ký của quá nửa node thay vì khóa phát hành. Lệnh `scs-server rules check / test` giữ nguyên; `rules build` đổi thành gửi đề nghị vào cụm.
 
+**Đã làm (2026-11):** kho bộ rule trên từng server (web trang "Rule quét log", menu mục 16). Server đã thuộc cụm thì bấm Duyệt gửi quyết định `ruleset.publish` với nội dung `{name, version, sha256}` (SHA-256 phần agent nhận, không mang cả bộ rule). Mọi node tự kiểm định dạng nội dung trước khi ký. Đủ quá nửa thì server mới ký bộ rule bằng khóa phát hành của nó; server khác có đúng file (cùng SHA) thì ký theo quyết định đã có, không bỏ phiếu lại. Cùng tên + phiên bản mà SHA khác bị chặn. **Chưa làm:** agent kiểm chữ ký của quá nửa node (vẫn kiểm khóa phát hành của server mình, mốc C4/C6), và chuyển file bộ rule giữa các node (admin thêm file trên từng server).
+
 ## 11. Mạng: LAN, Internet, NAT, DDNS, VPN
 
 Mỗi node khai **danh sách địa chỉ cho từng cổng** (5222 cho node khác, 6222 cho agent), giống danh sách địa chỉ agent hiện nay. Bên gọi thử lần lượt. An toàn dựa vào khóa node nên đi đường nào cũng như nhau.

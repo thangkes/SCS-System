@@ -68,6 +68,9 @@ type Config struct {
 	// (SCS_CLUSTER_LISTEN): cổng liên lạc giữa các server, chỉ mở khi node đã thuộc một cụm.
 	ClusterDir    string
 	ClusterListen string
+	// RulesDir (SCS_RULES_DIR): kho bộ rule trên server — file nguồn (src/) và bản đã ký (signed/).
+	// Trang web "Rule quét log", menu mục 16 và `scs-server rules list|add|approve` dùng thư mục này.
+	RulesDir string
 }
 
 type DB struct {
@@ -138,6 +141,7 @@ func Load() (*Config, error) {
 		AgentReleases:    get("SCS_AGENT_RELEASES", "data/agent-releases"),
 		ClusterDir:       get("SCS_CLUSTER_DIR", "data/cluster"),
 		ClusterListen:    get("SCS_CLUSTER_LISTEN", ":5222"),
+		RulesDir:         get("SCS_RULES_DIR", "data/rules"),
 	}
 	errs = append(errs, c.validate()...)
 	if len(errs) > 0 {

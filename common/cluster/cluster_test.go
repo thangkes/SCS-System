@@ -412,3 +412,35 @@ func TestMemberDecisionCanonical(t *testing.T) {
 		t.Fatal("MemberDecision chỉ dùng cho member.*")
 	}
 }
+
+// ruleset.publish: mọi node tự kiểm định dạng nội dung (tên, phiên bản, SHA-256), không cần server.
+func TestRulesetPublishPayload(t *testing.T) {
+	priv := key(t)
+	g, _ := Genesis("cum-thu", "hn-01", addrs, priv, t0)
+	var s State
+	if err := s.Apply(g); err != nil {
+		t.Fatal(err)
+	}
+	me := NodeID(priv.Public().(ed25519.PublicKey))
+	try := func(p any) error {
+		d, err := NewDecision(s.Seq+1, s.Head, TypeRulesetPublish, me, p, t0)
+		if err != nil {
+			return err
+		}
+		return s.Check(d)
+	}
+	sha := strings.Repeat("ab", 32)
+	if err := try(RulesetPayload{Name: "bo-moi", Version: "2026.11.20-01", SHA256: sha}); err != nil {
+		t.Fatalf("hợp lệ mà bị từ chối: %v", err)
+	}
+	for _, p := range []any{
+		RulesetPayload{Name: "../x", Version: "1", SHA256: sha},
+		RulesetPayload{Name: "bo", Version: "a..b", SHA256: sha},
+		RulesetPayload{Name: "bo", Version: "1", SHA256: "abc"},
+		map[string]string{"name": "bo", "version": "1", "sha256": sha, "them": "x"},
+	} {
+		if err := try(p); err == nil {
+			t.Errorf("nội dung sai phải bị từ chối: %+v", p)
+		}
+	}
+}

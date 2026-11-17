@@ -59,7 +59,7 @@ Code:
 3. **Thêm tests**: dán vài dòng log thật vào `tests.match` và `tests.no_match`.
 4. **Kiểm**: `scs-server rules check ~/scs-rules/ten-bo.yaml` (cú pháp, giới hạn, tests).
 5. **Chạy thử trên log mẫu**: `scs-server rules test ~/scs-rules/ten-bo.yaml -log mau.log`. Xem rule có báo quá nhiều hay quá ít không, chỉnh `aggregate` / `exclude`.
-6. **Tăng `version`, ký và đưa xuống agent**: `scs-server rules build ... -o ...json`, rồi (hiện tại) cài tay trên máy agent bằng `scs-agent rules -install`. Sau này server tự phát cho agent qua heartbeat, xem [mục 15](#15-hiện-trạng-đã-có--chưa-có).
+6. **Tăng `version`, đưa vào kho rule của server và duyệt (ký)**: web quản trị trang **"Rule quét log"**, menu server **mục 16**, hoặc `scs-server rules add` / `rules approve` ([mục 10.1](#101-kho-bộ-rule-trên-server-duyệt-và-ký)). Rồi (hiện tại) tải bản ký, cài tay trên máy agent bằng `scs-agent rules -install`. Sau này server tự phát cho agent qua heartbeat, xem [mục 15](#15-hiện-trạng-đã-có--chưa-có).
 
 ### Để file rule ở đâu (để cập nhật server không bị vướng)
 
@@ -406,6 +406,47 @@ journalctl -k -o cat --since today | sudo scs-agent rules -log - -source journal
 - Cài xong xóa file tạm: `rm /tmp/cong-ty.json`.
 - Gỡ bộ rule (về trạng thái chưa có rule): `sudo rm /var/lib/scs-agent/rules/current.json`.
 
+### 10.1 Kho bộ rule trên server: duyệt và ký
+
+Server giữ một **kho bộ rule** (thư mục `SCS_RULES_DIR`, server đã cài: `/var/lib/scs-server/data/rules`):
+
+```
+src/      file nguồn .yaml
+signed/   <tên>@<phiên bản>.json       bộ đã ký (gửi agent)
+          <tên>@<phiên bản>.meta.json  ai ký, lúc nào, quyết định cụm số mấy
+```
+
+Trạng thái được **tính lại mỗi lần xem** (không lưu riêng), nên chép file vào tay hay sửa file sau khi ký đều được phân loại đúng:
+
+| Trạng thái | Nghĩa | Làm gì |
+|---|---|---|
+| **Chưa ký** | File hợp lệ, tests đạt, chưa có bản ký | Xem lại nội dung rồi **Duyệt & ký** |
+| **Đã ký** | Có bản ký khớp đúng nội dung file và khóa phát hành hiện tại | Tải bản ký, cài cho agent |
+| **Cần ký lại** | File nguồn đã sửa mà giữ nguyên version, hoặc khóa phát hành đã đổi | Sửa file: **tăng version** rồi thêm lại. Đổi khóa: duyệt lại là được |
+| **Lỗi** | Sai cú pháp, sai giới hạn, tests không đạt, hoặc hai file cùng tên + phiên bản khác nội dung | Xem lỗi, sửa file |
+
+**Ba cách dùng, cùng một kho:**
+
+- **Web quản trị**, trang **"Rule quét log"**: lọc Chưa ký / Đã ký / Cần ký lại / Lỗi, xem nội dung từng bộ, thêm file `.yaml`, Duyệt & ký, tải bản ký, xóa. Xem cần quyền Chỉ xem; thêm, duyệt, xóa cần quyền Admin.
+- **Menu server mục 16**: thêm file (nhập đường dẫn, ví dụ `~/scs-rules/cong-ty.yaml`), duyệt và ký, xuất bộ đã ký ra thư mục nhà để chép sang agent, xóa.
+- **Lệnh** (chạy bằng user `scs`, từ thư mục `/`):
+
+```bash
+S="sudo -u scs /opt/scs-server/scs-server"; E="-env-file /etc/scs-server/server.env"
+cd /
+$S rules list $E                                   # chia nhóm: chưa ký / cần ký lại / lỗi / đã ký
+$S rules add - $E < ~/scs-rules/cong-ty.yaml       # "-" = đọc từ stdin (user scs không vào được thư mục nhà)
+$S rules approve cong-ty@2026.11.20-01.yaml $E     # tên file ở cột "File"
+$S rules export cong-ty@2026.11.20-01 $E > ~/cong-ty.json
+$S rules remove cong-ty@2026.11.20-01.yaml -bundle $E
+```
+
+Thêm bộ rule thì server kiểm cú pháp, giới hạn và chạy tests ngay; không đạt thì không thêm. Đã ký `tên@phiên bản` nào thì **không cho đưa nội dung khác vào cùng phiên bản đó** (agent coi phiên bản như mã nhận diện): muốn sửa, tăng `version`.
+
+**Server trong cụm** ([thiết kế cụm](thiet-ke-cum-server.md) mục 10): bấm Duyệt trên web gửi quyết định `ruleset.publish` (tên, phiên bản, SHA-256 phần agent nhận) cho các server khác. **Quá nửa** server hợp lệ ký thì quyết định có hiệu lực, lúc đó server này mới ký bộ rule cho agent của nó. Ở server khác trong cụm, thêm **đúng file đó** (cùng SHA-256) rồi bấm Duyệt là ký luôn, không bỏ phiếu lại; trang web có mục "Cụm đã duyệt, server này chưa có file". Cùng tên + phiên bản mà nội dung khác thì bị chặn. Lệnh `rules approve` trên server trong cụm chỉ ký được bộ cụm đã duyệt (bộ mới phải duyệt trên web).
+
+Hiện tại mỗi server vẫn ký bằng khóa phát hành của nó và agent kiểm khóa đó; agent kiểm chữ ký của quá nửa server là mốc C6.
+
 ## 11. Ví dụ làm từ đầu
 
 Bài toán: phần mềm bán hàng chạy dưới dạng dịch vụ `pos.service`, khi mất kết nối CSDL thì ghi dòng `DB connection lost`. Cần báo khi mất kết nối liên tục (không báo khi chập chờn một lần), nhưng bỏ qua lúc đang khởi động lại có chủ ý (có chữ `shutdown`).
@@ -529,9 +570,10 @@ sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journa
 | Agent nạp / cài bộ rule có chữ ký, `scs-agent rules` (xem, cài tay, chạy thử) | **Đã có** |
 | Schema 2: `tags`, `applies_to`, ngữ cảnh máy (hostname, os-release, nhãn trên web 3 cấp) | **Đã có** |
 | Agent đọc file log liên tục (nhớ vị trí đã đọc, xử lý xoay vòng log) và đọc journald | Chưa có (mốc A3) |
-| Server lưu bộ rule, gán bộ rule theo nhóm máy trên web, phát qua heartbeat (`rule_set_version`) | Chưa có (mốc M7) |
+| Kho bộ rule trên server: tự chia chưa ký / đã ký / cần ký lại / lỗi, duyệt (ký) trên web, menu mục 16, `rules list/add/approve`; trong cụm cần quá nửa server duyệt (`ruleset.publish`) | **Đã có** |
+| Gán bộ rule theo nhóm máy trên web, phát qua heartbeat (`rule_set_version`) | Chưa có (mốc M7) |
 | Agent gửi sự kiện lên server, hàng đợi khi mất mạng; server lưu sự kiện, tạo cảnh báo trên web | Chưa có (mốc A3 / M5) |
 
-Trong lúc chưa có các phần trên, quy trình là: viết rule trong `~/scs-rules/` → `rules check` / `rules test` trên server → `sudo ... rules build` → chép file `.json` sang máy → `scs-agent rules -install` → `scs-agent rules -log ...` để xem rule bắt được gì trên log thật của máy đó.
+Trong lúc chưa có các phần trên, quy trình là: viết rule trong `~/scs-rules/` → `rules check` / `rules test` trên server → đưa vào kho và **Duyệt & ký** (web trang "Rule quét log" hoặc menu mục 16) → tải / xuất bản ký `.json`, chép sang máy → `scs-agent rules -install` → `scs-agent rules -log ...` để xem rule bắt được gì trên log thật của máy đó. (`sudo ... rules build` vẫn dùng được để ký một file lẻ ngoài kho.)
 
 Lưu ý: dịch vụ agent **chưa** tự đọc log theo bộ rule (mốc A3). Hiện bộ rule chỉ dùng được bằng lệnh `scs-agent rules -log` để chạy thử; cài sẵn bây giờ thì khi có A3 agent dùng luôn.

@@ -222,14 +222,22 @@ Chi tiết cách viết rule: [docs/huong-dan-viet-rule.md](docs/huong-dan-viet-
 mkdir -p ~/scs-rules
 cp ~/SCS-System/server/rules/mau-co-ban.yaml ~/scs-rules/cong-ty.yaml   # chỉ lần đầu; đổi name: cong-ty
 /opt/scs-server/scs-server rules check ~/scs-rules/cong-ty.yaml
-sudo /opt/scs-server/scs-server rules build ~/scs-rules/cong-ty.yaml -key /etc/scs-server/pki/release.key -o ~/cong-ty.json
 ```
+
+Đưa vào kho rule của server và duyệt (ký), một trong ba cách:
+
+- Web quản trị, trang **"Rule quét log"**: thêm file `.yaml`, server tự chia **Chưa ký / Đã ký / Cần ký lại / Lỗi**, bấm **Duyệt & ký**, rồi **Tải bản ký**.
+- Menu server **mục 16**: thêm file, duyệt và ký, xuất bản ký ra thư mục nhà.
+- Lệnh: `sudo -u scs /opt/scs-server/scs-server rules list | add | approve | export ... -env-file /etc/scs-server/server.env` (chạy từ thư mục `/`).
+
+Server trong cụm: duyệt bộ mới trên web, cần quá nửa server đồng ý ([hướng dẫn mục 10.1](docs/huong-dan-viet-rule.md#101-kho-bộ-rule-trên-server-duyệt-và-ký)).
 
 Trên máy agent: `sudo scs-agent rules -install cong-ty.json`, rồi `sudo scs-agent rules` để xem bộ đang dùng.
 
 - **Để rule của bạn ngoài thư mục code** (`~/scs-rules/`). Sửa file trong `~/SCS-System/server/rules/` thì cập nhật
   server (menu mục 4) bị từ chối vì "Thư mục code có thay đổi chưa commit".
 - Dòng log mẫu dán vào `tests` phải che tên tài khoản, tên máy, IP, tên miền thật.
+- Bộ đã ký mà muốn sửa: **tăng `version`** rồi thêm lại (cùng phiên bản không nhận nội dung khác).
 - Hiện tại bộ rule cài tay và chỉ chạy thử được bằng `scs-agent rules -log`; agent tự đọc log và server tự phát
   bộ rule qua heartbeat là các mốc sau (A3, M7).
 

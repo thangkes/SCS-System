@@ -1082,6 +1082,215 @@
     }, 15000);
   }
 
+  // ---------------------------------------------------------------- trang: Rule quét log
+  // Kho bộ rule trên server: tự chia chưa ký / đã ký / cần ký lại / lỗi. Duyệt = ký bằng khóa phát
+  // hành của server; server trong cụm thì phải được quá nửa server duyệt (quyết định ruleset.publish).
+  const RULE_ST = {
+    'chua-ky': ['pill-warn', 'Chưa ký'],
+    'da-ky': ['pill-ok', 'Đã ký'],
+    'can-ky-lai': ['pill-bad', 'Cần ký lại'],
+    loi: ['pill-bad', 'Lỗi'],
+  };
+  const ruleKey = (e) => `${e.name}@${e.version}`;
+
+  function setRuleCount(entries) {
+    const n = entries.filter((e) => e.status === 'chua-ky' || e.status === 'can-ky-lai').length;
+    $('#nav-rules').textContent = n || '';
+  }
+
+  async function refreshRuleCount() {
+    try { setRuleCount((await getJSON('/admin/v1/rules')).entries); } catch { /* bỏ qua */ }
+  }
+
+  async function pageRules() {
+    setTitle('Rule quét log');
+    const page = view;
+    const state = { filter: '', data: null };
+    page.innerHTML = '<p class="hint">Đang tải…</p>';
+
+    const counts = (list) => {
+      const c = { '': list.length };
+      for (const e of list) c[e.status] = (c[e.status] || 0) + 1;
+      return c;
+    };
+
+    function render() {
+      const j = state.data;
+      const list = j.entries;
+      const c = counts(list);
+      const rows = list.filter((e) => !state.filter || e.status === state.filter);
+      const cl = j.cluster;
+      const chip = (k, label) => `<button class="chip${state.filter === k ? ' active' : ''}" data-filter="${k}">${esc(label)} (${fmtNum(c[k] || 0)})</button>`;
+      const row = (e) => {
+        const signedTxt = e.signed ? `${esc(fmtTime(new Date(e.signed.at)))} · ${esc(e.signed.by)}` : '';
+        let clTxt = '';
+        if (cl && e.name) {
+          clTxt = e.cluster ? `<span class="pill pill-ok no-dot">Cụm duyệt #${esc(e.cluster.seq)}</span>` : '<span class="pill no-dot">Cụm chưa duyệt</span>';
+        }
+        // "Cần ký lại" vì sửa nguồn mà giữ version thì không ký được (phải tăng version); vì đổi khóa thì ký lại được.
+        const edited = /đã sửa sau khi ký/.test(e.error || '');
+        const canSign = !!e.file && (e.status === 'chua-ky' || (e.status === 'can-ky-lai' && !edited));
+        const signAttr = j.signing ? adminOnly() : ' disabled title="Server chưa có khóa phát hành"';
+        const bundleURL = `/admin/v1/rules/bundle?name=${encodeURIComponent(e.name)}&version=${encodeURIComponent(e.version)}`;
+        return `<tr>
+          <td><span class="strong">${esc(e.name || '(không đọc được)')}</span><br><span class="mono hint">${esc(e.version || e.file)}</span></td>
+          <td>${pill(RULE_ST[e.status] || ['', e.status])}${clTxt ? `<br>${clTxt}` : ''}</td>
+          <td class="num hide-sm">${e.rules ? `${fmtNum(e.enabled)}/${fmtNum(e.rules)}` : ''}</td>
+          <td class="num hide-sm">${e.tests ? fmtNum(e.tests) : ''}</td>
+          <td class="hide-sm">${signedTxt}</td>
+          <td><div class="btns">
+            <button class="btn btn-sm" data-act="view" data-file="${esc(e.file)}" data-key="${esc(ruleKey(e))}">Xem</button>
+            ${canSign ? `<button class="btn btn-sm btn-primary" data-act="approve" data-file="${esc(e.file)}"${signAttr}>Duyệt &amp; ký</button>` : ''}
+            ${e.bundle && e.status === 'da-ky' ? `<a class="btn btn-sm" href="${esc(bundleURL)}" download>Tải bản ký</a>` : ''}
+            <button class="btn btn-sm btn-danger" data-act="remove" data-file="${esc(e.file)}" data-name="${esc(e.name)}" data-version="${esc(e.version)}" data-bundle="${e.bundle ? 1 : 0}"${adminOnly()}>Xóa</button>
+          </div></td></tr>`;
+      };
+      const only = j.cluster_only || [];
+      page.innerHTML = `
+        ${!j.signing ? '<div class="callout">Server chưa có khóa phát hành (SCS_RELEASE_KEY): xem và thêm được, chưa ký được bộ rule.</div>' : ''}
+        ${cl ? `<div class="card"><div class="card-body"><p class="hint">Server này thuộc cụm <strong>${esc(cl.name)}</strong>
+          (${fmtNum(cl.valid)} server hợp lệ). Duyệt một bộ rule mới sẽ gửi đề nghị cho các server khác ký;
+          cần <strong>${fmtNum(cl.majority)}</strong> server đồng ý thì server này mới ký bộ rule cho agent của nó.
+          Bộ cụm đã duyệt: server khác chỉ cần thêm đúng file đó rồi bấm duyệt.</p>
+          ${cl.error ? `<p class="err-text">${esc(cl.error)}</p>` : ''}</div></div>` : ''}
+        <div class="card">
+          <div class="toolbar">
+            <div class="chips">
+              ${chip('', 'Tất cả')}${chip('chua-ky', 'Chưa ký')}${chip('da-ky', 'Đã ký')}${chip('can-ky-lai', 'Cần ký lại')}${chip('loi', 'Lỗi')}
+            </div>
+          </div>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Bộ rule</th><th>Trạng thái</th><th class="num hide-sm">Rule bật</th><th class="num hide-sm">Test</th><th class="hide-sm">Ký lúc · bởi</th><th></th></tr></thead>
+            <tbody>${rows.map(row).join('') || `<tr><td colspan="6" class="empty">${list.length ? 'Không có bộ nào ở nhóm này.' : 'Chưa có bộ rule nào. Thêm file .yaml ở dưới.'}</td></tr>`}</tbody>
+          </table></div>
+        </div>
+        ${only.length ? `<div class="card">
+          <div class="card-head"><h2>Cụm đã duyệt, server này chưa có file</h2></div>
+          <div class="table-wrap"><table><thead><tr><th>Bộ rule</th><th>Quyết định</th><th class="hide-sm">SHA-256</th></tr></thead>
+            <tbody>${only.map((x) => `<tr><td><span class="strong">${esc(x.name)}</span><br><span class="mono hint">${esc(x.version)}</span></td>
+              <td>#${esc(x.seq)}${x.admin ? ` · ${esc(x.admin)}` : ''}</td><td class="mono hide-sm">${esc(String(x.sha256).slice(0, 16))}…</td></tr>`).join('')}</tbody></table></div>
+          <div class="card-body"><p class="hint">Thêm đúng file nguồn của bộ đó (cùng nội dung) rồi bấm "Duyệt &amp; ký": ký ngay, các server không phải bỏ phiếu lại.</p></div>
+        </div>` : ''}
+        <div class="card">
+          <div class="card-head"><h2>Thêm bộ rule</h2><span class="sub">File .yaml viết theo docs/huong-dan-viet-rule.md</span></div>
+          <div class="card-body">
+            <div class="form-grid">
+              <label class="field">File rule
+                <input type="file" id="ru-file" accept=".yaml,.yml"${adminOnly()}>
+                <small>Server kiểm cú pháp, giới hạn và chạy tests của từng rule. Hợp lệ thì vào nhóm "Chưa ký".
+                  Bộ đã ký mà muốn sửa: tăng <span class="mono">version</span> rồi thêm lại.</small></label>
+            </div>
+            <div class="form-actions"><button class="btn btn-primary btn-sm" id="ru-add"${adminOnly()}>Kiểm tra và thêm</button></div>
+            <p class="hint">Rule chỉ đọc log và khớp regex, không chạy được lệnh trên máy. Agent hiện chưa tự tải bộ rule:
+              tải bản ký, chép sang máy rồi chạy <span class="mono">sudo scs-agent rules -install FILE.json</span> (server tự phát bộ rule là mốc M7).
+              Thư mục kho trên server: <span class="mono">${esc(j.dir)}</span>.</p>
+          </div>
+        </div>`;
+    }
+
+    async function load() {
+      try {
+        state.data = await getJSON('/admin/v1/rules');
+      } catch (err) {
+        if (page === view) showLoadError(page, err);
+        return;
+      }
+      if (page !== view) return;
+      setRuleCount(state.data.entries);
+      render();
+    }
+
+    async function viewEntry(file, key) {
+      const e = state.data.entries.find((x) => (file ? x.file === file : ruleKey(x) === key));
+      if (!e) return;
+      let src = '';
+      if (file) {
+        try {
+          const r = await api(`/admin/v1/rules/source?file=${encodeURIComponent(file)}`);
+          if (r.ok) src = await r.text();
+        } catch { /* bỏ qua */ }
+      }
+      openDrawer(e.name ? ruleKey(e) : e.file, `
+        <dl class="kv">
+          <dt>Trạng thái</dt><dd>${pill(RULE_ST[e.status] || ['', e.status])}</dd>
+          <dt>File nguồn</dt><dd class="mono">${e.file ? esc(e.file) : 'Không còn (chỉ có bản ký)'}</dd>
+          ${e.description ? `<dt>Mô tả</dt><dd>${esc(e.description)}</dd>` : ''}
+          ${e.rules ? `<dt>Rule</dt><dd>${fmtNum(e.rules)} (${fmtNum(e.enabled)} đang bật), ${fmtNum(e.tests)} dòng test</dd>` : ''}
+          ${e.schema ? `<dt>Schema</dt><dd>${esc(e.schema)}</dd>` : ''}
+          ${e.sha256 ? `<dt>SHA-256</dt><dd class="mono">${esc(e.sha256)}</dd>` : ''}
+          ${e.signed ? `<dt>Ký</dt><dd>${esc(fmtTime(new Date(e.signed.at)))} · ${esc(e.signed.by)}${e.signed.cluster_seq ? ` · cụm #${esc(e.signed.cluster_seq)}` : ''}</dd>` : ''}
+          ${e.cluster ? `<dt>Cụm duyệt</dt><dd>Quyết định #${esc(e.cluster.seq)}${e.cluster.admin ? ` · ${esc(e.cluster.admin)}` : ''}</dd>` : ''}
+        </dl>
+        ${e.error ? `<h3>Lỗi</h3><pre class="err-text">${esc(e.error)}</pre>` : ''}
+        ${src ? `<h3>Nội dung</h3><pre class="src-view">${esc(src)}</pre>` : ''}`);
+    }
+
+    page.addEventListener('click', async (ev) => {
+      const chipB = ev.target.closest('[data-filter]');
+      if (chipB) {
+        state.filter = chipB.dataset.filter;
+        render();
+        return;
+      }
+      const b = ev.target.closest('button');
+      if (!b || b.disabled) return;
+      try {
+        if (b.id === 'ru-add') {
+          const f = $('#ru-file').files[0];
+          if (!f) { toast('Chọn file .yaml trước'); return; }
+          if (f.size > 2 * 1024 * 1024) { toast('File rule tối đa 2 MB'); return; }
+          const r = await api('/admin/v1/rules', { method: 'POST', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: await f.text() });
+          const j = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            infoBox('Không thêm được bộ rule', `<pre class="err-text">${esc(j.error || `lỗi ${r.status}`)}</pre>`);
+            return;
+          }
+          toast(`Đã thêm ${ruleKey(j.entry)}: ${(RULE_ST[j.entry.status] || ['', j.entry.status])[1]}`);
+          state.filter = '';
+        } else if (b.dataset.act === 'view') {
+          await viewEntry(b.dataset.file, b.dataset.key);
+          return;
+        } else if (b.dataset.act === 'approve') {
+          const e = state.data.entries.find((x) => x.file === b.dataset.file);
+          if (!e) return;
+          const cl = state.data.cluster;
+          const ok = await confirmBox(`Duyệt và ký ${ruleKey(e)}?`,
+            `<p>${fmtNum(e.enabled)} rule đang bật, ${fmtNum(e.tests)} dòng test đã đạt.</p>
+             <p class="mono hint break-all">SHA-256 ${esc(e.sha256)}</p>
+             <p>Sau khi ký, bộ rule này được dùng cho agent. Xem lại nội dung (nút "Xem") trước khi duyệt.</p>
+             ${cl && !e.cluster ? `<p><strong>Server trong cụm:</strong> gửi đề nghị cho các server khác, cần ${fmtNum(cl.majority)}/${fmtNum(cl.valid)} server ký; có thể mất vài giây.</p>` : ''}`,
+            'Duyệt & ký');
+          if (!ok) return;
+          b.disabled = true;
+          const j = await postJSON('/admin/v1/rules/approve', { file: e.file });
+          toast(`Đã ký ${ruleKey(j.entry)}${j.cluster_seq ? ` (cụm duyệt #${j.cluster_seq})` : ''}`);
+        } else if (b.dataset.act === 'remove') {
+          const { file, name, version } = b.dataset;
+          const hasBundle = b.dataset.bundle === '1';
+          const label = name ? `${name}@${version}` : file;
+          const ok = await confirmBox(`Xóa ${label}?`,
+            `${file ? `<p>Xóa file nguồn <span class="mono">${esc(file)}</span>.</p>` : '<p>Xóa bản ký (không còn file nguồn).</p>'}
+             ${file && hasBundle ? '<label class="check"><input type="checkbox" id="ru-rm-bundle"> Xóa luôn bản đã ký</label>' : ''}
+             <p class="hint">Agent đã cài bộ rule này không bị ảnh hưởng.</p>`, 'Xóa', true);
+          if (!ok) return;
+          const box = $('#ru-rm-bundle');
+          await postJSON('/admin/v1/rules/remove', file ? { file, bundle: !!(box && box.checked) } : { name, version });
+          toast(`Đã xóa ${label}`);
+        } else {
+          return;
+        }
+        load();
+      } catch (err) {
+        toast(`Không làm được: ${err.message}`);
+        load();
+      }
+    });
+    await load();
+    refreshTimer = setInterval(() => {
+      if (!$('#dialog').open && !$('#drawer').classList.contains('open')) load();
+    }, 30000);
+  }
+
   function pageSoon(title, text) {
     setTitle(title);
     view.innerHTML = `<div class="card soon">${ICON.clock}<h2>${esc(title)}</h2><p>${esc(text)}</p></div>`;
@@ -1094,7 +1303,7 @@
     'canh-bao': pageAlerts,
     'cho-duyet': pagePending,
     'he-thong': pageSystem,
-    rule: () => pageSoon('Rule quét log', 'Soạn, ký và gán bộ rule cho từng nhóm máy. Sẽ làm ở mốc M7.'),
+    rule: pageRules,
     'cap-nhat': pageAgent,
     cum: pageCluster,
     'dia-chi': pageServers,
@@ -1149,6 +1358,7 @@
     $('#me-role').className = `pill no-dot ${isAdmin() ? 'pill-ok' : 'pill-info'}`;
     refreshPendingCount();
     refreshAlertCount();
+    refreshRuleCount();
     try {
       const h = await (await api('/healthz')).json();
       $('#server-version').textContent = `SCS-Server ${h.version}`;

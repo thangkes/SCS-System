@@ -32,24 +32,39 @@ func signingInput(name, version, sha string) []byte {
 	return []byte(bundleContext + name + "\n" + version + "\n" + sha)
 }
 
-// Build kiểm bộ rule, bỏ phần agent không cần và ký bằng khóa phát hành.
-func Build(s *RuleSet, priv ed25519.PrivateKey) (*Bundle, error) {
+// payload: phần agent sẽ nhận (bỏ tests, rule tắt) dạng JSON và SHA-256 của nó.
+func payload(s *RuleSet) (*RuleSet, []byte, string, error) {
 	if err := s.Validate(); err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
 	out := s.ForAgent()
 	if len(out.Rules) == 0 {
-		return nil, ErrNoRules
+		return nil, nil, "", ErrNoRules
 	}
 	data, err := json.Marshal(out)
 	if err != nil {
-		return nil, err
+		return nil, nil, "", err
 	}
 	if len(data) > MaxBundle {
-		return nil, fmt.Errorf("bộ rule %d byte, tối đa %d", len(data), MaxBundle)
+		return nil, nil, "", fmt.Errorf("bộ rule %d byte, tối đa %d", len(data), MaxBundle)
 	}
 	sum := sha256.Sum256(data)
-	sha := hex.EncodeToString(sum[:])
+	return out, data, hex.EncodeToString(sum[:]), nil
+}
+
+// Digest: SHA-256 của phần sẽ được ký (giống Bundle.SHA256 nếu ký bộ này). Dùng để so file
+// nguồn với bản đã ký, và làm nội dung quyết định "ruleset.publish" của cụm server.
+func Digest(s *RuleSet) (string, error) {
+	_, _, sha, err := payload(s)
+	return sha, err
+}
+
+// Build kiểm bộ rule, bỏ phần agent không cần và ký bằng khóa phát hành.
+func Build(s *RuleSet, priv ed25519.PrivateKey) (*Bundle, error) {
+	out, data, sha, err := payload(s)
+	if err != nil {
+		return nil, err
+	}
 	return &Bundle{
 		Name: out.Name, Version: out.Version, SHA256: sha,
 		Payload: base64.StdEncoding.EncodeToString(data),

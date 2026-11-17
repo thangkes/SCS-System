@@ -305,6 +305,14 @@ td .sub { display: block; color: var(--faint); font-size: 12px; }
   font-size: 13px; overflow-wrap: anywhere;
 }
 .secret span { flex: 1; }
+/* ---------- Rule quét log ---------- */
+.src-view {
+  margin: 0; padding: 12px 14px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line);
+  font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5;
+  white-space: pre; overflow: auto; max-height: 60vh; tab-size: 2;
+}
+.break-all { overflow-wrap: anywhere; word-break: break-all; }
+.err-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--bad); }
 .callout { padding: 10px 12px; border-radius: 8px; font-size: 13px; background: var(--warn-soft); color: var(--warn); }
 
 /* ---------- Hệ thống ---------- */
