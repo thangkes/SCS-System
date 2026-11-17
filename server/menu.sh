@@ -143,6 +143,7 @@ ask_allow() {
 	echo "   2) Chỉ dải LAN của máy server ($(lan_cidr || echo '?'))"
 	echo "   3) Tự nhập các dải (ví dụ 10.10.0.0/16 10.20.5.0/24)"
 	echo "   4) Chỉ chính máy server"
+	echo "   5) Cả Internet (mọi IP) — chỉ mã 6 số bảo vệ, người lạ có thể làm khóa đăng nhập"
 	ask "Chọn" "1"
 	case "$REPLY" in
 		1) ALLOW_ARGS=(--admin-allow private) ;;
@@ -152,12 +153,20 @@ ask_allow() {
 		3) ask "Các dải, cách nhau dấu cách" ""
 			for x in $REPLY; do
 				valid_cidr "$x" || { echo "  ${C_RED}\"$x\" không phải dải CIDR${C_0}"; return 1; }
-				[[ "$x" == 0.0.0.0/0 ]] && { echo "  ${C_RED}Không mở web quản trị cho cả Internet${C_0}"; return 1; }
+				[[ "$x" == 0.0.0.0/0 || "$x" == ::/0 ]] && { echo "  Mở cho cả Internet: chọn mục 5."; return 1; }
 				ALLOW_ARGS+=(--admin-allow "$x")
 			done
 			[[ ${#ALLOW_ARGS[@]} -gt 0 ]] || { echo "  Chưa nhập dải nào."; return 1; }
 			;;
 		4) ;;
+		5) echo "  ${C_RED}Web quản trị sẽ mở cho mọi IP trên Internet.${C_0}"
+			echo "  - Chỉ có mã 6 số bảo vệ; ai cũng gửi mã sai được để khóa đăng nhập"
+			echo "    (mở khóa trên máy server: sudo scs-login-code -unlock)."
+			echo "  - Chứng chỉ tự ký: trình duyệt luôn cảnh báo; chỉ bỏ qua khi chắc chắn đúng server."
+			echo "  - Router phải chuyển tiếp cổng 7222 tới máy này thì ngoài Internet mới vào được."
+			ask "Gõ INTERNET để xác nhận" ""
+			[[ "$REPLY" == INTERNET ]] || { echo "  Chưa xác nhận, không đổi gì."; return 1; }
+			ALLOW_ARGS=(--admin-allow internet) ;;
 		*) echo "  Không có lựa chọn \"$REPLY\"."; return 1 ;;
 	esac
 }

@@ -13,7 +13,8 @@
 #   --dns TÊN            tên miền ghi thêm vào chứng chỉ server (tùy chọn)
 #   --admin-allow DẢI    cho dải IP này vào web quản trị 7222 (ví dụ 192.168.1.0/24), lặp lại được;
 #                        thêm vào SCS_ADMIN_ALLOW (giữ localhost) và mở ufw cho đúng dải đó nếu ufw đang bật;
-#                        "private" = toàn mạng nội bộ (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16)
+#                        "private" = toàn mạng nội bộ (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16);
+#                        "internet" = mọi IP (0.0.0.0/0, ::/0) — chỉ mã đăng nhập 6 số bảo vệ
 #   --agent-servers DS   các địa chỉ agent dùng gọi server, cách nhau dấu phẩy, thứ tự ưu tiên
 #                        (ví dụ https://192.168.1.10:6222,https://ten.ddns.net:16222); server gửi danh
 #                        sách này cho agent đã duyệt, agent tự chuyển khi địa chỉ đang dùng mất kết nối
@@ -92,14 +93,17 @@ done
 # "private" = toàn mạng nội bộ: mọi dải IP riêng (công ty nhiều lớp mạng / VLAN định tuyến qua nhau).
 expanded=()
 for cidr in "${ADMIN_ALLOW[@]}"; do
-	if [[ "$cidr" == private ]]; then expanded+=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16); else expanded+=("$cidr"); fi
+	case "$cidr" in
+		private) expanded+=(10.0.0.0/8 172.16.0.0/12 192.168.0.0/16) ;;
+		internet) expanded+=(0.0.0.0/0 ::/0) ;;
+		0.0.0.0/0 | ::/0) die "--admin-allow $cidr mở web quản trị cho cả Internet" "Muốn vậy thật thì dùng --admin-allow internet" ;;
+		*) expanded+=("$cidr") ;;
+	esac
 done
 ADMIN_ALLOW=("${expanded[@]}")
 for cidr in "${ADMIN_ALLOW[@]}"; do
 	[[ "$cidr" =~ ^[0-9]+([.][0-9]+){3}(/[0-9]{1,2})?$ || "$cidr" =~ ^[0-9a-fA-F]*:[0-9a-fA-F:]*(/[0-9]{1,3})?$ ]] ||
 		die "--admin-allow \"$cidr\" không phải IP hoặc dải CIDR (ví dụ 192.168.1.0/24)"
-	[[ "$cidr" == 0.0.0.0/0 || "$cidr" == ::/0 ]] &&
-		die "--admin-allow $cidr mở web quản trị cho cả Internet" "Chỉ cho dải LAN hoặc VPN, ví dụ 192.168.1.0/24"
 done
 for d in "${PKI_DNS[@]}"; do
 	[[ "$d" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || die "--dns \"$d\" không phải tên miền"
