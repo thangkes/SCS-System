@@ -182,7 +182,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
   <div class="tbl"><table>
     <tr><th>Cổng</th><th>Dùng cho</th><th>Ai vào được</th></tr>
     <tr><td><code>6222</code></td><td>Agent: đăng ký, heartbeat, tải bản agent (sau này: log, rule)</td><td>Mọi nơi agent gọi tới (LAN, VLAN khác, Internet qua chuyển tiếp cổng). Bảo vệ bằng TLS 1.3, chứng chỉ máy và admin duyệt, không dựa vào tường lửa. Giới hạn 64 kết nối mỗi IP, 40.000 tổng</td></tr>
-    <tr><td><code>7222</code></td><td>Web quản trị (luôn HTTPS)</td><td>Chỉ các dải trong <code>SCS_ADMIN_ALLOW</code>; IP khác bị đóng kết nối trước cả bước bắt tay TLS. Menu cho chọn "toàn mạng nội bộ" (10/8, 172.16/12, 192.168/16) cho công ty nhiều lớp mạng</td></tr>
+    <tr><td><code>7222</code></td><td>Web quản trị (luôn HTTPS)</td><td>Chỉ các dải trong <code>SCS_ADMIN_ALLOW</code>; IP khác bị đóng kết nối trước cả bước bắt tay TLS. Menu cho chọn "toàn mạng nội bộ" (10/8, 172.16/12, 192.168/16) cho công ty nhiều lớp mạng, hoặc cả Internet khi admin gõ xác nhận (chỉ mã 6 số bảo vệ; tăng cứng trang quản trị chưa làm)</td></tr>
     <tr><td><code>5222</code></td><td>Liên lạc giữa các server trong cụm</td><td>Chỉ mở khi server đã thuộc một cụm hoặc đang xin vào. TLS 1.3 hai chiều; chỉ nhận server có khóa trong danh sách cụm, trừ yêu cầu xin vào cụm (giới hạn số lượng, admin duyệt trên mọi server). Xem <code>docs/thiet-ke-cum-server.md</code>.</td></tr>
   </table></div>
   <h3>Agent gọi server bằng địa chỉ nào cũng được</h3>
@@ -279,18 +279,19 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
 ├── 12345-TN2-SEC   máy số 2 (máy chính thứ hai)
 ├── 12345-TN3       máy số 3 trở đi: không có hậu tố
 └── 12345-TN4 ...
-      └── dữ liệu theo ngày (giờ Việt Nam), giữ 60 ngày</code></pre>
+      └── dòng thời gian theo giai đoạn: OK / cảnh báo / mất liên lạc, giữ 60 ngày sau khi đóng</code></pre>
   <div class="tbl"><table>
     <tr><th>Bảng</th><th>Nội dung</th><th>Giữ</th><th>Trạng thái</th></tr>
     <tr><td><code>stores</code></td><td>Mã siêu thị, IP cố định (gán khi duyệt máy đầu tiên)</td><td>Lâu dài</td><td><span class="st st-done">Đang dùng</span></td></tr>
     <tr><td><code>devices</code></td><td>Hostname, vị trí TN, PRI/SEC, khóa công khai, fingerprint, trạng thái, serial chứng chỉ mới nhất, nhóm thử, lần cuối thấy</td><td>Lâu dài</td><td><span class="st st-done">Đang dùng</span></td></tr>
     <tr><td><code>agent_releases</code>, <code>agent_rollout</code></td><td>Bản agent trong kho (SHA-256, chữ ký); bản đang phát hành cho nhóm thử / tất cả</td><td>Lâu dài</td><td><span class="st st-done">Đang dùng</span></td></tr>
     <tr><td><code>agent_config</code></td><td>Cấu hình agent theo cấp chung / siêu thị / máy</td><td>Lâu dài</td><td><span class="st st-done">Đang dùng</span></td></tr>
-    <tr><td><code>alerts</code></td><td>Cảnh báo trên web: máy chờ duyệt, hostname sai, IP lạ… (sau này: đổi fingerprint, offline, sự kiện mức cao)</td><td>60 ngày</td><td><span class="st st-done">Đang dùng</span></td></tr>
+    <tr><td><code>alerts</code></td><td>Cảnh báo trên web: máy chờ duyệt, hostname sai, IP lạ, giai đoạn cảnh báo (sự kiện high / critical), mất liên lạc (sau này: đổi fingerprint)</td><td>60 ngày</td><td><span class="st st-done">Đang dùng</span></td></tr>
     <tr><td><code>audit</code></td><td>Nhật ký thao tác: duyệt / thu hồi máy, cấp chứng chỉ, phát hành, đổi cấu hình… chỉ ghi thêm, không sửa xóa được</td><td>Lâu dài</td><td><span class="st st-done">Đang dùng</span></td></tr>
-    <tr><td><code>device_status</code></td><td>Trạng thái mới nhất mỗi máy (ghi đè mỗi heartbeat)</td><td>Bản mới nhất</td><td><span class="st st-todo">Chưa ghi</span></td></tr>
-    <tr><td><code>heartbeats</code>, <code>events</code></td><td>Mọi heartbeat và sự kiện khớp rule; chia theo ngày, nén sau 2 ngày</td><td>60 ngày</td><td><span class="st st-todo">Chưa ghi</span></td></tr>
-    <tr><td><code>device_days</code>, <code>seen_nonces</code></td><td>Tóm tắt ngày; nonce đã nhận (chống gửi lại gói cũ)</td><td>60 ngày / 1 ngày</td><td><span class="st st-todo">Chưa ghi</span></td></tr>
+    <tr><td><code>device_status</code></td><td>Trạng thái mới nhất mỗi máy (một dòng, ghi đè mỗi heartbeat)</td><td>Bản mới nhất</td><td><span class="st st-done">Đang dùng</span></td></tr>
+    <tr><td><code>device_status_changes</code></td><td>Lịch sử trạng thái, chỉ ghi khi đổi đáng kể (OS, kernel, agent, bộ rule, IP, dịch vụ, RAID, đồng bộ giờ, ổ đầy 80/90/95%)</td><td>60 ngày</td><td><span class="st st-done">Đang dùng</span></td></tr>
+    <tr><td><code>device_periods</code></td><td>Giai đoạn OK / cảnh báo / mất liên lạc của từng máy, mỗi giai đoạn một dòng kèm tóm tắt theo rule (thay <code>heartbeats</code>, <code>events</code>, <code>device_days</code> của kế hoạch cũ; xem <code>docs/thiet-ke-luu-theo-giai-doan.md</code>)</td><td>60 ngày sau khi đóng</td><td><span class="st st-done">Đang dùng</span></td></tr>
+    <tr><td><code>seen_nonces</code></td><td>Nonce đã nhận (chống gửi lại gói cũ)</td><td>1 ngày</td><td><span class="st st-todo">Chưa ghi</span></td></tr>
   </table></div>
   <div class="note"><strong>Để dữ liệu chính xác:</strong> ràng buộc nằm ngay trong DB nên code có lỗi cũng không ghi được dữ liệu sai: hostname hợp lệ phải đúng quy ước PRI/SEC; mỗi vị trí TN trong siêu thị và mỗi hostname chỉ một máy đang hoạt động; lưu cả giờ server nhận lẫn giờ máy gửi; trạng thái online/offline tính theo giờ server nhận.</div>
 </section>
@@ -432,7 +433,8 @@ rules:
     <tr><td><code>scs-server rules check | test | build</code>, bộ rule mẫu <code>server/rules/mau-co-ban.yaml</code></td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td><code>scs-agent rules</code>: xem, cài tay bộ rule đã ký, chạy thử trên log thật</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Agent đọc file log liên tục + journald, gửi sự kiện, hàng đợi khi mất mạng</td><td><span class="st st-todo">Chưa làm</span> (A3)</td></tr>
-    <tr><td>Server lưu bộ rule, gán theo nhóm máy trên web, phát qua heartbeat</td><td><span class="st st-todo">Chưa làm</span> (M7)</td></tr>
+    <tr><td>Kho bộ rule trên server: tự chia chưa ký / đã ký / cần ký lại / lỗi, duyệt (ký) trên web và menu mục 16; server trong cụm cần quá nửa server duyệt</td><td><span class="st st-done">Đã làm</span></td></tr>
+    <tr><td>Gán bộ rule theo nhóm máy trên web, phát qua heartbeat</td><td><span class="st st-todo">Chưa làm</span> (M7)</td></tr>
   </table>
   <p>Rule giới hạn ở regex RE2 (chạy tuyến tính, không treo được agent) và đếm ngưỡng, chỉ đọc file trong <code>/var/log</code> hoặc journald. Agent <strong>không chạy lệnh</strong> từ rule ở giai đoạn 1, nên dù bộ rule bị can thiệp cũng không thực thi được gì trên máy.</p>
 </section>
@@ -534,10 +536,10 @@ rules:
     <tr><th>Mốc</th><th>Nội dung</th><th>Trạng thái</th></tr>
     <tr><td>M0 · M1</td><td>Khung server (vai trò, cấu hình, health, TLS, giới hạn kết nối); thư viện giao thức dùng chung</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>M2 · M3</td><td>CA nội bộ, đăng ký, duyệt / từ chối / thu hồi máy, cấp chứng chỉ</td><td><span class="st st-done">Đã làm</span> (gia hạn chứng chỉ: chưa)</td></tr>
-    <tr><td>M4</td><td>Heartbeat (xác thực, lần cuối thấy, gửi cấu hình / bản agent / địa chỉ) <span class="st st-done">Đã làm</span>; lưu trạng thái máy, nhận lô log <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
-    <tr><td>M5</td><td>Worker: ghi dữ liệu qua hàng đợi, cảnh báo offline / đổi fingerprint</td><td><span class="st st-todo">Chưa làm</span></td></tr>
-    <tr><td>M6</td><td>Web quản trị: tổng quan, máy, cảnh báo, chờ duyệt, hệ thống, agent (phát hành + cấu hình) <span class="st st-done">Đã làm</span>; chi tiết trạng thái máy, biểu đồ <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
-    <tr><td>M7</td><td>Phát hành bản agent theo nhóm <span class="st st-done">Đã làm</span>; khung rule + ký bộ rule <span class="st st-done">Đã làm</span>; phát bộ rule qua heartbeat <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
+    <tr><td>M4</td><td>Heartbeat (xác thực, lần cuối thấy, gửi cấu hình / bản agent / địa chỉ), lưu trạng thái máy theo giai đoạn, nhận lô sự kiện <code>POST /v1/logs</code></td><td><span class="st st-done">Đã làm</span> (chưa chạy trên PostgreSQL thật)</td></tr>
+    <tr><td>M5</td><td>Worker kiểm mỗi phút: mất liên lạc, tự đóng cảnh báo high <span class="st st-done">Đã làm</span>; cảnh báo đổi fingerprint, hàng đợi NATS <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
+    <tr><td>M6</td><td>Web quản trị: tổng quan, máy, cảnh báo, chờ duyệt, hệ thống, agent (phát hành + cấu hình), rule quét log, địa chỉ server, cụm, dòng thời gian từng máy, "Đã xử lý" sự cố <span class="st st-done">Đã làm</span>; chi tiết trạng thái máy, biểu đồ <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
+    <tr><td>M7</td><td>Phát hành bản agent theo nhóm <span class="st st-done">Đã làm</span>; khung rule + kho rule, duyệt và ký trên web <span class="st st-done">Đã làm</span>; phát bộ rule qua heartbeat <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>A0 · A1</td><td>Agent: cấu hình, khóa máy, nhận dạng máy, đăng ký và chờ duyệt</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>A2</td><td>Heartbeat, nhiều địa chỉ server, cấu hình từ server <span class="st st-done">Đã làm</span>; gửi trạng thái máy <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>A3</td><td>Quét log theo rule (khung rule + lệnh chạy thử đã có), đọc log liên tục, hàng đợi khi mất mạng</td><td><span class="st st-part">Một phần</span></td></tr>

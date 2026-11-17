@@ -81,17 +81,34 @@ Script:
   Không biết trước IP mới thì không báo trước cho agent được: nên luôn có ít nhất một tên miền DDNS (hoặc IP VPN)
   trong danh sách. Số liệu trên trang tính trong RAM từ lúc server khởi động (chạy `scs-server all`); agent bản cũ
   vẫn nhận danh sách nhưng không báo đã nhận (đếm ở ô "Agent bản cũ").
-- Cổng web quản trị `7222` **không mở ra Internet**: mặc định chỉ chính máy server vào được. Menu mục **6** (hoặc
+- Cổng web quản trị `7222` mặc định **không mở ra Internet**: chỉ chính máy server vào được. Menu mục **6** (hoặc
   câu hỏi ở mục 3) chọn: **toàn mạng nội bộ** (mọi dải IP riêng 10.x, 172.16–31.x, 192.168.x, hợp với công ty nhiều
-  lớp mạng / VLAN định tuyến qua nhau), chỉ dải LAN của server, hoặc tự nhập các dải. Dòng lệnh:
-  `sudo bash server/scripts/install.sh --admin-allow private` (hoặc `--admin-allow 10.10.0.0/16`, lặp lại được).
+  lớp mạng / VLAN định tuyến qua nhau), chỉ dải LAN của server, tự nhập các dải, hoặc **5) cả Internet** (phải gõ
+  `INTERNET` để xác nhận). Dòng lệnh: `sudo bash server/scripts/install.sh --admin-allow private` (hoặc
+  `--admin-allow 10.10.0.0/16`, lặp lại được; `--admin-allow internet` = mọi IP, gõ thẳng `0.0.0.0/0` bị từ chối).
   Script thêm vào `SCS_ADMIN_ALLOW` và mở ufw cho đúng các dải đó nếu ufw đang bật.
+  **Mở cả Internet:** web chỉ được bảo vệ bằng mã 6 số, người lạ có thể gửi mã sai để khóa đăng nhập (mở khóa trên
+  server: `sudo scs-login-code -unlock`), chứng chỉ tự ký; router phải chuyển tiếp cổng 7222. An toàn hơn: VPN
+  (WireGuard, Tailscale) rồi chỉ cho dải VPN. Vào từ trong cùng mạng với server thì dùng IP LAN (nhiều modem không
+  cho gọi IP WAN của chính mình từ bên trong).
 - Riêng web quản trị 7222: muốn trình duyệt không báo sai tên, chứng chỉ server phải ghi IP bạn gõ trên trình duyệt (IP LAN, IP VPN):
   menu mục **7** cấp lại chứng chỉ với đủ các IP (CA giữ nguyên, agent không bị ảnh hưởng). Trình duyệt vẫn cảnh báo
   "chưa tin cậy" vì CA là CA nội bộ: nhập file `/etc/scs-server/agent-ca.pem` vào kho chứng chỉ tin cậy của máy
   admin để hết cảnh báo.
 
-### 1.4 Sau khi cài
+### 1.4 Giai đoạn, cảnh báo và mất liên lạc
+
+Server lưu mỗi máy theo **giai đoạn** OK / cảnh báo / mất liên lạc ([thiết kế](docs/thiet-ke-luu-theo-giai-doan.md)).
+Hai hạn chỉnh trong `/etc/scs-server/server.env` (không có dòng thì dùng mặc định), sửa xong `sudo systemctl restart scs-server`:
+
+```bash
+SCS_ALERT_AUTOCLOSE=24h   # cảnh báo mức high tự đóng sau bấy lâu không có sự kiện high / critical mới (critical: chỉ admin)
+SCS_OFFLINE_AFTER=15m     # không nghe máy gửi gì bấy lâu thì báo mất liên lạc (tự đóng khi máy gửi lại)
+```
+
+Xem dòng thời gian của máy: web, trang **Máy** → bấm vào máy. Đóng sự cố: trang **Cảnh báo** → **Đã xử lý**.
+
+### 1.5 Sau khi cài
 
 ```bash
 scs-login-code                     # lấy mã 6 số để đăng nhập web https://<IP VPN>:7222
@@ -99,7 +116,7 @@ journalctl -u scs-server -f        # xem log
 sudo bash scripts/install.sh --uninstall   # gỡ dịch vụ (giữ cấu hình, CA, dữ liệu)
 ```
 
-### 1.5 Cập nhật server
+### 1.6 Cập nhật server
 
 ```bash
 cd ~/SCS-System

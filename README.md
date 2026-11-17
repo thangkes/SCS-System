@@ -20,7 +20,7 @@ Code comments and docs are in Vietnamese.*
 | [`server/`](server/) | **SCS-Server** (`scs-server`): cổng nhận dữ liệu agent (6222), web quản trị HTTPS (7222), liên lạc giữa các server trong cụm (5222), PostgreSQL + TimescaleDB |
 | [`agent/`](agent/) | **SCS-Agent** (`scs-agent`): chạy trên từng máy, đăng ký, gửi heartbeat và sự kiện log |
 | [`common/`](common/) | Phần dùng chung: giao thức gói tin có ký, fingerprint máy, quy ước hostname, khung rule quét log |
-| [`docs/`](docs/) | [Kế hoạch giai đoạn 1](docs/ke-hoach-giai-doan-1.html), [hướng dẫn viết rule](docs/huong-dan-viet-rule.md), [thiết kế cụm nhiều server](docs/thiet-ke-cum-server.md), [lưu theo giai đoạn](docs/thiet-ke-luu-theo-giai-doan.md) |
+| [`docs/`](docs/) | [Kế hoạch giai đoạn 1](docs/ke-hoach-giai-doan-1.html), [hướng dẫn viết rule](docs/huong-dan-viet-rule.md) (kèm kho rule, duyệt và ký), [thiết kế cụm nhiều server](docs/thiet-ke-cum-server.md), [lưu theo giai đoạn](docs/thiet-ke-luu-theo-giai-doan.md) |
 
 ## Nguyên tắc thiết kế
 
@@ -28,7 +28,9 @@ Code comments and docs are in Vietnamese.*
 - **Mọi máy phải được admin duyệt** trước khi gửi được dữ liệu. Không có bí mật dùng chung trong source agent.
 - Mỗi máy có **khóa Ed25519 riêng** (không rời máy): ký mọi gói tin và dùng làm chứng chỉ mTLS do CA nội bộ của server cấp.
 - Gói tin có giờ và nonce (chống gửi lại), giao tiếp qua TLS 1.3, agent chỉ tin CA của server.
-- Dữ liệu lưu trong **PostgreSQL + TimescaleDB**, dữ liệu theo ngày giữ 60 ngày, ràng buộc nằm trong DB.
+- Dữ liệu lưu trong **PostgreSQL + TimescaleDB**, ràng buộc nằm trong DB. Sự kiện và trạng thái máy lưu **theo giai đoạn**
+  (OK / cảnh báo / mất liên lạc, mỗi giai đoạn một dòng) thay vì mỗi sự kiện một dòng; giữ 60 ngày sau khi giai đoạn đóng
+  ([thiết kế](docs/thiet-ke-luu-theo-giai-doan.md)).
 - **Rule chỉ đọc log và khớp regex** (RE2), không chạy được lệnh trên máy; bộ rule phải có chữ ký.
 
 ## Cổng
@@ -36,10 +38,27 @@ Code comments and docs are in Vietnamese.*
 | Cổng (TCP) | Ai gọi | Dùng cho |
 |---|---|---|
 | 6222 | agent → server | đăng ký, heartbeat, tải bản agent và bộ rule, gửi sự kiện |
-| 7222 | trình duyệt admin → server | web quản trị, chỉ mở cho các dải IP được phép |
+| 7222 | trình duyệt admin → server | web quản trị, chỉ mở cho các dải IP được phép (mở cả Internet được nếu chủ động xác nhận, xem INSTALL §1.3) |
 | 5222 | server ↔ server | liên lạc trong cụm; chỉ mở khi server đã thuộc cụm hoặc đang xin vào; chỉ nhận khóa server có trong danh sách cụm |
 
 Không dùng UDP. Phía máy agent không phải mở cổng nào.
+
+## Hiện trạng chức năng (bản một server)
+
+| Phần | Trạng thái |
+|---|---|
+| Đăng ký máy, admin duyệt, chứng chỉ mTLS, heartbeat, nhiều địa chỉ server (thêm / gỡ khi đổi mạng) | Đã có |
+| Agent tự cập nhật từ server (bản ký, nhóm thử / tất cả, tự quay về), thay cả bản khung | Đã có |
+| Cấu hình agent và nhãn máy 3 cấp (chung / siêu thị / máy) trên web | Đã có |
+| Rule quét log: khung rule, schema 2 (`tags`, `applies_to`), **kho rule trên server**: tự chia chưa ký / đã ký / cần ký lại / lỗi, duyệt (ký) trên web và menu mục 16, báo bộ cần ký ở Tổng quan và đầu menu | Đã có |
+| **Lưu theo giai đoạn**: trạng thái máy (chỉ ghi khi đổi đáng kể), cảnh báo high tự đóng sau 24 giờ, critical chỉ admin đóng, mất liên lạc sau 15 phút tự đóng khi máy gửi lại; dòng thời gian từng máy trên web; cổng nhận sự kiện `POST /v1/logs` | Đã có phía server |
+| Agent gửi trạng thái máy (RAM, ổ đĩa, dịch vụ…) trong heartbeat | Chưa có (A2) |
+| Agent đọc log liên tục theo rule, gửi sự kiện, hàng đợi khi mất mạng | Chưa có (A3) |
+| Server tự phát bộ rule cho agent qua heartbeat | Chưa có (M7) |
+| Gia hạn chứng chỉ máy (90 ngày), kiểm nonce chống gửi lại gói | Chưa có |
+| Tăng cứng web quản trị khi mở ra Internet (mật khẩu / TOTP, khóa theo từng IP, chứng chỉ thật) | Chưa có |
+
+Chưa chạy trên Ubuntu thật: migration 0003–0004 (nhãn máy, lưu theo giai đoạn), kho rule, cụm, menu mục 12–16.
 
 ## Cụm nhiều server (đang làm)
 

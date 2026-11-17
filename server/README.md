@@ -123,7 +123,8 @@ Test: `go test ./common/cluster/ ./server/internal/cluster/` (cụm 3, 4, 5 serv
 
 Mỗi lệnh đều có `/healthz` (tiến trình còn sống) và `/readyz` (kiểm PostgreSQL bằng `SELECT 1`;
 DB chưa lên thì trả `503`, chi tiết lỗi nằm trong log). Server vẫn khởi động khi DB chưa lên.
-Các route nghiệp vụ đã khai báo, hiện trả `501` kèm mốc sẽ làm (M3–M7). `/readyz` chưa kiểm NATS.
+Route còn trả `501` kèm mốc sẽ làm: `GET /v1/rules/{version}` (M7), `POST /v1/cert/renew` (M3, gia hạn chứng chỉ),
+`GET /admin/v1/devices/{id}` (M6). `/readyz` chưa kiểm NATS.
 `/readyz` dùng lại kết quả kiểm trong 2 giây (gọi dồn dập không làm cạn pool DB). `/healthz` trên cổng
 agent (công khai) không trả phiên bản.
 
@@ -157,10 +158,11 @@ binary, `internal/store/migrations/`); DB chưa lên thì thử lại mỗi 5 gi
 |---|---|---|
 | `stores` | mã siêu thị, IP WAN cố định | lâu dài |
 | `devices` | hostname `<mã>-TN1-PRI`, `<mã>-TN2-SEC`, `<mã>-TN3`…, khóa, fingerprint, trạng thái duyệt | lâu dài |
-| `device_status` | trạng thái mới nhất mỗi máy | bản mới nhất |
-| `heartbeats`, `events` | dữ liệu theo ngày (hypertable, nén sau 2 ngày) | 60 ngày |
-| `device_days` | tóm tắt mỗi máy mỗi ngày (giờ Việt Nam) | 60 ngày |
-| `alerts` | cảnh báo hiện trên web | 60 ngày |
+| `device_status` | trạng thái mới nhất mỗi máy (một dòng, ghi đè mỗi heartbeat) | bản mới nhất |
+| `device_status_changes` | lịch sử trạng thái, **chỉ khi đổi đáng kể** (OS, kernel, agent, bộ rule, IP, dịch vụ, RAID, đồng bộ giờ, ổ đầy 80/90/95%) | 60 ngày |
+| `device_periods` | **giai đoạn** OK / cảnh báo / mất liên lạc của từng máy, kèm tóm tắt theo rule (số lần, dòng log mẫu); mỗi máy một giai đoạn mở | 60 ngày sau khi đóng |
+| `alerts` | cảnh báo hiện trên web (giai đoạn cảnh báo, mất liên lạc, máy chờ duyệt, hostname sai, IP lạ) | 60 ngày |
+| `agent_releases`, `agent_rollout`, `agent_config` | bản agent, nhóm phát hành, cấu hình / nhãn máy 3 cấp | lâu dài |
 | `audit` | nhật ký thao tác, chỉ ghi thêm | lâu dài |
 
 Mọi máy đăng ký đều chờ admin duyệt. Ràng buộc nằm trong DB: hostname hợp lệ phải đúng quy ước PRI/SEC, mỗi vị trí
@@ -168,6 +170,17 @@ TN trong siêu thị và mỗi hostname chỉ một máy đang hoạt động, m
 
 Test cấu trúc DB chạy trên DB riêng `scs_test`: `bash scripts/setup.sh --start --test` tự tạo DB và chạy, hoặc
 `SCS_TEST_DATABASE_URL='postgres://scs:<mật khẩu>@127.0.0.1:5432/scs_test?sslmode=disable' go test ./internal/store/`.
+
+## Lưu theo giai đoạn
+
+Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-giai-doan.md). Không lưu từng sự kiện, từng heartbeat:
+
+- Sự kiện `info` / `low` / `medium` cộng vào giai đoạn đang mở; `high` / `critical` đóng OK, mở **cảnh báo**.
+- Cảnh báo high tự đóng sau `SCS_ALERT_AUTOCLOSE` (mặc định 24h) không có sự kiện nặng mới; đã lên critical thì chỉ
+  admin đóng (web: **Đã xử lý**). Quá `SCS_OFFLINE_AFTER` (15m) không nghe máy: **mất liên lạc**, tự đóng khi máy gửi lại.
+- Agent gửi sự kiện qua `POST /v1/logs` (lô đã ký, tối đa 500 sự kiện; agent chưa gửi, mốc A3). Tiến trình `worker`
+  (hoặc `all`) kiểm mỗi phút.
+- API web: `GET /admin/v1/devices/{id}/periods`, `POST /admin/v1/periods/{id}/resolve`.
 
 ## Chạy lâu dài: dịch vụ systemd
 
