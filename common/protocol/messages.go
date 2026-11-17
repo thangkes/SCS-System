@@ -49,6 +49,20 @@ type HeartbeatBody struct {
 	ServersHash string         `json:"servers_hash,omitempty"`
 	ServerURL   string         `json:"server_url,omitempty"`
 	Status      *MachineStatus `json:"status,omitempty"`
+	// Rules: bộ rule đang cài trên máy (nil = agent bản cũ, không báo).
+	Rules *RuleSetReport `json:"rules,omitempty"`
+}
+
+// RuleSetReport: agent báo bộ rule đang cài để web biết máy nào đã áp dụng bộ nào.
+type RuleSetReport struct {
+	Installed bool   `json:"installed"`          // có bộ rule đã cài và kiểm chữ ký đạt
+	Name      string `json:"name,omitempty"`     // tên bộ
+	Version   string `json:"version,omitempty"`  // phiên bản
+	SHA256    string `json:"sha256,omitempty"`   // phần đã ký (khớp bản ký trong kho rule của server)
+	Total     int    `json:"total,omitempty"`    // rule đang bật trong bộ
+	Active    int    `json:"active,omitempty"`   // rule chạy trên máy này (khớp applies_to)
+	Scanning  bool   `json:"scanning,omitempty"` // agent đang quét log liên tục theo bộ này (mốc A3)
+	Error     string `json:"error,omitempty"`    // bộ đang cài hỏng / chữ ký sai (≤ 200 ký tự)
 }
 
 // Giới hạn số phần tử trong MachineStatus để một heartbeat luôn nhỏ (server cũng kiểm).

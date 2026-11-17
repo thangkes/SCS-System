@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/thangkes/SCS-System/common/protocol"
 	"github.com/thangkes/SCS-System/server/internal/app"
 	"github.com/thangkes/SCS-System/server/internal/periods"
 )
@@ -180,8 +181,10 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		SELECT d.id, d.hostname, d.hostname_ok, coalesce(d.hostname_error, ''), coalesce(d.store_code, ''),
 		       coalesce(d.tn_no, 0), coalesce(d.tn_role, ''), d.status, d.public_key, d.fingerprint,
 		       d.os_version, d.agent_version, host(d.enroll_ip), coalesce(host(s.wan_ip), ''),
-		       d.requested_at, d.decided_at, coalesce(d.decided_by, ''), d.last_seen, coalesce(host(d.last_ip), ''), d.test_ring
+		       d.requested_at, d.decided_at, coalesce(d.decided_by, ''), d.last_seen, coalesce(host(d.last_ip), ''), d.test_ring,
+		       st.rules
 		FROM devices d LEFT JOIN stores s ON s.code = d.store_code
+		LEFT JOIN device_status st ON st.device_id = d.id
 		WHERE d.status = $1
 		ORDER BY d.requested_at DESC
 		LIMIT 1000`, status)
@@ -194,10 +197,17 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		var dv app.Device
 		var pub []byte
 		var decided, seen *time.Time
+		var rules []byte
 		if err := rows.Scan(&dv.ID, &dv.Hostname, &dv.HostnameOK, &dv.HostnameError, &dv.StoreCode, &dv.TN, &dv.Role,
 			&dv.Status, &pub, &dv.Fingerprint, &dv.OSVersion, &dv.AgentVersion, &dv.EnrollIP, &dv.StoreWANIP,
-			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing); err != nil {
+			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing, &rules); err != nil {
 			return nil, err
+		}
+		if len(rules) > 0 {
+			var r protocol.RuleSetReport
+			if json.Unmarshal(rules, &r) == nil {
+				dv.Rules = &r
+			}
 		}
 		dv.KeyID = app.KeyID(pub)
 		if decided != nil {

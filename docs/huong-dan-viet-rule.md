@@ -447,6 +447,12 @@ Thêm bộ rule thì server kiểm cú pháp, giới hạn và chạy tests ngay
 
 **Server trong cụm** ([thiết kế cụm](thiet-ke-cum-server.md) mục 10): bấm Duyệt trên web gửi quyết định `ruleset.publish` (tên, phiên bản, SHA-256 phần agent nhận) cho các server khác. **Quá nửa** server hợp lệ ký thì quyết định có hiệu lực, lúc đó server này mới ký bộ rule cho agent của nó. Ở server khác trong cụm, thêm **đúng file đó** (cùng SHA-256) rồi bấm Duyệt là ký luôn, không bỏ phiếu lại; trang web có mục "Cụm đã duyệt, server này chưa có file". Cùng tên + phiên bản mà nội dung khác thì bị chặn. Lệnh `rules approve` trên server trong cụm chỉ ký được bộ cụm đã duyệt (bộ mới phải duyệt trên web).
 
+**Máy nào đã áp dụng bộ nào:** agent (bản từ 2026-11-17) báo bộ đang cài trong mỗi heartbeat: tên, phiên bản,
+SHA-256, chữ ký đúng hay lỗi, số rule chạy trên máy đó (rule không khớp `applies_to` bị bỏ qua). Web hiện ở trang
+**Máy** (cột "Bộ rule"), chi tiết máy (mục "Bộ rule"), và trang **Rule quét log** (cột "Máy đang dùng" — chỉ đếm máy
+cài **đúng bản ký** trong kho; mục "Máy chưa dùng bộ nào trong kho" liệt kê máy chạy bản khác, chưa cài, hoặc agent
+bản cũ chưa báo). "Đã cài" chưa có nghĩa là đang quét log: agent đọc log liên tục là mốc A3.
+
 Hiện tại mỗi server vẫn ký bằng khóa phát hành của nó và agent kiểm khóa đó; agent kiểm chữ ký của quá nửa server là mốc C6.
 
 ## 11. Ví dụ làm từ đầu

@@ -158,7 +158,7 @@ binary, `internal/store/migrations/`); DB chưa lên thì thử lại mỗi 5 gi
 |---|---|---|
 | `stores` | mã siêu thị, IP WAN cố định | lâu dài |
 | `devices` | hostname `<mã>-TN1-PRI`, `<mã>-TN2-SEC`, `<mã>-TN3`…, khóa, fingerprint, trạng thái duyệt | lâu dài |
-| `device_status` | trạng thái mới nhất mỗi máy (một dòng, ghi đè mỗi heartbeat) | bản mới nhất |
+| `device_status` | trạng thái mới nhất mỗi máy (một dòng, ghi đè mỗi heartbeat), kèm bộ rule máy báo đang cài (`rules`) | bản mới nhất |
 | `device_status_changes` | lịch sử trạng thái, **chỉ khi đổi đáng kể** (OS, kernel, agent, bộ rule, IP, dịch vụ, RAID, đồng bộ giờ, ổ đầy 80/90/95%) | 60 ngày |
 | `device_periods` | **giai đoạn** OK / cảnh báo / mất liên lạc của từng máy, kèm tóm tắt theo rule (số lần, dòng log mẫu); mỗi máy một giai đoạn mở | 60 ngày sau khi đóng |
 | `alerts` | cảnh báo hiện trên web (giai đoạn cảnh báo, mất liên lạc, máy chờ duyệt, hostname sai, IP lạ) | 60 ngày |

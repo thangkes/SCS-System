@@ -108,6 +108,7 @@ func (f *fakeRegistry) ListDevices(_ context.Context, status string) ([]Device, 
 		if d.Status == status {
 			dev := d.Device
 			dev.StoreWANIP = f.stores[d.StoreCode]
+			dev.Rules = f.status[d.ID].Rules
 			out = append(out, dev)
 		}
 	}

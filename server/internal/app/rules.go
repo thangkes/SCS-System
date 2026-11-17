@@ -123,6 +123,37 @@ func (a rulesAPI) list(w http.ResponseWriter, r *http.Request) {
 		only = append(only, missing{Name: p.Name, Version: p.Version, Approval: x})
 	}
 	out := map[string]any{"ok": true, "dir": s.Dir, "signing": a.d.ReleaseKey != nil, "entries": entries, "cluster_only": only}
+	// Máy đang cài bộ nào (agent báo trong heartbeat): bộ khớp tên + phiên bản + SHA với kho thì
+	// đếm vào bộ đó; còn lại (bản ký khác, bộ không có trong kho) liệt kê riêng.
+	if a.d.Registry != nil {
+		usage, none, unknown, err := a.d.Registry.RuleUsage(r.Context())
+		if err != nil {
+			a.d.Log.Warn("đọc bộ rule máy đang cài thất bại", "err", err)
+		} else {
+			used := map[int]int{}
+			other := []RuleUsage{}
+			for _, u := range usage {
+				matched := false
+				for i, e := range entries {
+					if e.Name == u.Name && e.Version == u.Version && e.SHA256 == u.SHA256 && e.SHA256 != "" {
+						used[i] += u.Devices
+						matched = true
+						break
+					}
+				}
+				if !matched {
+					other = append(other, u)
+				}
+			}
+			counts := make([]int, len(entries))
+			for i := range entries {
+				counts[i] = used[i]
+			}
+			out["devices"] = counts
+			out["other_usage"] = other
+			out["no_rules"], out["unknown_rules"] = none, unknown
+		}
+	}
 	if n := a.cluster(); n != nil {
 		st := n.State()
 		info := map[string]any{"name": st.Cluster, "valid": len(st.Valid()), "majority": cc.Majority(len(st.Valid()))}

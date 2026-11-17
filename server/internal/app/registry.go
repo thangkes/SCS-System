@@ -9,6 +9,7 @@ import (
 	"net/netip"
 	"time"
 
+	"github.com/thangkes/SCS-System/common/protocol"
 	"github.com/thangkes/SCS-System/server/internal/periods"
 )
 
@@ -50,6 +51,9 @@ type Registry interface {
 	// Pulse: số liệu nhanh cho thông báo tức thời trên web (một câu SQL nhỏ, gọi vài giây một lần
 	// khi có trình duyệt đang mở) và các cảnh báo đang mở có thay đổi sau since (tối đa 20).
 	Pulse(ctx context.Context, since time.Time) (Pulse, error)
+	// RuleUsage: máy đã duyệt đang cài bộ rule nào (theo heartbeat gần nhất), và số máy đã duyệt chưa
+	// cài bộ nào / agent bản cũ không báo.
+	RuleUsage(ctx context.Context) (usage []RuleUsage, none int, unknown int, err error)
 
 	// Bản agent: thêm (đã có thì bỏ qua), liệt kê, lấy một bản.
 	AddRelease(ctx context.Context, r Release) error
@@ -226,6 +230,16 @@ type Device struct {
 	LastSeen      time.Time `json:"last_seen,omitzero"`
 	LastIP        string    `json:"last_ip,omitempty"`
 	TestRing      bool      `json:"test_ring"` // thuộc nhóm thử: nhận bản agent mới trước
+	// Rules: bộ rule máy báo đang cài (heartbeat gần nhất); nil = chưa có heartbeat / agent bản cũ.
+	Rules *protocol.RuleSetReport `json:"rules,omitempty"`
+}
+
+// RuleUsage: số máy (đã duyệt) đang cài một bộ rule, theo tên, phiên bản, SHA-256.
+type RuleUsage struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+	Devices int    `json:"devices"`
 }
 
 // KeyID: 16 ký tự hex đầu của SHA-256 khóa công khai (giống identity.Key.ID phía agent).

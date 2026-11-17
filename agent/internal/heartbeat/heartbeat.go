@@ -17,6 +17,7 @@ import (
 	"github.com/thangkes/SCS-System/agent/internal/client"
 	"github.com/thangkes/SCS-System/agent/internal/config"
 	"github.com/thangkes/SCS-System/agent/internal/identity"
+	"github.com/thangkes/SCS-System/agent/internal/scan"
 	"github.com/thangkes/SCS-System/agent/internal/sysinfo"
 	"github.com/thangkes/SCS-System/agent/internal/update"
 	"github.com/thangkes/SCS-System/common/protocol"
@@ -63,7 +64,8 @@ func Run(ctx context.Context, d Deps) error {
 		body := protocol.HeartbeatBody{UptimeS: int64(time.Since(start) / time.Second), RuleSetVersion: st.RuleSetVersion,
 			Arch: runtime.GOARCH, ConfigVersion: st.ConfigVersion,
 			ServersHash: protocol.ServersHash(st.Servers), ServerURL: d.Client.Current(),
-			Capabilities: []string{protocol.CapRulesPrefix + strconv.Itoa(rules.SchemaMax)}}
+			Capabilities: []string{protocol.CapRulesPrefix + strconv.Itoa(rules.SchemaMax)},
+			Rules:        scan.Report(d.StateDir, d.ReleasePub, st.Labels)}
 		var resp protocol.Response
 		err := d.Client.Send(ctx, "/v1/heartbeat", protocol.TypeHeartbeat, st.DeviceID, comps.Hash(), body, &resp)
 

@@ -377,7 +377,7 @@
     page.innerHTML = `
       <div class="card">
         <div class="toolbar">
-          <input type="search" id="dev-q" placeholder="Tìm hostname, siêu thị, IP, mã khóa…" value="${esc(state.q)}" aria-label="Tìm máy">
+          <input type="search" id="dev-q" placeholder="Tìm hostname, siêu thị, IP, mã khóa, bộ rule…" value="${esc(state.q)}" aria-label="Tìm máy">
           <select id="dev-status" aria-label="Lọc trạng thái">
             <option value="approved">Đang hoạt động</option><option value="revoked">Đã thu hồi</option>
             <option value="rejected">Đã từ chối</option>
@@ -385,8 +385,8 @@
           <span class="count" id="dev-count"></span>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Máy</th><th>Siêu thị</th><th>Vị trí</th><th>Liên lạc lần cuối</th><th class="hide-sm">IP</th><th class="hide-sm">Agent</th></tr></thead>
-          <tbody id="dev-rows"><tr><td colspan="6" class="empty">Đang tải…</td></tr></tbody>
+          <thead><tr><th>Máy</th><th>Siêu thị</th><th>Vị trí</th><th>Liên lạc lần cuối</th><th class="hide-sm">IP</th><th class="hide-sm">Agent</th><th class="hide-sm">Bộ rule</th></tr></thead>
+          <tbody id="dev-rows"><tr><td colspan="7" class="empty">Đang tải…</td></tr></tbody>
         </table></div>
         <div class="pager"><span id="dev-range"></span><div class="btns">
           <button class="btn btn-sm" id="dev-prev">Trước</button><button class="btn btn-sm" id="dev-next">Sau</button></div></div>
@@ -396,7 +396,8 @@
     const render = () => {
       const q = state.q.trim().toLowerCase();
       const rows = state.list.filter((d) => !q ||
-        [d.hostname, d.store_code, d.last_ip, d.enroll_ip, d.key_id].some((v) => (v || '').toLowerCase().includes(q)));
+        [d.hostname, d.store_code, d.last_ip, d.enroll_ip, d.key_id, d.rules && d.rules.name && `${d.rules.name}@${d.rules.version}`]
+          .some((v) => (v || '').toLowerCase().includes(q)));
       const pages = Math.max(1, Math.ceil(rows.length / PAGE));
       state.page = Math.min(state.page, pages - 1);
       const slice = rows.slice(state.page * PAGE, state.page * PAGE + PAGE);
@@ -412,7 +413,8 @@
           <td>${d.last_seen ? esc(ago(new Date(d.last_seen))) : '—'}</td>
           <td class="hide-sm mono">${esc(d.last_ip || d.enroll_ip)}</td>
           <td class="hide-sm mono">${esc(d.agent_version || '—')}</td>
-        </tr>`).join('') || `<tr><td colspan="6" class="empty">${state.list.length ? 'Không có máy nào khớp tìm kiếm.' : 'Không có máy nào.'}</td></tr>`;
+          <td class="hide-sm">${ruleCell(d.rules)}</td>
+        </tr>`).join('') || `<tr><td colspan="7" class="empty">${state.list.length ? 'Không có máy nào khớp tìm kiếm.' : 'Không có máy nào.'}</td></tr>`;
     };
 
     const load = async () => {
@@ -435,6 +437,15 @@
     });
     load();
     liveReload = load;
+  }
+
+  // ruleCell: bộ rule máy báo đang cài (heartbeat gần nhất).
+  function ruleCell(r) {
+    if (!r) return '<span class="sub">Agent chưa báo</span>';
+    if (r.error) return `<span class="pill pill-bad no-dot">Lỗi bộ rule</span>`;
+    if (!r.installed) return '<span class="pill no-dot">Chưa cài</span>';
+    return `<span class="mono">${esc(r.name)}@${esc(r.version)}</span>
+      <span class="sub">${fmtNum(r.active)}/${fmtNum(r.total)} rule chạy trên máy${r.scanning ? '' : ' · chưa quét liên tục'}</span>`;
   }
 
   const DEV_STATUS = {
@@ -557,6 +568,14 @@
         <dt>Agent</dt><dd class="mono">${esc(d.agent_version || '—')}</dd>
         <dt>Liên lạc lần cuối</dt><dd>${esc(when(d.last_seen))}</dd>
       </dl></section>
+      <section><h3>Bộ rule</h3>${!d.rules ? '<p class="hint">Agent chưa báo (máy chưa gửi heartbeat hoặc agent bản cũ: cập nhật agent).</p>'
+        : `<dl class="kv">
+        <dt>Trạng thái</dt><dd>${d.rules.error ? `<span class="pill pill-bad no-dot">Lỗi</span> ${esc(d.rules.error)}` : d.rules.installed ? '<span class="pill pill-ok no-dot">Đã cài, chữ ký đúng</span>' : 'Chưa cài bộ nào'}</dd>
+        ${d.rules.name ? `<dt>Bộ</dt><dd class="mono">${esc(d.rules.name)}@${esc(d.rules.version)}</dd>` : ''}
+        ${d.rules.sha256 ? `<dt>SHA-256</dt><dd class="mono break-all">${esc(d.rules.sha256)}</dd>` : ''}
+        ${d.rules.installed ? `<dt>Rule chạy trên máy</dt><dd>${fmtNum(d.rules.active)} / ${fmtNum(d.rules.total)} (rule không khớp applies_to của máy thì bỏ qua)</dd>
+        <dt>Quét log</dt><dd>${d.rules.scanning ? 'Đang quét liên tục' : 'Chưa quét liên tục (agent đọc log liên tục là mốc A3)'}</dd>` : ''}
+      </dl>`}</section>
       <section id="dev-timeline"><h3>Dòng thời gian</h3><p class="hint">Đang tải…</p></section>
       <section><h3>Nhận dạng</h3><dl class="kv">
         <dt>Mã khóa</dt><dd class="mono">${esc(d.key_id)}</dd>
@@ -1381,6 +1400,7 @@
           <td>${pill(RULE_ST[e.status] || ['', e.status])}${clTxt ? `<br>${clTxt}` : ''}</td>
           <td class="num hide-sm">${e.rules ? `${fmtNum(e.enabled)}/${fmtNum(e.rules)}` : ''}</td>
           <td class="num hide-sm">${e.tests ? fmtNum(e.tests) : ''}</td>
+          <td class="num">${j.devices ? fmtNum(j.devices[list.indexOf(e)] || 0) : '—'}</td>
           <td class="hide-sm">${signedTxt}</td>
           <td><div class="btns">
             <button class="btn btn-sm" data-act="view" data-file="${esc(e.file)}" data-key="${esc(ruleKey(e))}">Xem</button>
@@ -1404,10 +1424,19 @@
             </div>
           </div>
           <div class="table-wrap"><table>
-            <thead><tr><th>Bộ rule</th><th>Trạng thái</th><th class="num hide-sm">Rule bật</th><th class="num hide-sm">Test</th><th class="hide-sm">Ký lúc · bởi</th><th></th></tr></thead>
-            <tbody>${rows.map(row).join('') || `<tr><td colspan="6" class="empty">${list.length ? 'Không có bộ nào ở nhóm này.' : 'Chưa có bộ rule nào. Thêm file .yaml ở dưới.'}</td></tr>`}</tbody>
+            <thead><tr><th>Bộ rule</th><th>Trạng thái</th><th class="num hide-sm">Rule bật</th><th class="num hide-sm">Test</th><th class="num">Máy đang dùng</th><th class="hide-sm">Ký lúc · bởi</th><th></th></tr></thead>
+            <tbody>${rows.map(row).join('') || `<tr><td colspan="7" class="empty">${list.length ? 'Không có bộ nào ở nhóm này.' : 'Chưa có bộ rule nào. Thêm file .yaml ở dưới.'}</td></tr>`}</tbody>
           </table></div>
         </div>
+        ${(j.other_usage && j.other_usage.length) || j.no_rules || j.unknown_rules ? `<div class="card">
+          <div class="card-head"><h2>Máy chưa dùng bộ nào trong kho</h2><span class="sub">Theo heartbeat gần nhất của máy đã duyệt</span></div>
+          ${j.other_usage && j.other_usage.length ? `<div class="table-wrap"><table><thead><tr><th>Bộ máy đang cài</th><th class="hide-sm">SHA-256</th><th class="num">Máy</th></tr></thead>
+            <tbody>${j.other_usage.map((u) => `<tr><td class="mono">${esc(u.name)}@${esc(u.version)}</td><td class="mono hide-sm">${esc(String(u.sha256).slice(0, 16))}…</td><td class="num">${fmtNum(u.devices)}</td></tr>`).join('')}</tbody></table></div>` : ''}
+          <div class="card-body"><p class="hint">
+            ${j.other_usage && j.other_usage.length ? 'Bộ ở bảng trên không khớp bản ký nào trong kho (bản ký khác, hoặc bộ đã xóa khỏi kho). ' : ''}
+            ${j.no_rules ? `${fmtNum(j.no_rules)} máy chưa cài bộ rule nào (hoặc bộ đang cài bị lỗi). ` : ''}
+            ${j.unknown_rules ? `${fmtNum(j.unknown_rules)} máy chưa báo (chưa gửi heartbeat hoặc agent bản cũ, cần cập nhật agent).` : ''}</p></div>
+        </div>` : ''}
         ${only.length ? `<div class="card">
           <div class="card-head"><h2>Cụm đã duyệt, server này chưa có file</h2></div>
           <div class="table-wrap"><table><thead><tr><th>Bộ rule</th><th>Quyết định</th><th class="hide-sm">SHA-256</th></tr></thead>

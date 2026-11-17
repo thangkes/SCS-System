@@ -220,3 +220,30 @@ func (f *fakeRegistry) Pulse(_ context.Context, since time.Time) (Pulse, error) 
 	}
 	return p, nil
 }
+
+func (f *fakeRegistry) RuleUsage(context.Context) ([]RuleUsage, int, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	count := map[RuleUsage]int{}
+	none, unknown := 0, 0
+	for _, d := range f.devices {
+		if d.Status != DeviceApproved {
+			continue
+		}
+		r := f.status[d.ID].Rules
+		switch {
+		case r == nil:
+			unknown++
+		case !r.Installed:
+			none++
+		default:
+			count[RuleUsage{Name: r.Name, Version: r.Version, SHA256: r.SHA256}]++
+		}
+	}
+	out := []RuleUsage{}
+	for u, n := range count {
+		u.Devices = n
+		out = append(out, u)
+	}
+	return out, none, unknown, nil
+}

@@ -254,15 +254,19 @@ func (g *Registry) RecordHeartbeat(ctx context.Context, id int64, h app.Heartbea
 		if h.Status != nil {
 			status = []byte(h.Status)
 		}
+		var rulesJSON any
+		if h.Rules != nil {
+			rulesJSON, _ = json.Marshal(h.Rules)
+		}
 		if _, err := tx.Exec(ctx, `INSERT INTO device_status (device_id, received_at, agent_time, ip, uptime_s,
-			agent_version, rule_set_version, queue_pending, status, sig)
-			VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9)
+			agent_version, rule_set_version, queue_pending, status, sig, rules)
+			VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			ON CONFLICT (device_id) DO UPDATE SET received_at = now(), agent_time = EXCLUDED.agent_time,
 				ip = EXCLUDED.ip, uptime_s = EXCLUDED.uptime_s, agent_version = EXCLUDED.agent_version,
 				rule_set_version = EXCLUDED.rule_set_version, queue_pending = EXCLUDED.queue_pending,
-				status = coalesce(EXCLUDED.status, device_status.status), sig = EXCLUDED.sig`,
+				status = coalesce(EXCLUDED.status, device_status.status), sig = EXCLUDED.sig, rules = EXCLUDED.rules`,
 			id, h.AgentTime, h.IP.String(), h.UptimeS, h.AgentVersion, h.RuleSetVersion, h.QueuePending,
-			status, nullStr(h.Sig)); err != nil {
+			status, nullStr(h.Sig), rulesJSON); err != nil {
 			return err
 		}
 		if h.Sig != "" && (oldSig == nil || *oldSig != h.Sig) {
@@ -483,4 +487,35 @@ func (g *Registry) Pulse(ctx context.Context, since time.Time) (app.Pulse, error
 		p.Changed = append(p.Changed, a)
 	}
 	return p, rows.Err()
+}
+
+func (g *Registry) RuleUsage(ctx context.Context) ([]app.RuleUsage, int, int, error) {
+	out := []app.RuleUsage{}
+	rows, err := g.pool.Query(ctx, `
+		SELECT s.rules->>'name', s.rules->>'version', coalesce(s.rules->>'sha256', ''), count(*)
+		FROM device_status s JOIN devices d ON d.id = s.device_id AND d.status = 'approved'
+		WHERE s.rules IS NOT NULL AND (s.rules->>'installed')::boolean
+		GROUP BY 1, 2, 3 ORDER BY 4 DESC LIMIT 200`)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	for rows.Next() {
+		var u app.RuleUsage
+		if err := rows.Scan(&u.Name, &u.Version, &u.SHA256, &u.Devices); err != nil {
+			rows.Close()
+			return nil, 0, 0, err
+		}
+		out = append(out, u)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, 0, 0, err
+	}
+	var none, unknown int
+	err = g.pool.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE s.rules IS NOT NULL AND NOT coalesce((s.rules->>'installed')::boolean, false)),
+		       count(*) FILTER (WHERE s.rules IS NULL)
+		FROM devices d LEFT JOIN device_status s ON s.device_id = d.id
+		WHERE d.status = 'approved'`).Scan(&none, &unknown)
+	return out, none, unknown, err
 }
