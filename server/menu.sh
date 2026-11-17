@@ -316,7 +316,9 @@ cluster_port() {
 # cluster_cmd LỆNH [THAM SỐ...]: chạy "scs-server cluster ..." bằng user của dịch vụ, đúng thư mục cụm.
 cluster_cmd() {
 	[[ -x "$SCS_BIN" ]] || { echo "  Chưa cài dịch vụ (chọn mục 3 trước)."; return 1; }
-	sudo -u scs "$SCS_BIN" cluster "$@" -dir "$(cluster_dir)"
+	# Chạy từ "/": scs-server tự nạp ./.env nếu có, mà .env của thư mục code (quyền 600) user scs không đọc được.
+	local dir; dir="$(cluster_dir)"
+	(cd / && sudo -u scs "$SCS_BIN" cluster "$@" -dir "$dir")
 }
 
 # cluster_state: none | joining | member
@@ -381,7 +383,9 @@ servers_file() {
 
 servers_cmd() {
 	[[ -x "$SCS_BIN" ]] || { echo "  Chưa cài dịch vụ (chọn mục 3 trước)."; return 1; }
-	sudo -u scs "$SCS_BIN" servers "$@" -file "$(servers_file)"
+	# Chạy từ "/" (xem cluster_cmd).
+	local f; f="$(servers_file)"
+	(cd / && sudo -u scs "$SCS_BIN" servers "$@" -file "$f")
 }
 
 do_servers() {

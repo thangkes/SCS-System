@@ -291,7 +291,8 @@ if [[ "$AGENT_SERVERS" != "-" ]]; then
 	set_env SCS_AGENT_SERVERS "$AGENT_SERVERS"
 	if [[ -n "$AGENT_SERVERS" ]]; then
 		install -d -o "$SVC_USER" -g "$SVC_USER" -m 750 "$(dirname "$servers_file")"
-		sudo -u "$SVC_USER" "$OPT_DIR/scs-server" servers set "$AGENT_SERVERS" -file "$servers_file" >/dev/null ||
+		# Chạy từ "/": scs-server tự nạp ./.env nếu có, mà server/.env (quyền 600) user dịch vụ không đọc được.
+		(cd / && sudo -u "$SVC_USER" "$OPT_DIR/scs-server" servers set "$AGENT_SERVERS" -file "$servers_file") >/dev/null ||
 			die "Không ghi được danh sách địa chỉ gửi cho agent vào $servers_file"
 	fi
 	ok "Địa chỉ gửi cho agent: ${AGENT_SERVERS:-(chỉ địa chỉ lúc cài)}"
