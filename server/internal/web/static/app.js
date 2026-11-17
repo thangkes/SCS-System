@@ -244,11 +244,37 @@
         if (prev === undefined || rank > prev) notifyAlert(a);
       }
     }
-    if (liveReload && !$('#dialog').open && !$('#drawer').classList.contains('open')) {
-      const typing = document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
-      if (!typing) liveReload();
-    }
+    scheduleLive();
   }
+
+  // scheduleLive: tải lại trang đang xem khi có thay đổi, gom nhiều pulse liền nhau (tối đa 1 lần / 3 giây),
+  // bỏ qua lúc đang mở hộp thoại / chi tiết máy / đang gõ (lần pulse sau sẽ tải).
+  let liveTimer = null;
+  let liveLast = 0;
+  function scheduleLive() {
+    if (!liveReload || liveTimer) return;
+    const wait = Math.max(0, 3000 - (Date.now() - liveLast));
+    liveTimer = setTimeout(() => {
+      liveTimer = null;
+      const busy = $('#dialog').open || $('#drawer').classList.contains('open') ||
+        (document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName));
+      if (!liveReload || busy || document.hidden) return;
+      liveLast = Date.now();
+      liveReload();
+    }, wait);
+  }
+
+  // swapView: thay vùng nội dung bằng phần tử mới (bỏ listener cũ) ngay trước khi vẽ lại, giữ vị trí cuộn.
+  // Gọi rồi gán innerHTML trong cùng một lượt nên không nháy trang trắng.
+  function swapView() {
+    const y = window.scrollY;
+    const fresh = view.cloneNode(false);
+    view.replaceWith(fresh);
+    view = fresh;
+    requestAnimationFrame(() => window.scrollTo(0, y));
+    return fresh;
+  }
+  const softSig = {}; // trang → dấu dữ liệu lần vẽ gần nhất (giống thì không vẽ lại)
 
   function startLive() {
     stopLive();
@@ -292,11 +318,12 @@
   }
 
   // ---------------------------------------------------------------- trang: Tổng quan
-  async function pageOverview() {
+  async function pageOverview(soft) {
     setTitle('Tổng quan');
-    liveReload = pageOverview;
-    const page = view;
-    page.innerHTML = '<p class="hint">Đang tải…</p>';
+    liveReload = () => pageOverview(true);
+    let page = view;
+    soft = soft === true; // route() truyền tham số URL: không phải tải lại mềm
+    if (!soft) page.innerHTML = '<p class="hint">Đang tải…</p>';
     let approved, pending, alerts;
     try {
       [approved, pending, alerts] = await Promise.all([
@@ -314,6 +341,11 @@
     setPendingCount(pending.length);
     setAlertCount(alerts);
     setRuleCount(ruleList);
+    const sig = JSON.stringify([approved.map((d) => [d.id, d.store_code, d.tn]), pending.length,
+      alerts.map((a) => [a.id, a.severity, a.occurrences]), ruleList.map((e) => [e.name, e.version, e.status])]);
+    if (soft && sig === softSig.overview) return;
+    softSig.overview = sig;
+    if (soft) page = swapView();
     const toSign = ruleList.filter((e) => e.status === 'chua-ky' || e.status === 'can-ky-lai');
 
     const serious = alerts.filter((a) => a.severity === 'high' || a.severity === 'critical').length;
@@ -419,7 +451,11 @@
 
     const load = async () => {
       try {
-        state.list = (await getJSON(`/admin/v1/devices?status=${encodeURIComponent(state.status)}`)).devices;
+        const list = (await getJSON(`/admin/v1/devices?status=${encodeURIComponent(state.status)}`)).devices;
+        const sig = state.status + JSON.stringify(list);
+        if (sig === state.sig) return; // không đổi: không vẽ lại
+        state.sig = sig;
+        state.list = list;
       } catch (err) {
         if (page === view) showLoadError(page, err);
         return;
@@ -669,6 +705,9 @@
     const load = async () => {
       try {
         const j = await getJSON(`/admin/v1/alerts${state.all ? '?state=all' : ''}`);
+        const sig = String(state.all) + JSON.stringify(j.alerts);
+        if (sig === state.sig) return; // không đổi: không vẽ lại
+        state.sig = sig;
         state.list = j.alerts;
         state.policy = j.policy || state.policy;
       } catch (err) {
@@ -719,11 +758,12 @@
     } catch { /* bỏ qua: trang Chờ duyệt sẽ báo lỗi rõ */ }
   }
 
-  async function pagePending() {
+  async function pagePending(soft) {
     setTitle('Chờ duyệt');
-    liveReload = pagePending;
-    const page = view;
-    page.innerHTML = '<p class="hint">Đang tải…</p>';
+    liveReload = () => pagePending(true);
+    let page = view;
+    soft = soft === true; // route() truyền tham số URL: không phải tải lại mềm
+    if (!soft) page.innerHTML = '<p class="hint">Đang tải…</p>';
     let list = [];
     try {
       const r = await api('/admin/v1/devices?status=pending');
@@ -737,6 +777,10 @@
       return;
     }
     if (page !== view) return; // đã chuyển sang trang khác trong lúc tải
+    const sig = JSON.stringify(list);
+    if (soft && sig === softSig.pending) return;
+    softSig.pending = sig;
+    if (soft) page = swapView();
 
     const check = (state, text) => `<li class="${state}">${state === 'ok' ? ICON.check : ICON.warn}${esc(text)}</li>`;
     const ipCheck = (d) => {
@@ -800,7 +844,8 @@
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || `lỗi ${r.status}`);
         toast(approve ? `Đã duyệt ${d.hostname}` : `Đã từ chối ${d.hostname}`);
-        pagePending();
+        delete softSig.pending;
+        pagePending(true);
       } catch (err) {
         b.disabled = false;
         toast(`Không ${approve ? 'duyệt' : 'từ chối'} được: ${err.message}`);
@@ -1469,6 +1514,9 @@
           getJSON('/admin/v1/rules/assign').then((x) => x.assignments).catch(() => []),
           getJSON('/admin/v1/devices?status=approved').then((x) => x.devices).catch(() => []),
         ]);
+        const sig = JSON.stringify([j, as, devs.map((d) => [d.id, d.hostname])]);
+        if (sig === state.sig && page.firstElementChild) return; // không đổi: không vẽ lại
+        state.sig = sig;
         state.data = j;
         state.assign = as;
         state.devices = devs;
