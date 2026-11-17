@@ -1,7 +1,8 @@
 # SCS-System
 
-**SCS = Spider Control System.** Như một mạng nhện: SCS-Server là con nhện ở tâm, mỗi tia tơ là đường tới một siêu thị,
-mỗi nút trên tơ là một máy chạy SCS-Agent; máy nào có sự cố (sợi tơ rung) thì server ở tâm biết ngay.
+**SCS = Spider Control Scanning.** SCS-Server như con nhện ở trung tâm: các chân vươn tới từng siêu thị, nơi mỗi máy
+chạy SCS-Agent liên tục **quét** log và trạng thái; có sự cố ở đâu thì server biết ngay và điều khiển (duyệt máy, phát
+hành rule, bản cập nhật) từ một chỗ.
 
 Hệ thống giám sát máy Ubuntu đặt tại nhiều điểm bán: **SCS-Agent** chạy trên từng máy, gửi trạng thái
 và sự kiện log về **SCS-Server**; admin duyệt máy và theo dõi trên web quản trị.
