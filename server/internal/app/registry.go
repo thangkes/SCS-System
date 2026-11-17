@@ -8,6 +8,8 @@ import (
 	"errors"
 	"net/netip"
 	"time"
+
+	"github.com/thangkes/SCS-System/server/internal/periods"
 )
 
 // Registry là kho máy (PostgreSQL ở internal/store; test dùng bản giả trong bộ nhớ).
@@ -31,8 +33,20 @@ type Registry interface {
 	// AgentAuth: khóa công khai, trạng thái và serial chứng chỉ hiện hành của máy, để kiểm
 	// gói tin của agent đã duyệt (heartbeat...). Không có máy: ErrNotFound.
 	AgentAuth(ctx context.Context, deviceID int64) (AgentAuth, error)
-	// Seen ghi lần cuối máy gọi về, IP và phiên bản agent.
-	Seen(ctx context.Context, deviceID int64, ip netip.Addr, agentVersion string) error
+	// RecordHeartbeat ghi lần cuối máy gọi về, trạng thái mới nhất (một dòng mỗi máy, ghi đè), lịch sử
+	// khi trạng thái đổi đáng kể (Sig khác lần trước), và giai đoạn: chưa có thì mở OK, đang mất liên
+	// lạc thì đóng (docs/thiet-ke-luu-theo-giai-doan.md).
+	RecordHeartbeat(ctx context.Context, deviceID int64, h HeartbeatRecord) error
+	// AddEvents cộng sự kiện agent gửi vào giai đoạn đang mở: info / low / medium chỉ cộng vào tóm
+	// tắt; high / critical đóng OK, mở cảnh báo (kèm một dòng trong alerts).
+	AddEvents(ctx context.Context, deviceID int64, evs []periods.Event) error
+	// PeriodTick kiểm mọi máy (gọi định kỳ): mất liên lạc, tự đóng cảnh báo high, đóng giai đoạn của
+	// máy không còn được duyệt. Trả số máy có thay đổi.
+	PeriodTick(ctx context.Context, now time.Time) (int, error)
+	// ListPeriods: dòng thời gian của một máy, mới nhất trước. LastSeen: lần cuối nghe máy.
+	ListPeriods(ctx context.Context, deviceID int64, limit int) (Timeline, error)
+	// ResolvePeriod: admin "Đã xử lý" một cảnh báo đang mở (đóng cảnh báo trong alerts luôn).
+	ResolvePeriod(ctx context.Context, periodID int64, by, note string) error
 
 	// Bản agent: thêm (đã có thì bỏ qua), liệt kê, lấy một bản.
 	AddRelease(ctx context.Context, r Release) error
@@ -51,6 +65,13 @@ type Registry interface {
 	// SetLabels đặt nhãn ngữ cảnh máy ở một cấp (chỉ cột labels, giữ watch_services).
 	// Labels nil = bỏ nhãn ở cấp này.
 	SetLabels(ctx context.Context, c ConfigEntry) error
+}
+
+// Timeline: dòng thời gian của một máy.
+type Timeline struct {
+	LastSeen time.Time        `json:"last_seen,omitzero"`
+	Periods  []periods.Period `json:"periods"`
+	Changes  []StatusChange   `json:"status_changes"`
 }
 
 // Release: một bản agent cho một kiến trúc, đã ký bằng khóa phát hành.
@@ -122,6 +143,8 @@ type Alert struct {
 	Detail      json.RawMessage `json:"detail"`
 	AckedAt     time.Time       `json:"acked_at,omitzero"`
 	AckedBy     string          `json:"acked_by,omitempty"`
+	// PeriodID: cảnh báo của một giai đoạn alert (xác nhận = "Đã xử lý", đóng giai đoạn).
+	PeriodID int64 `json:"period_id,omitempty"`
 }
 
 // Trạng thái máy trong kho.

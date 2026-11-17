@@ -97,7 +97,8 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	// Xóa hypertable thì Timescale tự bỏ các job nén / xóa theo hạn gắn với nó.
 	pool.Exec(ctx, "SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = 'scs_cleanup'")
 	if _, err := pool.Exec(ctx, `
-		DROP TABLE IF EXISTS heartbeats, events, device_days, device_status, seen_nonces, alerts,
+		DROP TABLE IF EXISTS heartbeats, events, device_days, device_status, device_status_changes,
+			device_periods, agent_config, agent_rollout, agent_releases, seen_nonces, alerts,
 			audit, devices, stores, schema_migrations CASCADE;
 		DROP PROCEDURE IF EXISTS scs_cleanup(integer, jsonb);
 		DROP FUNCTION IF EXISTS audit_append_only()`); err != nil {
@@ -124,19 +125,24 @@ func TestMigrateOnPostgres(t *testing.T) {
 	migrateOnce(t, pool) // chạy lại không lỗi, không chạy trùng
 
 	var n int
+	all, _ := Migrations()
 	pool.QueryRow(ctx, "SELECT count(*) FROM schema_migrations").Scan(&n)
-	if n != 1 {
-		t.Fatalf("schema_migrations có %d dòng, muốn 1", n)
+	if n != len(all) {
+		t.Fatalf("schema_migrations có %d dòng, muốn %d", n, len(all))
 	}
+	// 0004 bỏ các bảng ghi từng dòng (heartbeats, events): không còn hypertable và job nén / xóa của chúng.
 	pool.QueryRow(ctx, `SELECT count(*) FROM timescaledb_information.hypertables
 		WHERE hypertable_name IN ('heartbeats', 'events')`).Scan(&n)
-	if n != 2 {
-		t.Fatalf("phải có 2 hypertable, có %d", n)
+	if n != 0 {
+		t.Fatalf("không còn hypertable heartbeats / events, có %d", n)
 	}
 	pool.QueryRow(ctx, `SELECT count(*) FROM timescaledb_information.jobs
 		WHERE proc_name IN ('policy_retention', 'policy_compression', 'scs_cleanup')`).Scan(&n)
-	if n != 5 {
-		t.Fatalf("phải có 5 job (2 xóa sau 60 ngày, 2 nén, 1 dọn dẹp), có %d", n)
+	if n != 1 {
+		t.Fatalf("chỉ còn job dọn dẹp scs_cleanup, có %d job", n)
+	}
+	if _, err := pool.Exec(ctx, "CALL scs_cleanup(0, '{}')"); err != nil {
+		t.Fatalf("thủ tục dọn dẹp lỗi: %v", err)
 	}
 }
 
@@ -173,8 +179,11 @@ func TestSchemaConstraints(t *testing.T) {
 	if err := insertDevice("12345-TN1-PRI", true, "12345", 1, "PRI", "approved", 1); err != nil {
 		t.Fatalf("máy hợp lệ: %v", err)
 	}
-	ev := `INSERT INTO events (device_id, received_at, agent_time, rule_id, severity, source, line, count)
-		VALUES (1, now(), now(), $1, $2, 's', $3, 1)`
+	period := `INSERT INTO device_periods (device_id, kind, started_at, ended_at, severity, closed_by, offline_since)
+		VALUES (1, $1, now(), $2, $3, $4, $5)`
+	if err := exec(period, "ok", nil, nil, nil, nil); err != nil {
+		t.Fatalf("giai đoạn hợp lệ: %v", err)
+	}
 	bad := map[string]error{
 		"TN1 thiếu PRI":              insertDevice("12345-TN1", true, "12345", 1, nil, "pending", 2),
 		"TN3 có hậu tố":              insertDevice("12345-TN3-SEC", true, "12345", 3, "SEC", "pending", 3),
@@ -183,9 +192,13 @@ func TestSchemaConstraints(t *testing.T) {
 		"duyệt mà không có siêu thị": insertDevice("may-la", false, nil, nil, nil, "approved", 6),
 		"trùng public key":           insertDevice("12345-TN3", true, "12345", 3, nil, "pending", 1),
 		"siêu thị không tồn tại":     insertDevice("99999-TN3", true, "99999", 3, nil, "pending", 7),
-		"severity lạ":                exec(ev, "ssh", "urgent", "l"),
-		"dòng log quá dài":           exec(ev, "ssh", "low", strings.Repeat("x", 3000)),
-		"rule_id có ký tự lạ":        exec(ev, "../x", "low", "l"),
+		"hai giai đoạn cùng mở":      exec(period, "alert", nil, "high", nil, nil),
+		"loại giai đoạn lạ":          exec(period, "vui", time.Now(), nil, "auto", nil),
+		"severity lạ":                exec(period, "alert", time.Now(), "urgent", "auto", nil),
+		"đóng mà không ghi ai đóng":  exec(period, "ok", time.Now(), nil, nil, nil),
+		"đóng trước khi mở":          exec(period, "ok", time.Now().Add(-time.Hour), nil, "auto", nil),
+		"OK mà có mất liên lạc":      exec(period, "ok", time.Now(), nil, "auto", time.Now()),
+		"lịch sử không phải object":  exec(`INSERT INTO device_status_changes (device_id, changes) VALUES (1, '[]')`),
 		"nonce sai định dạng":        exec(`INSERT INTO seen_nonces (device_id, nonce) VALUES (1, 'abc')`),
 		"mã siêu thị có chữ":         exec(`INSERT INTO stores (code) VALUES ('ST1')`),
 	}

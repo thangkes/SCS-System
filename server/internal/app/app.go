@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/thangkes/SCS-System/common/protocol"
 	"github.com/thangkes/SCS-System/server/internal/addrbook"
@@ -94,7 +95,7 @@ func IngestHandler(d Deps) http.Handler {
 	mux.Handle("POST /v1/enroll", route(open, ingestBody.enroll, enroll, enrollHandler(d)))
 
 	mux.Handle("POST /v1/heartbeat", route(cert, ingestBody.heartbeat, agent, heartbeatHandler(d)))
-	mux.Handle("POST /v1/logs", route(cert, ingestBody.logs, logs, httpx.NotImplemented("M4")))
+	mux.Handle("POST /v1/logs", route(cert, ingestBody.logs, logs, logsHandler(d)))
 	mux.Handle("POST /v1/cert/renew", route(cert, ingestBody.renew, agent, httpx.NotImplemented("M3")))
 	mux.Handle("GET /v1/rules/{version}", route(cert, ingestBody.get, agent, httpx.NotImplemented("M7")))
 	mux.Handle("GET /v1/updates/{version}", route(cert, ingestBody.get, agent, updateHandler(d)))
@@ -113,6 +114,8 @@ func AdminHandler(d Deps) http.Handler {
 	dev := deviceAPI{d}
 	mux.Handle("GET /admin/v1/devices", view(http.HandlerFunc(dev.list)))
 	mux.Handle("GET /admin/v1/devices/{id}", view(httpx.NotImplemented("M6")))
+	mux.Handle("GET /admin/v1/devices/{id}/periods", view(http.HandlerFunc(dev.timeline)))
+	mux.Handle("POST /admin/v1/periods/{id}/resolve", admin(http.HandlerFunc(dev.resolve)))
 	mux.Handle("POST /admin/v1/devices/{id}/approve", admin(http.HandlerFunc(dev.approve)))
 	mux.Handle("POST /admin/v1/devices/{id}/reject", admin(http.HandlerFunc(dev.reject)))
 	mux.Handle("POST /admin/v1/devices/{id}/revoke", admin(http.HandlerFunc(dev.revoke)))
@@ -144,12 +147,34 @@ func AdminHandler(d Deps) http.Handler {
 	return wrap(d, httpx.RejectProxied(d.Log)(mux), httpx.AggregatedAccessLog(d.Log, slog.LevelInfo))
 }
 
-// Worker: xử lý hàng đợi. Bản khung chỉ chờ tới khi được yêu cầu dừng.
+// periodTickEvery: nhịp kiểm mất liên lạc / tự đóng cảnh báo high.
+const periodTickEvery = time.Minute
+
+// Worker: việc định kỳ. Hiện có: kiểm giai đoạn của mọi máy (mất liên lạc sau SCS_OFFLINE_AFTER, tự
+// đóng cảnh báo high sau SCS_ALERT_AUTOCLOSE, đóng giai đoạn của máy bị thu hồi) mỗi phút.
 func Worker(d Deps) func(context.Context) error {
 	return func(ctx context.Context) error {
-		d.Log.Info("worker đang chạy, chưa có việc (mốc M5)")
-		<-ctx.Done()
-		return nil
+		if d.Registry == nil {
+			d.Log.Warn("worker không có kho máy, không kiểm giai đoạn")
+			<-ctx.Done()
+			return nil
+		}
+		d.Log.Info("worker đang chạy: kiểm mất liên lạc và tự đóng cảnh báo mỗi phút")
+		t := time.NewTicker(periodTickEvery)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			case now := <-t.C:
+				n, err := d.Registry.PeriodTick(ctx, now)
+				if err != nil && ctx.Err() == nil {
+					d.Log.Error("kiểm giai đoạn thất bại", "err", err)
+				} else if n > 0 {
+					d.Log.Info("giai đoạn máy thay đổi (mất liên lạc / tự đóng cảnh báo)", "so_may", n)
+				}
+			}
+		}
 	}
 }
 

@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
+	"unicode/utf8"
 
 	"github.com/thangkes/SCS-System/server/internal/auth"
 	"github.com/thangkes/SCS-System/server/internal/httpx"
@@ -161,7 +163,21 @@ func (a deviceAPI) alerts(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []Alert{}
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "alerts": list})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "alerts": list, "policy": a.policy()})
+}
+
+// policy: hạn tự đóng cảnh báo high và hạn mất liên lạc (phút) để web ghi đúng cấu hình.
+func (a deviceAPI) policy() map[string]int {
+	p := map[string]int{"autoclose_min": 24 * 60, "offline_min": 15}
+	if c := a.d.Cfg; c != nil {
+		if c.AlertAutoClose > 0 {
+			p["autoclose_min"] = int(c.AlertAutoClose.Minutes())
+		}
+		if c.OfflineAfter > 0 {
+			p["offline_min"] = int(c.OfflineAfter.Minutes())
+		}
+	}
+	return p
 }
 
 // ackAlert: POST /admin/v1/alerts/{id}/ack (admin xác nhận đã xem, cảnh báo đóng lại).
@@ -175,5 +191,42 @@ func (a deviceAPI) ackAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.d.Log.Info("đã xác nhận cảnh báo", "by", by, "alert", id)
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// timeline: GET /admin/v1/devices/{id}/periods?limit=100 — dòng thời gian theo giai đoạn của một máy
+// (ok / cảnh báo / mất liên lạc) và lịch sử trạng thái thay đổi đáng kể.
+func (a deviceAPI) timeline(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.id(w, r)
+	if !ok {
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	tl, err := a.d.Registry.ListPeriods(r.Context(), id, limit)
+	if a.fail(w, err, "đọc dòng thời gian") {
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "timeline": tl, "policy": a.policy()})
+}
+
+// resolve: POST /admin/v1/periods/{id}/resolve {note} — "Đã xử lý" một cảnh báo đang mở (cả mức critical).
+func (a deviceAPI) resolve(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.id(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Note string `json:"note"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req) // ghi chú tùy chọn
+	if len(req.Note) > 500 || !utf8.ValidString(req.Note) {
+		httpx.WriteError(w, http.StatusBadRequest, "ghi chú tối đa 500 ký tự")
+		return
+	}
+	by := actor(r)
+	if a.fail(w, a.d.Registry.ResolvePeriod(r.Context(), id, by, strings.TrimSpace(req.Note)), "xử lý cảnh báo") {
+		return
+	}
+	a.d.Log.Warn("admin xử lý cảnh báo (đóng giai đoạn)", "giai_doan", id, "boi", by)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }

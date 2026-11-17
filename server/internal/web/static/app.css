@@ -311,6 +311,13 @@ td .sub { display: block; color: var(--faint); font-size: 12px; }
   font-family: ui-monospace, "Cascadia Mono", Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5;
   white-space: pre; overflow: auto; max-height: 60vh; tab-size: 2;
 }
+.periods { list-style: none; margin: 0 0 12px; padding: 0; display: grid; gap: 8px; }
+.period { padding: 8px 10px; border-radius: 8px; border-left: 3px solid var(--line); background: var(--panel-2); }
+.period-ok { border-left-color: var(--ok); }
+.period-alert { border-left-color: var(--bad); }
+.period-offline { border-left-color: var(--warn); }
+.period-head { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.period-rules { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
 .rule-notice { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 16px; }
 .rule-notice .btn { margin-left: auto; }
 .break-all { overflow-wrap: anywhere; word-break: break-all; }

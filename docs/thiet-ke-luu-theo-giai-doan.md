@@ -1,8 +1,9 @@
 # Thiết kế: lưu sự kiện và trạng thái máy theo giai đoạn
 
-> Trạng thái: **đã chốt hướng (2026-11-17), chưa làm.** Thay cách lưu "mỗi sự kiện / mỗi heartbeat một
-> dòng" trong kế hoạch cũ (bảng `events`, `heartbeats`, `device_days` của migration 0001, chưa từng có dữ
-> liệu). Phần nhận sự kiện từ agent (mốc A3 / M4) làm theo thiết kế này.
+> Trạng thái (2026-11-17): **đã làm phía server** (bước 1–4 mục 13 và cổng nhận sự kiện `POST /v1/logs`).
+> Chưa làm: agent đọc log liên tục và gửi sự kiện (mốc A3). Thay cách lưu "mỗi sự kiện / mỗi heartbeat
+> một dòng" trong kế hoạch cũ (bảng `events`, `heartbeats`, `device_days` của migration 0001, chưa từng có
+> dữ liệu, migration 0004 đã bỏ).
 
 ## 1. Ý tưởng
 
@@ -48,9 +49,9 @@ chờ đóng theo luật của nó.
 
 ## 4. Mức nghiêm trọng
 
-Dùng đúng 4 mức của rule (`severity` trong file rule):
+Dùng đúng các mức của rule (`severity` trong file rule):
 
-- `low`, `medium`: không đổi giai đoạn, chỉ cộng vào bản tóm tắt.
+- `info`, `low`, `medium`: không đổi giai đoạn, chỉ cộng vào bản tóm tắt.
 - `high`: mở cảnh báo (hoặc cộng vào cảnh báo đang mở), **tự đóng được**.
 - `critical`: mở cảnh báo hoặc **nâng** cảnh báo đang mở lên critical. Đã lên critical thì **chỉ admin đóng**,
   kể cả khi sau đó chỉ còn sự kiện high.
@@ -59,8 +60,10 @@ Dùng đúng 4 mức của rule (`severity` trong file rule):
 
 | Biến | Mặc định đề xuất | Nghĩa |
 |---|---|---|
-| `SCS_ALERT_AUTOCLOSE` | **24h** | Cảnh báo mức high tự đóng khi đã 24 giờ không có sự kiện high / critical mới |
-| `SCS_OFFLINE_AFTER` | **15m** | 3 nhịp heartbeat (5 phút) không nghe gì → mất liên lạc |
+| `SCS_ALERT_AUTOCLOSE` | **24h** (chốt) | Cảnh báo mức high tự đóng khi đã 24 giờ không có sự kiện high / critical mới. Cho phép 1h – 720h |
+| `SCS_OFFLINE_AFTER` | **15m** (chốt) | 3 nhịp heartbeat (5 phút) không nghe gì → mất liên lạc. Cho phép 10m – 24h |
+
+Server kiểm mỗi phút (tiến trình `worker` hoặc `all`).
 
 Tự đóng ghi rõ "tự đóng" và giờ, admin vẫn xem lại được. Cảnh báo tự đóng mà sự cố quay lại thì mở cảnh báo mới.
 
@@ -73,7 +76,6 @@ Bảng `device_periods` (migration mới, thay `events` / `heartbeats` / `device
 | `id`, `device_id` | |
 | `kind` | `ok` / `alert` / `offline` |
 | `started_at` | giờ bắt đầu |
-| `last_at` | giờ cuối cùng nghe máy (giai đoạn đang mở: đọc từ `device_status.received_at`, không ghi mỗi heartbeat) |
 | `ended_at` | giờ đóng (NULL = đang mở) |
 | `severity` | mức cao nhất trong giai đoạn |
 | `events` | tổng số sự kiện |
@@ -91,7 +93,7 @@ bảng `alerts` (loại `event` / `offline`). Nút xác nhận trên web = "Đã
 ## 7. Trạng thái máy (heartbeat)
 
 - `device_status`: **một dòng mỗi máy**, ghi đè mỗi heartbeat (đã có trong 0001). Đây là ghi duy nhất mỗi nhịp.
-  Giờ của heartbeat này cũng là `last_at` của giai đoạn đang mở, nên không phải cập nhật giai đoạn.
+  Giờ của heartbeat này cũng là giờ cuối cùng của giai đoạn đang mở, nên không phải cập nhật giai đoạn.
 - `device_status_changes`: **chỉ ghi khi trạng thái thay đổi đáng kể** so với lần trước, gồm:
   hệ điều hành, kernel, bản agent, bộ rule đang dùng, IP; dịch vụ đổi trạng thái (active → failed…);
   RAID (degraded, đang đồng bộ); đồng bộ giờ; ổ đĩa **vượt mốc 80 / 90 / 95%** (lên hoặc xuống).
@@ -136,7 +138,7 @@ tới khi lỗi; chuyển server thì server mới mở giai đoạn của nó, 
   xác nhận".
 - Trang Tổng quan: số máy đang cảnh báo / mất liên lạc.
 
-## 13. Thứ tự làm
+## 13. Thứ tự làm (bước 1–4 đã làm)
 
 1. Migration mới: `device_periods`, `device_status_changes`, bỏ `events` / `heartbeats` / `device_days`.
 2. Bộ máy chuyển giai đoạn (thuần Go, test đủ các trường hợp mục 3–5).

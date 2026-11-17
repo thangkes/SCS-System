@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/thangkes/SCS-System/common/protocol"
 )
@@ -71,6 +72,11 @@ type Config struct {
 	// RulesDir (SCS_RULES_DIR): kho bộ rule trên server — file nguồn (src/) và bản đã ký (signed/).
 	// Trang web "Rule quét log", menu mục 16 và `scs-server rules list|add|approve` dùng thư mục này.
 	RulesDir string
+	// AlertAutoClose (SCS_ALERT_AUTOCLOSE): cảnh báo mức high tự đóng sau bấy lâu không có sự kiện
+	// high / critical mới (critical chỉ admin đóng). OfflineAfter (SCS_OFFLINE_AFTER): không nghe máy
+	// gửi gì bấy lâu thì báo mất liên lạc. Xem docs/thiet-ke-luu-theo-giai-doan.md.
+	AlertAutoClose time.Duration
+	OfflineAfter   time.Duration
 }
 
 type DB struct {
@@ -142,6 +148,8 @@ func Load() (*Config, error) {
 		ClusterDir:       get("SCS_CLUSTER_DIR", "data/cluster"),
 		ClusterListen:    get("SCS_CLUSTER_LISTEN", ":5222"),
 		RulesDir:         get("SCS_RULES_DIR", "data/rules"),
+		AlertAutoClose:   getDuration("SCS_ALERT_AUTOCLOSE", 24*time.Hour, time.Hour, 30*24*time.Hour, &errs),
+		OfflineAfter:     getDuration("SCS_OFFLINE_AFTER", 15*time.Minute, 10*time.Minute, 24*time.Hour, &errs),
 	}
 	errs = append(errs, c.validate()...)
 	if len(errs) > 0 {
@@ -248,6 +256,20 @@ func getInt(key string, def int, errs *[]error) int {
 		return def
 	}
 	return n
+}
+
+// getDuration đọc khoảng thời gian dạng Go (24h, 15m, 90m) trong [lo, hi].
+func getDuration(key string, def, lo, hi time.Duration, errs *[]error) time.Duration {
+	v := get(key, "")
+	if v == "" {
+		return def
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < lo || d > hi {
+		*errs = append(*errs, fmt.Errorf("%s: %q phải là khoảng thời gian từ %s tới %s (ví dụ 24h, 15m)", key, v, lo, hi))
+		return def
+	}
+	return d
 }
 
 // getServers đọc danh sách địa chỉ https://<host>:<cổng> cách nhau dấu phẩy.

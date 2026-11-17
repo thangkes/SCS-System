@@ -146,7 +146,7 @@
     fingerprint_changed: 'Phần cứng / hệ điều hành thay đổi',
     position_conflict: 'Trùng vị trí TN trong siêu thị',
     offline: 'Mất liên lạc',
-    event: 'Sự kiện log',
+    event: 'Sự cố (log mức cao)',
   };
 
   // alertText: diễn giải phần chi tiết của cảnh báo thành một câu.
@@ -156,6 +156,8 @@
       case 'enroll_request': return [d.ip && `Gửi từ IP ${d.ip}`, d.key_id && `mã khóa ${d.key_id}`].filter(Boolean).join(', ');
       case 'hostname_invalid': return d.error || '';
       case 'wan_ip_mismatch': return d.got ? `Gửi từ ${d.got}, IP WAN của siêu thị là ${d.expected}` : '';
+      case 'event': return (d.rules || []).slice(0, 4).map((r) => `${r.rule} ×${r.count}`).join(', ');
+      case 'offline': return 'Không nghe máy gửi gì; tự đóng khi máy gửi lại';
       default: return Object.entries(d).map(([k, v]) => `${k}: ${v}`).join(', ');
     }
   }
@@ -210,7 +212,7 @@
         ${kpi('Máy đang hoạt động', fmtNum(approved.length), `${fmtNum(stores.length)} siêu thị`)}
         ${kpi('Chờ duyệt', fmtNum(pending.length), 'yêu cầu đăng ký mới', pending.length ? 'is-warn' : '')}
         ${kpi('Cảnh báo đang mở', fmtNum(alerts.length), `${fmtNum(serious)} mức cao / nghiêm trọng`, serious ? 'is-bad' : (alerts.length ? 'is-warn' : ''))}
-        ${kpi('Online / offline', '—', 'có khi agent gửi heartbeat (đang làm)')}
+        ${kpi('Mất liên lạc', fmtNum(alerts.filter((a) => a.kind === 'offline').length), 'máy quá hạn không gửi gì', alerts.some((a) => a.kind === 'offline') ? 'is-warn' : '')}
       </div>
 
       <div class="grid-2">
@@ -319,6 +321,106 @@
     revoked: ['pill-bad', 'Đã thu hồi'],
   };
 
+  // Dòng thời gian của máy: mỗi giai đoạn OK / cảnh báo / mất liên lạc là một dòng (lưu theo giai đoạn).
+  const PERIOD_KIND = {
+    ok: ['pill-ok', 'OK'],
+    alert: ['pill-bad', 'Cảnh báo'],
+    offline: ['pill-warn', 'Mất liên lạc'],
+  };
+  function fmtDur(ms) {
+    const m = Math.max(0, Math.round(ms / 60000));
+    if (m < 60) return `${m} phút`;
+    const h = Math.floor(m / 60);
+    if (h < 48) return `${h} giờ${m % 60 ? ` ${m % 60} phút` : ''}`;
+    return `${Math.floor(h / 24)} ngày${h % 24 ? ` ${h % 24} giờ` : ''}`;
+  }
+  function closedText(by) {
+    if (!by) return '';
+    if (by === 'auto') return 'tự đóng';
+    if (by === 'system') return 'tự chuyển';
+    return `${by.replace(/^admin:/, '')} xử lý`;
+  }
+  // statusDiff: những gì đổi so với lần trước (lần đầu: in đủ), dạng dễ đọc.
+  const STATUS_LABEL = { os: 'Hệ điều hành', kernel: 'Kernel', agent: 'Agent', rules: 'Bộ rule', ip: 'IP', time_synced: 'Đồng bộ giờ' };
+  function flatStatus(c) {
+    const out = {};
+    if (!c) return out;
+    for (const [k, v] of Object.entries(c)) {
+      if (k === 'services') for (const [n, st] of Object.entries(v || {})) out[`Dịch vụ ${n}`] = st;
+      else if (k === 'raid') for (const [n, st] of Object.entries(v || {})) out[`RAID ${n}`] = st;
+      else if (k === 'disks_full') for (const [m, lv] of Object.entries(v || {})) out[`Ổ ${m}`] = `đầy ≥ ${lv}%`;
+      else if (k === 'time_synced') out[STATUS_LABEL[k]] = v ? 'có' : 'không';
+      else if (v !== '') out[STATUS_LABEL[k] || k] = String(v);
+    }
+    return out;
+  }
+  function statusDiff(cur, prev) {
+    const a = flatStatus(cur);
+    const b = prev ? flatStatus(prev) : null;
+    const parts = [];
+    for (const [k, v] of Object.entries(a)) if (!b || b[k] !== v) parts.push(`${k}: ${b && b[k] !== undefined ? `${b[k]} → ` : ''}${v}`);
+    if (b) for (const k of Object.keys(b)) if (!(k in a)) parts.push(`${k}: bỏ`);
+    return parts.join(' · ') || 'không đổi';
+  }
+
+  async function loadTimeline(d) {
+    const box = $('#dev-timeline');
+    if (!box) return;
+    let tl;
+    let policy = { autoclose_min: 1440, offline_min: 15 };
+    try {
+      const j = await getJSON(`/admin/v1/devices/${d.id}/periods?limit=50`);
+      tl = j.timeline;
+      policy = j.policy || policy;
+    } catch (err) {
+      box.innerHTML = `<h3>Dòng thời gian</h3><p class="hint">Không tải được: ${esc(err.message)}</p>`;
+      return;
+    }
+    if (!$('#dev-timeline') || box !== $('#dev-timeline')) return;
+    const lastSeen = tl.last_seen ? new Date(tl.last_seen) : null;
+    const item = (p) => {
+      const start = new Date(p.started_at);
+      const open = !p.ended_at;
+      const end = open ? (lastSeen && lastSeen > start ? lastSeen : new Date()) : new Date(p.ended_at);
+      const rules = Object.entries(p.rules || {}).sort((a, b) => b[1].count - a[1].count).slice(0, 6);
+      return `<li class="period period-${esc(p.kind)}">
+        <div class="period-head">${pill(PERIOD_KIND[p.kind] || ['', p.kind])}
+          ${p.severity && p.kind === 'alert' ? pill(SEV[p.severity] || SEV.low) : ''}
+          <span class="sub">${esc(fmtTime(start))} → ${open ? '<strong>đang mở</strong>' : esc(fmtTime(end))} · ${esc(fmtDur(end - start))}</span>
+          ${p.events ? `<span class="sub">${fmtNum(p.events)} sự kiện</span>` : ''}
+          ${p.offline_since ? '<span class="pill pill-warn no-dot">đang mất liên lạc</span>' : ''}
+          ${!open && p.closed_by ? `<span class="sub">${esc(closedText(p.closed_by))}</span>` : ''}
+          ${open && p.kind === 'alert' ? `<button class="btn btn-sm btn-primary" data-resolve="${p.id}"${adminOnly()}>Đã xử lý</button>
+            <span class="sub">${p.severity === 'critical' ? 'chỉ admin đóng' : `tự đóng khi yên ${esc(fmtDur(policy.autoclose_min * 60000))}`}</span>` : ''}
+        </div>
+        ${rules.length ? `<ul class="period-rules">${rules.map(([id, r]) => `<li><span class="mono">${esc(id)}</span>
+          ${pill(SEV[r.severity] || SEV.low)} ×${fmtNum(r.count)}${r.sample ? `<div class="mono hint break-all">${esc(r.sample)}</div>` : ''}</li>`).join('')}</ul>` : ''}
+        ${p.note ? `<p class="hint">Ghi chú: ${esc(p.note)}</p>` : ''}
+      </li>`;
+    };
+    const changes = (tl.status_changes || []).slice(0, 6);
+    box.innerHTML = `<h3>Dòng thời gian</h3>
+      ${tl.periods.length ? `<ul class="periods">${tl.periods.map(item).join('')}</ul>` : '<p class="hint">Chưa có (máy chưa gửi heartbeat nào).</p>'}
+      ${changes.length ? `<h3>Trạng thái thay đổi</h3><ul class="periods">${changes.slice(0, 5).map((c, i) => `<li><span class="sub">${esc(fmtTime(new Date(c.at)))}</span>
+        <div class="hint break-all">${esc(statusDiff(c.changes, changes[i + 1] && changes[i + 1].changes))}</div></li>`).join('')}</ul>` : ''}`;
+    box.querySelectorAll('[data-resolve]').forEach((b) => b.addEventListener('click', async () => {
+      if (!(await confirmBox('Đã xử lý sự cố này?',
+        '<p>Đóng giai đoạn cảnh báo và bắt đầu giai đoạn OK mới.</p><label class="field">Ghi chú (tùy chọn)<input id="resolve-note" maxlength="500"></label>',
+        'Đã xử lý'))) return;
+      const note = ($('#resolve-note') && $('#resolve-note').value) || '';
+      b.disabled = true;
+      try {
+        await postJSON(`/admin/v1/periods/${b.dataset.resolve}/resolve`, { note });
+        toast('Đã đóng sự cố');
+        refreshAlertCount();
+        loadTimeline(d);
+      } catch (err) {
+        b.disabled = false;
+        toast(`Không đóng được: ${err.message}`);
+      }
+    }));
+  }
+
   function showDevice(d, reload) {
     if (!d) return;
     const when = (t) => (t ? `${fmtTime(new Date(t))} (${ago(new Date(t))})` : '—');
@@ -332,6 +434,7 @@
         <dt>Agent</dt><dd class="mono">${esc(d.agent_version || '—')}</dd>
         <dt>Liên lạc lần cuối</dt><dd>${esc(when(d.last_seen))}</dd>
       </dl></section>
+      <section id="dev-timeline"><h3>Dòng thời gian</h3><p class="hint">Đang tải…</p></section>
       <section><h3>Nhận dạng</h3><dl class="kv">
         <dt>Mã khóa</dt><dd class="mono">${esc(d.key_id)}</dd>
         <dt>Fingerprint</dt><dd class="mono">${esc(d.fingerprint)}</dd>
@@ -349,6 +452,8 @@
         <button class="btn btn-sm" data-dev-action="test-ring"${adminOnly()}>${d.test_ring ? 'Bỏ khỏi nhóm thử' : 'Thêm vào nhóm thử'}</button>
         <button class="btn btn-sm btn-danger" data-dev-action="revoke"${adminOnly()}>Thu hồi máy</button>
       </div><p class="hint">${d.test_ring ? 'Máy đang trong nhóm thử: nhận bản agent mới trước các máy khác.' : 'Máy trong nhóm thử nhận bản agent mới trước để kiểm tra.'}</p></section>` : ''}`);
+
+    loadTimeline(d);
 
     $('#drawer-body').querySelectorAll('[data-dev-action="test-ring"]').forEach((b) => b.addEventListener('click', async () => {
       b.disabled = true;
@@ -385,7 +490,7 @@
   async function pageAlerts() {
     setTitle('Cảnh báo');
     const page = view;
-    const state = { sev: '', all: false, list: [] };
+    const state = { sev: '', all: false, list: [], policy: { autoclose_min: 1440, offline_min: 15 } };
     page.innerHTML = `
       <div class="card">
         <div class="toolbar">
@@ -413,14 +518,17 @@
           <td class="num hide-sm">${a.occurrences}</td>
           <td>${esc(ago(new Date(a.last_at)))}</td>
           <td>${a.acked_at
-            ? `<span class="sub">Đã xác nhận · ${esc(a.acked_by)}</span>`
-            : `<button class="btn btn-sm" data-ack="${a.id}"${adminOnly()}>Xác nhận</button>`}</td>
+            ? `<span class="sub">${a.kind === 'event' ? 'Đã đóng' : 'Đã xác nhận'} · ${esc(a.acked_by)}</span>`
+            : `<button class="btn btn-sm${a.kind === 'event' ? ' btn-primary' : ''}" data-ack="${a.id}" data-kind="${esc(a.kind)}"${adminOnly()}>${a.kind === 'event' ? 'Đã xử lý' : 'Xác nhận'}</button>
+               ${a.kind === 'event' ? `<span class="sub">${a.severity === 'critical' ? 'Chỉ admin đóng' : `Tự đóng khi yên ${esc(fmtDur(state.policy.autoclose_min * 60000))}`}</span>` : ''}`}</td>
         </tr>`).join('') || `<tr><td colspan="7" class="empty">Không có cảnh báo${state.all ? '' : ' đang mở'}.</td></tr>`;
     };
 
     const load = async () => {
       try {
-        state.list = (await getJSON(`/admin/v1/alerts${state.all ? '?state=all' : ''}`)).alerts;
+        const j = await getJSON(`/admin/v1/alerts${state.all ? '?state=all' : ''}`);
+        state.list = j.alerts;
+        state.policy = j.policy || state.policy;
       } catch (err) {
         if (page === view) showLoadError(page, err);
         return;
@@ -439,10 +547,13 @@
     $('#al-all').addEventListener('change', (e) => { state.all = e.target.checked; load(); });
     $('#al-rows').addEventListener('click', async (e) => {
       const b = e.target.closest('[data-ack]'); if (!b || b.disabled) return;
+      if (b.dataset.kind === 'event' && !(await confirmBox('Đã xử lý sự cố này?',
+        '<p>Đóng giai đoạn cảnh báo của máy và bắt đầu giai đoạn OK mới. Sự cố quay lại thì sẽ mở cảnh báo mới.</p>',
+        'Đã xử lý'))) return;
       b.disabled = true;
       try {
         await postJSON(`/admin/v1/alerts/${b.dataset.ack}/ack`);
-        toast('Đã xác nhận cảnh báo');
+        toast(b.dataset.kind === 'event' ? 'Đã đóng sự cố' : 'Đã xác nhận cảnh báo');
         load();
       } catch (err) {
         b.disabled = false;

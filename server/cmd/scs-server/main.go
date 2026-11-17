@@ -23,6 +23,7 @@ import (
 	"github.com/thangkes/SCS-System/server/internal/cluster"
 	"github.com/thangkes/SCS-System/server/internal/config"
 	"github.com/thangkes/SCS-System/server/internal/httpx"
+	"github.com/thangkes/SCS-System/server/internal/periods"
 	"github.com/thangkes/SCS-System/server/internal/pki"
 	"github.com/thangkes/SCS-System/server/internal/rulestore"
 	"github.com/thangkes/SCS-System/server/internal/store"
@@ -142,9 +143,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		log.Error("không khởi động được", "err", err)
 		return 1
 	}
+	reg := store.NewRegistry(db)
+	reg.Policy = periods.Policy{AutoClose: cfg.AlertAutoClose, OfflineAfter: cfg.OfflineAfter}
 	base := app.Deps{
 		ReadyChecks: []httpx.Check{store.ReadyCheck(db), migrator.Check()},
-		Registry:    store.NewRegistry(db),
+		Registry:    reg,
 	}
 	if cfg.CACert != "" {
 		if base.CA, err = pki.Load(cfg.CACert, cfg.CAKey); err != nil {
@@ -263,7 +266,7 @@ func build(cmd string, cfg *config.Config, log *slog.Logger, base app.Deps) ([]r
 		}
 	}
 	if cmd == "worker" || cmd == "all" {
-		rs = append(rs, app.Worker(app.Deps{Cfg: cfg, Log: log.With("role", "worker"), Version: version}))
+		rs = append(rs, app.Worker(app.Deps{Cfg: cfg, Log: log.With("role", "worker"), Version: version, Registry: base.Registry}))
 	}
 	return rs, nil
 }

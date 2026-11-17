@@ -13,13 +13,29 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/thangkes/SCS-System/server/internal/app"
+	"github.com/thangkes/SCS-System/server/internal/periods"
 )
 
 // Registry là kho máy trên PostgreSQL (cài đặt app.Registry).
 // Mỗi thao tác là một transaction; ràng buộc trong DB là chốt chặn cuối.
-type Registry struct{ pool *pgxpool.Pool }
+type Registry struct {
+	pool *pgxpool.Pool
+	// Policy: hạn tự đóng cảnh báo high và hạn mất liên lạc (zero = periods.DefaultPolicy).
+	Policy periods.Policy
+}
 
 func NewRegistry(pool *pgxpool.Pool) *Registry { return &Registry{pool: pool} }
+
+func (g *Registry) policy() periods.Policy {
+	p := g.Policy
+	if p.AutoClose <= 0 {
+		p.AutoClose = periods.DefaultPolicy.AutoClose
+	}
+	if p.OfflineAfter <= 0 {
+		p.OfflineAfter = periods.DefaultPolicy.OfflineAfter
+	}
+	return p
+}
 
 var _ app.Registry = (*Registry)(nil)
 
@@ -303,7 +319,8 @@ func nullInt(n int) any {
 func (g *Registry) ListAlerts(ctx context.Context, includeAcked bool) ([]app.Alert, error) {
 	rows, err := g.pool.Query(ctx, `
 		SELECT a.id, coalesce(a.device_id, 0), coalesce(d.hostname, ''), coalesce(a.store_code, d.store_code, ''),
-		       a.kind, a.severity, a.created_at, a.last_at, a.occurrences, a.detail, a.acked_at, coalesce(a.acked_by, '')
+		       a.kind, a.severity, a.created_at, a.last_at, a.occurrences, a.detail, a.acked_at, coalesce(a.acked_by, ''),
+		       coalesce(a.period_id, 0)
 		FROM alerts a LEFT JOIN devices d ON d.id = a.device_id
 		WHERE $1 OR a.acked_at IS NULL
 		ORDER BY a.last_at DESC
@@ -318,7 +335,7 @@ func (g *Registry) ListAlerts(ctx context.Context, includeAcked bool) ([]app.Ale
 		var acked *time.Time
 		var detail []byte
 		if err := rows.Scan(&a.ID, &a.DeviceID, &a.Hostname, &a.StoreCode, &a.Kind, &a.Severity, &a.CreatedAt,
-			&a.LastAt, &a.Occurrences, &detail, &acked, &a.AckedBy); err != nil {
+			&a.LastAt, &a.Occurrences, &detail, &acked, &a.AckedBy, &a.PeriodID); err != nil {
 			return nil, err
 		}
 		a.Detail = detail
@@ -333,8 +350,10 @@ func (g *Registry) ListAlerts(ctx context.Context, includeAcked bool) ([]app.Ale
 func (g *Registry) AckAlert(ctx context.Context, id int64, by string) error {
 	return g.tx(ctx, func(tx pgx.Tx) error {
 		var acked *time.Time
-		var deviceID *int64
-		e := tx.QueryRow(ctx, `SELECT acked_at, device_id FROM alerts WHERE id = $1 FOR UPDATE`, id).Scan(&acked, &deviceID)
+		var deviceID, periodID *int64
+		var kind string
+		e := tx.QueryRow(ctx, `SELECT acked_at, device_id, kind, period_id FROM alerts WHERE id = $1 FOR UPDATE`, id).
+			Scan(&acked, &deviceID, &kind, &periodID)
 		switch {
 		case errors.Is(e, pgx.ErrNoRows):
 			return app.ErrNotFound
@@ -342,6 +361,14 @@ func (g *Registry) AckAlert(ctx context.Context, id int64, by string) error {
 			return e
 		case acked != nil:
 			return app.ErrWrongState
+		}
+		// Cảnh báo của một giai đoạn alert đang mở: xác nhận = "Đã xử lý" (đóng giai đoạn, mở OK).
+		if kind == "event" && periodID != nil {
+			err := resolvePeriod(ctx, tx, g.policy(), *periodID, by, "")
+			if !errors.Is(err, app.ErrWrongState) {
+				return err
+			}
+			// Giai đoạn đã đóng (dữ liệu cũ): chỉ xác nhận cảnh báo như bình thường.
 		}
 		if _, err := tx.Exec(ctx, `UPDATE alerts SET acked_at = now(), acked_by = $2 WHERE id = $1`, id, by); err != nil {
 			return err
@@ -375,12 +402,6 @@ func (g *Registry) AgentAuth(ctx context.Context, id int64) (app.AgentAuth, erro
 		a.CertSerial = *serial
 	}
 	return a, err
-}
-
-func (g *Registry) Seen(ctx context.Context, id int64, ip netip.Addr, agentVersion string) error {
-	_, err := g.pool.Exec(ctx, `UPDATE devices SET last_seen = now(), last_ip = $2, agent_version = $3 WHERE id = $1`,
-		id, ip.String(), agentVersion)
-	return err
 }
 
 // ---------------------------------------------------------------- bản agent, phát hành, cấu hình

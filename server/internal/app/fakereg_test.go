@@ -3,10 +3,12 @@ package app
 import (
 	"bytes"
 	"context"
-	"net/netip"
+	"errors"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/thangkes/SCS-System/server/internal/periods"
 )
 
 // fakeRegistry: kho máy trong bộ nhớ, làm theo đúng quy tắc của bản PostgreSQL
@@ -20,6 +22,10 @@ type fakeRegistry struct {
 	releases []Release
 	rollout  Rollout
 	configs  map[string]ConfigEntry // scope + "/" + key
+	// Lưu theo giai đoạn (fakeperiods_test.go).
+	periods []*periods.Period
+	status  map[int64]fakeStatus
+	changes map[int64][]StatusChange
 }
 
 type fakeDevice struct {
@@ -28,7 +34,8 @@ type fakeDevice struct {
 }
 
 func newFakeRegistry() *fakeRegistry {
-	return &fakeRegistry{stores: map[string]string{}, serials: map[int64]string{}, configs: map[string]ConfigEntry{}}
+	return &fakeRegistry{stores: map[string]string{}, serials: map[int64]string{}, configs: map[string]ConfigEntry{},
+		status: map[int64]fakeStatus{}, changes: map[int64][]StatusChange{}}
 }
 
 func (f *fakeRegistry) Enroll(_ context.Context, r EnrollRequest) (EnrollResult, error) {
@@ -82,15 +89,6 @@ func (f *fakeRegistry) AgentAuth(_ context.Context, id int64) (AgentAuth, error)
 		return AgentAuth{}, ErrNotFound
 	}
 	return AgentAuth{PublicKey: d.pub, Status: d.Status, CertSerial: f.serials[id]}, nil
-}
-
-func (f *fakeRegistry) Seen(_ context.Context, id int64, ip netip.Addr, agentVersion string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if d := f.find(id); d != nil {
-		d.LastSeen, d.LastIP, d.AgentVersion = time.Now(), ip.String(), agentVersion
-	}
-	return nil
 }
 
 func (f *fakeRegistry) find(id int64) *fakeDevice {
@@ -196,6 +194,11 @@ func (f *fakeRegistry) AckAlert(_ context.Context, id int64, by string) error {
 		if f.alerts[i].ID == id {
 			if !f.alerts[i].AckedAt.IsZero() {
 				return ErrWrongState
+			}
+			if pid := f.alerts[i].PeriodID; pid != 0 {
+				if err := f.resolveLocked(pid, by, ""); err == nil || !errors.Is(err, ErrWrongState) {
+					return err
+				}
 			}
 			f.alerts[i].AckedAt, f.alerts[i].AckedBy = time.Now(), by
 			return nil

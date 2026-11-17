@@ -75,7 +75,6 @@ func TestPlaceholderRoutes(t *testing.T) {
 		h            http.Handler
 		method, path string
 	}{
-		{IngestHandler(d), "POST", "/v1/logs"},
 		{IngestHandler(d), "GET", "/v1/rules/2026.10.27-03"},
 	}
 	for _, c := range cases {
@@ -100,13 +99,13 @@ func TestClientCertRequiredWhenCAConfigured(t *testing.T) {
 	if rec := do(t, h, "POST", "/v1/logs", nil); rec.Code != http.StatusUnauthorized {
 		t.Fatalf("không chứng chỉ = %d, muốn 401", rec.Code)
 	}
-	// Có chứng chỉ đã kiểm → qua middleware, tới handler 501.
+	// Có chứng chỉ đã kiểm → qua middleware, tới handler (gói rỗng: 400).
 	req := httptest.NewRequest("POST", "/v1/logs", nil)
 	req.TLS = &tls.ConnectionState{VerifiedChains: [][]*x509.Certificate{{{}}}}
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != http.StatusNotImplemented {
-		t.Fatalf("có chứng chỉ = %d, muốn 501", rec.Code)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("có chứng chỉ = %d, muốn 400 (tới handler)", rec.Code)
 	}
 	// /healthz không cần chứng chỉ (load balancer gọi).
 	if rec := do(t, h, "GET", "/healthz", nil); rec.Code != 200 {
@@ -127,8 +126,8 @@ func TestNoCAFailsClosed(t *testing.T) {
 		}
 	}
 	d, _ := deps(t, func(c *config.Config) { c.DevInsecure = false; c.IngestListen = "127.0.0.1:6222" })
-	if rec := do(t, IngestHandler(d), "POST", "/v1/logs", nil); rec.Code != http.StatusNotImplemented {
-		t.Errorf("dev chỉ nghe loopback được thử không CA: %d", rec.Code)
+	if rec := do(t, IngestHandler(d), "POST", "/v1/logs", nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("dev chỉ nghe loopback được thử không CA (tới handler): %d", rec.Code)
 	}
 }
 
