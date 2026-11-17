@@ -427,6 +427,7 @@ Trạng thái được **tính lại mỗi lần xem** (không lưu riêng), nê
 
 **Ba cách dùng, cùng một kho:**
 
+- **Thông báo**: trang Tổng quan và đầu menu server báo số bộ **cần duyệt và ký** (chưa ký / cần ký lại); thanh bên web hiện số bên cạnh "Rule quét log".
 - **Web quản trị**, trang **"Rule quét log"**: lọc Chưa ký / Đã ký / Cần ký lại / Lỗi, xem nội dung từng bộ, thêm file `.yaml`, Duyệt & ký, tải bản ký, xóa. Xem cần quyền Chỉ xem; thêm, duyệt, xóa cần quyền Admin.
 - **Menu server mục 16**: thêm file (nhập đường dẫn, ví dụ `~/scs-rules/cong-ty.yaml`), duyệt và ký, xuất bộ đã ký ra thư mục nhà để chép sang agent, xóa.
 - **Lệnh** (chạy bằng user `scs`, từ thư mục `/`):
@@ -435,6 +436,7 @@ Trạng thái được **tính lại mỗi lần xem** (không lưu riêng), nê
 S="sudo -u scs /opt/scs-server/scs-server"; E="-env-file /etc/scs-server/server.env"
 cd /
 $S rules list $E                                   # chia nhóm: chưa ký / cần ký lại / lỗi / đã ký
+$S rules pending $E                                # chỉ các bộ cần ký (menu hiện ở dòng trạng thái)
 $S rules add - $E < ~/scs-rules/cong-ty.yaml       # "-" = đọc từ stdin (user scs không vào được thư mục nhà)
 $S rules approve cong-ty@2026.11.20-01.yaml $E     # tên file ở cột "File"
 $S rules export cong-ty@2026.11.20-01 $E > ~/cong-ty.json

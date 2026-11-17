@@ -184,9 +184,13 @@
       if (page === view) showLoadError(page, err);
       return;
     }
+    // Bộ rule cần ký: không tải được (kho chưa mở) thì bỏ qua, trang vẫn hiện.
+    const ruleList = await getJSON('/admin/v1/rules').then((j) => j.entries).catch(() => []);
     if (page !== view) return;
     setPendingCount(pending.length);
     setAlertCount(alerts);
+    setRuleCount(ruleList);
+    const toSign = ruleList.filter((e) => e.status === 'chua-ky' || e.status === 'can-ky-lai');
 
     const serious = alerts.filter((a) => a.severity === 'high' || a.severity === 'critical').length;
     const byStore = {};
@@ -198,6 +202,10 @@
     const stores = Object.values(byStore).sort((a, b) => a.store.localeCompare(b.store));
 
     page.innerHTML = `
+      ${toSign.length ? `<div class="callout rule-notice">
+        <strong>${fmtNum(toSign.length)} bộ rule cần duyệt và ký:</strong>
+        ${toSign.slice(0, 5).map((e) => `<span class="mono">${esc(ruleKey(e))}</span>${e.status === 'can-ky-lai' ? ' (cần ký lại)' : ''}`).join(', ')}${toSign.length > 5 ? ', …' : ''}
+        <a href="#/rule" class="btn btn-sm">Xem và duyệt</a></div>` : ''}
       <div class="grid-kpi">
         ${kpi('Máy đang hoạt động', fmtNum(approved.length), `${fmtNum(stores.length)} siêu thị`)}
         ${kpi('Chờ duyệt', fmtNum(pending.length), 'yêu cầu đăng ký mới', pending.length ? 'is-warn' : '')}

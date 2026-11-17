@@ -17,6 +17,7 @@ import (
 const ruleStoreUsage = `
   Kho bộ rule trên server (SCS_RULES_DIR; web: trang "Rule quét log"; menu mục 16):
   rules list                            liệt kê, tự chia: chưa ký / đã ký / cần ký lại / lỗi
+  rules pending                         chỉ in các bộ cần ký (chưa ký / cần ký lại), mỗi dòng một bộ
   rules add FILE.yaml|-                 kiểm, chạy tests rồi đưa vào kho ("-" = đọc từ stdin)
   rules approve FILE                    duyệt và ký một bộ trong kho (FILE = tên file ở cột "File")
   rules remove FILE [-bundle]           xóa file nguồn (-bundle: xóa luôn bản ký)
@@ -30,7 +31,7 @@ const ruleStoreUsage = `
 
 func ruleStoreCmd(sub string) bool {
 	switch sub {
-	case "list", "add", "approve", "remove", "export":
+	case "list", "pending", "add", "approve", "remove", "export":
 		return true
 	}
 	return false
@@ -109,6 +110,19 @@ func runRuleStore(sub string, args []string, stdout, stderr io.Writer) int {
 	switch sub {
 	case "list":
 		return printRuleStore(s, ap, inCluster, pub != nil, stdout, stderr)
+	case "pending":
+		// Ngắn gọn cho dòng trạng thái của menu: mỗi dòng một bộ cần ký (chưa ký / cần ký lại).
+		list, err := s.List()
+		if err != nil {
+			fmt.Fprintln(stderr, "✖", err)
+			return 1
+		}
+		for _, e := range list {
+			if e.Status == rulestore.StatusUnsigned || e.Status == rulestore.StatusStale {
+				fmt.Fprintf(stdout, "%s\t%s\n", rulestore.Key(e.Name, e.Version), statusLabel[e.Status])
+			}
+		}
+		return 0
 	case "add":
 		if !need("file") {
 			return 2

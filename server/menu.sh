@@ -89,6 +89,19 @@ status_line() {
 	fi
 	ver="$(/opt/scs-server/scs-server version 2>/dev/null || echo "—")"
 	printf '  Dịch vụ: %s   Phiên bản: %s   Máy này: %s\n' "$svc" "$ver" "$(lan_ip || true)"
+	rules_status_line
+}
+
+# rules_status_line: báo các bộ rule đang chờ ký (không hỏi mật khẩu sudo; không đọc được thì im lặng).
+rules_status_line() {
+	[[ -x /opt/scs-server/scs-server ]] || return 0
+	local list n names
+	list="$(cd / && timeout 10 sudo -n -u scs /opt/scs-server/scs-server rules pending -env-file "$ENV_FILE" 2>/dev/null || true)"
+	[[ -n "$list" ]] || return 0
+	n="$(grep -c . <<<"$list")"
+	names="$(cut -f1 <<<"$list" | head -n 3 | paste -sd ',' - | sed 's/,/, /g')"
+	((n > 3)) && names+=", …"
+	printf '  %sRule: %s bộ chờ duyệt và ký%s: %s (mục 16, hoặc web trang "Rule quét log")\n' "$C_YEL" "$n" "$C_0" "$names"
 }
 
 # ---------------------------------------------------------------- các bước
