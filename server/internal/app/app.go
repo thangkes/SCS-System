@@ -104,41 +104,45 @@ func IngestHandler(d Deps) http.Handler {
 	return wrap(d, mux, httpx.PublicAccessLog(d.Log))
 }
 
-// AdminHandler: web quản trị và API cho giao diện. Đăng nhập bằng mã 6 số
-// (lệnh `scs-server login-code`); quyền Chỉ xem đọc được, mọi thao tác ghi cần Admin.
+// AdminHandler: web quản trị và API cho giao diện. Đăng nhập bằng mã 6 số lấy qua SSH (lệnh
+// `scs-server login-code`: quản trị gốc / chỉ xem) hoặc tài khoản email (mức quyền 1–7, auth.Level).
+// Mỗi thao tác ghi cần một mức quyền; mức cao hơn (số nhỏ hơn) làm được mọi việc của mức thấp hơn.
 func AdminHandler(d Deps) http.Handler {
 	mux := http.NewServeMux()
 	httpx.MountHealth(mux, "admin", d.Version, d.ReadyChecks, d.Log)
 	web.Mount(mux) // giao diện ở "/" và "/static/"
 	d.Auth.Mount(mux)
 
-	view, admin := d.Auth.Require(auth.RoleViewer), d.Auth.Require(auth.RoleAdmin)
+	lv := d.Auth.RequireLevel
+	view := lv(auth.LevelView)
+	cluster, rules, agents := lv(auth.LevelCluster), lv(auth.LevelRules), lv(auth.LevelAgents)
+	servers, incidents, agentInfo := lv(auth.LevelServers), lv(auth.LevelIncidents), lv(auth.LevelAgentInfo)
 	dev := deviceAPI{d}
 	mux.Handle("GET /admin/v1/devices", view(http.HandlerFunc(dev.list)))
 	mux.Handle("GET /admin/v1/devices/{id}", view(httpx.NotImplemented("M6")))
 	mux.Handle("GET /admin/v1/devices/{id}/periods", view(http.HandlerFunc(dev.timeline)))
-	mux.Handle("POST /admin/v1/periods/{id}/resolve", admin(http.HandlerFunc(dev.resolve)))
-	mux.Handle("POST /admin/v1/devices/{id}/approve", admin(http.HandlerFunc(dev.approve)))
-	mux.Handle("POST /admin/v1/devices/{id}/reject", admin(http.HandlerFunc(dev.reject)))
-	mux.Handle("POST /admin/v1/devices/{id}/revoke", admin(http.HandlerFunc(dev.revoke)))
+	mux.Handle("POST /admin/v1/periods/{id}/resolve", incidents(http.HandlerFunc(dev.resolve)))
+	mux.Handle("POST /admin/v1/devices/{id}/approve", agents(http.HandlerFunc(dev.approve)))
+	mux.Handle("POST /admin/v1/devices/{id}/reject", agents(http.HandlerFunc(dev.reject)))
+	mux.Handle("POST /admin/v1/devices/{id}/revoke", agents(http.HandlerFunc(dev.revoke)))
 	mux.Handle("GET /admin/v1/alerts", view(http.HandlerFunc(dev.alerts)))
-	mux.Handle("POST /admin/v1/alerts/{id}/ack", admin(http.HandlerFunc(dev.ackAlert)))
+	mux.Handle("POST /admin/v1/alerts/{id}/ack", incidents(http.HandlerFunc(dev.ackAlert)))
 	ag := agentAPI{d}
 	mux.Handle("GET /admin/v1/agent/releases", view(http.HandlerFunc(ag.releases)))
-	mux.Handle("POST /admin/v1/agent/rollout", admin(http.HandlerFunc(ag.rollout)))
-	mux.Handle("POST /admin/v1/devices/{id}/test-ring", admin(http.HandlerFunc(ag.testRing)))
+	mux.Handle("POST /admin/v1/agent/rollout", agents(http.HandlerFunc(ag.rollout)))
+	mux.Handle("POST /admin/v1/devices/{id}/test-ring", agentInfo(http.HandlerFunc(ag.testRing)))
 	mux.Handle("GET /admin/v1/agent/config", view(http.HandlerFunc(ag.configs)))
-	mux.Handle("POST /admin/v1/agent/config", admin(http.HandlerFunc(ag.setConfig)))
-	mux.Handle("POST /admin/v1/agent/labels", admin(http.HandlerFunc(ag.setLabels)))
+	mux.Handle("POST /admin/v1/agent/config", agentInfo(http.HandlerFunc(ag.setConfig)))
+	mux.Handle("POST /admin/v1/agent/labels", agentInfo(http.HandlerFunc(ag.setLabels)))
 	sv := serversAPI{d}
 	mux.Handle("GET /admin/v1/agent/servers", view(http.HandlerFunc(sv.list)))
-	mux.Handle("POST /admin/v1/agent/servers", admin(http.HandlerFunc(sv.change)))
+	mux.Handle("POST /admin/v1/agent/servers", servers(http.HandlerFunc(sv.change)))
 	cl := clusterAPI{d}
 	mux.Handle("GET /admin/v1/cluster", view(http.HandlerFunc(cl.status)))
-	mux.Handle("POST /admin/v1/cluster/approve", admin(http.HandlerFunc(cl.approve)))
-	mux.Handle("POST /admin/v1/cluster/unapprove", admin(http.HandlerFunc(cl.unapprove)))
-	mux.Handle("POST /admin/v1/cluster/reject-join", admin(http.HandlerFunc(cl.rejectJoin)))
-	mux.Handle("POST /admin/v1/cluster/isolate-local", admin(http.HandlerFunc(cl.isolateLocal)))
+	mux.Handle("POST /admin/v1/cluster/approve", cluster(http.HandlerFunc(cl.approve)))
+	mux.Handle("POST /admin/v1/cluster/unapprove", cluster(http.HandlerFunc(cl.unapprove)))
+	mux.Handle("POST /admin/v1/cluster/reject-join", cluster(http.HandlerFunc(cl.rejectJoin)))
+	mux.Handle("POST /admin/v1/cluster/isolate-local", cluster(http.HandlerFunc(cl.isolateLocal)))
 	if d.Live != nil {
 		mux.Handle("GET /admin/v1/stream", view(d.Live.Handler(d.Auth)))
 	} else {
@@ -148,11 +152,11 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("GET /admin/v1/rules", view(http.HandlerFunc(ru.list)))
 	mux.Handle("GET /admin/v1/rules/source", view(http.HandlerFunc(ru.source)))
 	mux.Handle("GET /admin/v1/rules/bundle", view(http.HandlerFunc(ru.bundle)))
-	mux.Handle("POST /admin/v1/rules", admin(http.HandlerFunc(ru.add)))
-	mux.Handle("POST /admin/v1/rules/approve", admin(http.HandlerFunc(ru.approve)))
-	mux.Handle("POST /admin/v1/rules/remove", admin(http.HandlerFunc(ru.remove)))
+	mux.Handle("POST /admin/v1/rules", rules(http.HandlerFunc(ru.add)))
+	mux.Handle("POST /admin/v1/rules/approve", rules(http.HandlerFunc(ru.approve)))
+	mux.Handle("POST /admin/v1/rules/remove", rules(http.HandlerFunc(ru.remove)))
 	mux.Handle("GET /admin/v1/rules/assign", view(http.HandlerFunc(ru.assignments)))
-	mux.Handle("POST /admin/v1/rules/assign", admin(http.HandlerFunc(ru.assign)))
+	mux.Handle("POST /admin/v1/rules/assign", rules(http.HandlerFunc(ru.assign)))
 	return wrap(d, httpx.RejectProxied(d.Log)(mux), httpx.AggregatedAccessLog(d.Log, slog.LevelInfo))
 }
 

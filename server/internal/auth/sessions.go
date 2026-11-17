@@ -18,6 +18,8 @@ type Session struct {
 	ID       string    `json:"id"` // mã công khai để hiển thị/thu hồi, không dùng được làm cookie
 	Name     string    `json:"name"`
 	Role     Role      `json:"role"`
+	Level    Level     `json:"level"`             // 0 = quản trị gốc … 7 = chỉ xem
+	Account  string    `json:"account,omitempty"` // tài khoản email (rỗng = đăng nhập bằng mã SSH / token)
 	IP       string    `json:"ip"`
 	Agent    string    `json:"agent"`
 	Created  time.Time `json:"created"`
@@ -37,7 +39,25 @@ func newSessions(now func() time.Time) *sessions {
 	return &sessions{now: now, m: map[string]*Session{}}
 }
 
-func (s *sessions) create(name string, role Role, ip, agent string) (cookie string, sess Session) {
+// create: phiên đăng nhập bằng mã SSH (admin = quản trị gốc, viewer = chỉ xem).
+func (s *sessions) create(name string, role Role, ip, agent string) (string, Session) {
+	lv := LevelView
+	if role == RoleAdmin {
+		lv = LevelRoot
+	}
+	return s.add(&Session{Name: name, Role: role, Level: lv}, ip, agent)
+}
+
+// createLevel: phiên của tài khoản email với mức quyền của tài khoản.
+func (s *sessions) createLevel(name, account string, lv Level, ip, agent string) (string, Session) {
+	role := RoleViewer
+	if lv < LevelView {
+		role = RoleAdmin // có quyền thay đổi ít nhất một thứ
+	}
+	return s.add(&Session{Name: name, Role: role, Level: lv, Account: account}, ip, agent)
+}
+
+func (s *sessions) add(ss *Session, ip, agent string) (cookie string, sess Session) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		panic(err)
@@ -45,10 +65,8 @@ func (s *sessions) create(name string, role Role, ip, agent string) (cookie stri
 	cookie = base64.RawURLEncoding.EncodeToString(b)
 	key := hashKey(cookie)
 	now := s.now()
-	ss := &Session{
-		ID: key[:12], Name: name, Role: role, IP: ip, Agent: agent,
-		Created: now, LastSeen: now, Expires: now.Add(sessionMaxAge),
-	}
+	ss.ID, ss.IP, ss.Agent = key[:12], ip, agent
+	ss.Created, ss.LastSeen, ss.Expires = now, now, now.Add(sessionMaxAge)
 	s.mu.Lock()
 	s.sweep(now) // dọn phiên hết hạn mỗi lần có đăng nhập mới: số phiên trong RAM không tăng mãi
 	s.m[key] = ss
@@ -109,6 +127,20 @@ func (s *sessions) revoke(id string) (Session, bool) {
 		}
 	}
 	return Session{}, false
+}
+
+// revokeAccount cắt mọi phiên của một tài khoản email (đổi quyền, khóa, xóa). Trả số phiên bị cắt.
+func (s *sessions) revokeAccount(account string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for k, ss := range s.m {
+		if ss.Account != "" && ss.Account == account {
+			delete(s.m, k)
+			n++
+		}
+	}
+	return n
 }
 
 // list trả các phiên còn hạn, mới nhất trước.

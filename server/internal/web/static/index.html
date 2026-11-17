@@ -12,22 +12,62 @@
 
 <!-- Đăng nhập -->
 <main id="login" class="login" hidden>
-  <form id="login-form" class="login-card" autocomplete="off">
+  <div class="login-card">
     <div class="brand brand-lg">
       <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="2" y="2" width="28" height="28" rx="8"/><path d="M20.6 11.6c-.8-1.4-2.4-2.3-4.5-2.3-2.6 0-4.3 1.3-4.3 3.1 0 4.3 9 2.4 9 6.7 0 2-1.9 3.3-4.7 3.3-2.3 0-4.1-.9-4.9-2.6"/></svg>
       <div><strong>SCS-System</strong><span>Quản trị hệ thống</span></div>
     </div>
-    <label for="login-code">Mã đăng nhập</label>
-    <input id="login-code" name="code" class="code-input" inputmode="numeric" autocomplete="one-time-code"
-           placeholder="000 000" maxlength="7" required spellcheck="false">
-    <p class="hint">Trên máy server chạy <code>scs-server login-code</code>. Có hai mã: <strong>Admin</strong> (toàn quyền) và <strong>Chỉ xem</strong>. Mã đổi mỗi phút, mỗi mã dùng một lần.</p>
-    <label for="login-name">Tên của bạn</label>
-    <input id="login-name" name="name" placeholder="Ví dụ: An – IT" maxlength="40" required autocomplete="name">
-    <p class="hint">Ghi vào nhật ký để biết ai đã duyệt, khóa máy.</p>
+    <div class="login-tabs" role="tablist" id="login-tabs" hidden>
+      <button type="button" role="tab" data-login-tab="email">Email</button>
+      <button type="button" role="tab" data-login-tab="register">Đăng ký</button>
+      <button type="button" role="tab" data-login-tab="ssh">Mã SSH</button>
+    </div>
     <p id="login-error" class="form-error" hidden></p>
-    <button type="submit" class="btn btn-primary btn-block">Đăng nhập</button>
+    <p id="login-ok" class="form-ok" hidden></p>
+
+    <!-- Đăng nhập bằng tài khoản: mã gửi về email đã đăng ký -->
+    <form id="email-form" class="login-pane" data-pane="email" autocomplete="off" hidden>
+      <label for="email-user">Tên đăng nhập</label>
+      <input id="email-user" maxlength="32" autocomplete="username" spellcheck="false" autocapitalize="off" required>
+      <div id="email-code-f" class="login-pane" hidden>
+        <label for="email-code">Mã gửi về email</label>
+        <input id="email-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" placeholder="000 000" maxlength="7" spellcheck="false">
+        <p class="hint">Hạn 5 phút, chỉ nhập được một lần: nhập sai thì xin mã mới.</p>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="email-btn">Gửi mã về email</button>
+      <button type="button" class="btn btn-block" id="email-resend" hidden>Xin mã khác</button>
+    </form>
+
+    <!-- Đăng ký tài khoản: xác minh email, chờ quản trị gốc duyệt và đặt quyền -->
+    <form id="reg-form" class="login-pane" data-pane="register" autocomplete="off" hidden>
+      <label for="reg-user">Tên đăng nhập</label>
+      <input id="reg-user" maxlength="32" placeholder="vd: an.it" autocomplete="username" spellcheck="false" autocapitalize="off" required>
+      <p class="hint">3–32 ký tự: chữ thường không dấu, số, dấu . _ -</p>
+      <label for="reg-email">Email</label>
+      <input id="reg-email" type="email" maxlength="254" autocomplete="email" spellcheck="false" required>
+      <p class="hint" id="reg-domains"></p>
+      <div id="reg-code-f" class="login-pane" hidden>
+        <label for="reg-code">Mã xác minh gửi về email</label>
+        <input id="reg-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" placeholder="000 000" maxlength="7" spellcheck="false">
+        <p class="hint">Hạn 5 phút, chỉ nhập được một lần.</p>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="reg-btn">Gửi mã xác minh</button>
+      <p class="hint">Sau khi xác minh, quản trị duyệt tài khoản và đặt quyền thì mới đăng nhập được.</p>
+    </form>
+
+    <!-- Quản trị gốc: mã lấy bằng SSH trên máy server -->
+    <form id="login-form" class="login-pane" data-pane="ssh" autocomplete="off">
+      <label for="login-code">Mã đăng nhập</label>
+      <input id="login-code" name="code" class="code-input" inputmode="numeric" autocomplete="one-time-code"
+             placeholder="000 000" maxlength="7" required spellcheck="false">
+      <p class="hint">Trên máy server chạy <code>scs-server login-code</code>. Có hai mã: <strong>Quản trị gốc</strong> (toàn quyền, duyệt tài khoản) và <strong>Chỉ xem</strong>. Mã đổi mỗi phút, mỗi mã dùng một lần.</p>
+      <label for="login-name">Tên của bạn</label>
+      <input id="login-name" name="name" placeholder="Ví dụ: An – IT" maxlength="40" required autocomplete="name">
+      <p class="hint">Ghi vào nhật ký để biết ai đã duyệt, khóa máy.</p>
+      <button type="submit" class="btn btn-primary btn-block">Đăng nhập</button>
+    </form>
     <p class="hint">Phiên mất khi tắt trình duyệt, và tự hết sau tối đa 24 giờ.</p>
-  </form>
+  </div>
 </main>
 
 <!-- Ứng dụng -->
@@ -64,6 +104,8 @@
     </nav>
 
     <div class="sidebar-foot">
+      <a href="#/tai-khoan" data-route="tai-khoan" class="nav-link" id="nav-accounts" hidden>
+        <svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0M17 11l2 2 4-4"/></svg>Tài khoản<span class="badge" id="nav-acct-pending"></span></a>
       <a href="#/he-thong" data-route="he-thong" class="nav-link">
         <svg viewBox="0 0 24 24"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Hệ thống<span class="dot" id="nav-health"></span></a>
       <div class="me" id="me">

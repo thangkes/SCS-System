@@ -253,6 +253,17 @@ func build(cmd string, cfg *config.Config, log *slog.Logger, base app.Deps) ([]r
 	if cmd == "admin" || cmd == "all" {
 		al := log.With("role", "admin")
 		am := auth.NewManager(cfg.AdminToken.Value(), al)
+		if as, ok := base.Registry.(auth.AccountStore); ok {
+			am.Accounts = as
+		}
+		am.EmailDomains = cfg.AccountDomains
+		if cfg.SMTPHost != "" {
+			am.Mail = &auth.SMTP{Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser,
+				Password: cfg.SMTPPassword.Value(), From: cfg.SMTPFrom}
+			al.Info("đăng nhập / đăng ký tài khoản bằng email: bật", "smtp", cfg.SMTPHost, "ten_mien", cfg.AccountDomains)
+		} else {
+			al.Info("chưa khai SCS_SMTP_HOST: tắt đăng nhập bằng email, chỉ đăng nhập bằng mã lấy qua SSH")
+		}
 		// Thông báo tức thời cho web quản trị (luồng SSE, hỏi DB vài giây một lần khi có người xem).
 		base.Live = app.NewLive(app.Deps{Log: log.With("role", "live"), Registry: base.Registry, Rules: base.Rules})
 		rs = append(rs, base.Live.Run)

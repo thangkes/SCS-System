@@ -116,6 +116,19 @@ journalctl -u scs-server -f        # xem log
 sudo bash scripts/install.sh --uninstall   # gỡ dịch vụ (giữ cấu hình, CA, dữ liệu)
 ```
 
+Bật đăng nhập bằng tài khoản email (tùy chọn, xem `server/README.md` mục "Tài khoản và mức quyền"): tạo một Gmail
+riêng để gửi mã, bật xác minh 2 bước, tạo **Mật khẩu ứng dụng**, rồi thêm vào `/etc/scs-server/server.env`:
+
+```bash
+SCS_SMTP_HOST=smtp.gmail.com
+SCS_SMTP_PORT=587
+SCS_SMTP_USER=<gmail-gui-ma>@gmail.com
+SCS_SMTP_PASSWORD=<mat-khau-ung-dung>
+```
+
+Rồi `sudo systemctl restart scs-server`. Trang đăng nhập sẽ có thêm tab **Email** và **Đăng ký**; tài khoản mới phải
+được quản trị gốc (đăng nhập bằng `scs-login-code`) duyệt ở trang **Tài khoản**.
+
 ### 1.6 Cập nhật server
 
 ```bash

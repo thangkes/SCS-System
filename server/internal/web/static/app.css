@@ -158,6 +158,13 @@ label { font-weight: 600; font-size: 13px; }
 .login-card .btn { height: 42px; margin-top: 4px; }
 .hint { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; }
 .form-error { margin: 0; color: var(--bad); font-size: 13px; }
+.form-ok { margin: 0; color: var(--ok); font-size: 13px; }
+.login-pane { display: grid; gap: 10px; }
+.login-pane[hidden] { display: none; }
+.login-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+.login-tabs[hidden] { display: none; }
+.login-tabs button { height: 34px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
+.login-tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
 
 /* ---------- Khung ứng dụng ---------- */
 .brand { display: flex; align-items: center; gap: 10px; }
@@ -430,3 +437,11 @@ tr.current td { background: var(--accent-soft); }
 .btns-col .btn { white-space: nowrap; }
 .nowrap { white-space: nowrap; }
 span.hint { margin: 0; }
+
+/* ---------- Tài khoản ---------- */
+.banner-warn { padding: 12px 18px; background: var(--warn-soft); color: var(--warn); border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+.banner-warn p { margin: 0; font-size: 13px; }
+td.actions { white-space: nowrap; text-align: right; }
+td select { height: 30px; font-size: 13px; max-width: 190px; }
+.level-list { margin: 0; padding: 14px 18px 4px 46px; display: grid; gap: 4px; font-size: 13px; }
+.card > .hint { padding: 0 18px 14px; }

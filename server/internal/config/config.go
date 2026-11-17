@@ -50,6 +50,15 @@ type Config struct {
 	// AdminToken: Bearer token cho script tự động gọi API quản trị (tùy chọn).
 	// Người dùng web đăng nhập bằng mã 6 số, không dùng token này.
 	AdminToken secret
+	// SMTP (SCS_SMTP_*): gửi mã đăng nhập / đăng ký tài khoản qua email. Rỗng = tắt đăng nhập bằng email
+	// (vẫn đăng nhập bằng mã lấy qua SSH). Gmail: smtp.gmail.com:587 + mật khẩu ứng dụng của Gmail gửi.
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUser     string
+	SMTPPassword secret
+	SMTPFrom     string
+	// AccountDomains (SCS_ACCOUNT_DOMAINS): tên miền email được đăng ký tài khoản (mặc định gmail.com; "*" = mọi tên miền).
+	AccountDomains []string
 	// ControlSocket: Unix socket để lệnh `scs-server login-code` lấy mã đăng nhập.
 	ControlSocket string
 	// AgentServers (SCS_AGENT_SERVERS): các địa chỉ agent dùng để gọi server, theo thứ tự ưu tiên
@@ -139,6 +148,13 @@ func Load() (*Config, error) {
 		StorageRoot: get("SCS_STORAGE_ROOT", "./data/devices"),
 		AdminToken:  secret(get("SCS_ADMIN_TOKEN", "")),
 
+		SMTPHost:       get("SCS_SMTP_HOST", ""),
+		SMTPPort:       getInt("SCS_SMTP_PORT", 587, &errs),
+		SMTPUser:       get("SCS_SMTP_USER", ""),
+		SMTPPassword:   secret(get("SCS_SMTP_PASSWORD", "")),
+		SMTPFrom:       get("SCS_SMTP_FROM", ""),
+		AccountDomains: getDomains("SCS_ACCOUNT_DOMAINS", "gmail.com"),
+
 		ControlSocket:    get("SCS_CONTROL_SOCKET", "data/run/control.sock"),
 		AgentServers:     getServers("SCS_AGENT_SERVERS", &errs),
 		AgentServersFile: get("SCS_AGENT_SERVERS_FILE", "data/agent-servers.json"),
@@ -204,6 +220,12 @@ func (c *Config) validate() []error {
 	if c.IngestMaxConns < 1 || c.IngestMaxConnsPerIP < 1 || c.IngestMaxConnsPerIP > c.IngestMaxConns {
 		errs = append(errs, errors.New("SCS_INGEST_MAX_CONNS và SCS_INGEST_MAX_CONNS_PER_IP phải ≥ 1, và theo IP không lớn hơn tổng"))
 	}
+	if c.SMTPHost != "" && (c.SMTPUser == "" || len(c.SMTPPassword) == 0) {
+		errs = append(errs, errors.New("SCS_SMTP_HOST đã khai thì phải khai cả SCS_SMTP_USER và SCS_SMTP_PASSWORD"))
+	}
+	if c.SMTPPort < 1 || c.SMTPPort > 65535 {
+		errs = append(errs, errors.New("SCS_SMTP_PORT không hợp lệ"))
+	}
 	if len(c.AdminToken) > 0 && len(c.AdminToken) < 32 {
 		errs = append(errs, errors.New("SCS_ADMIN_TOKEN phải dài ít nhất 32 ký tự"))
 	}
@@ -225,6 +247,21 @@ func (c *Config) validate() []error {
 		}
 	}
 	return errs
+}
+
+// getDomains đọc danh sách tên miền email, cách nhau dấu phẩy; "*" = không giới hạn (trả nil).
+func getDomains(key, def string) []string {
+	var out []string
+	for _, d := range strings.Split(get(key, def), ",") {
+		d = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(d), "@")))
+		if d == "*" {
+			return nil
+		}
+		if d != "" {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 func get(key, def string) string {

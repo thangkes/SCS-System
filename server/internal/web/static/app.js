@@ -7,10 +7,16 @@
   const THEME_KEY = 'scs-theme';
   const NAME_KEY = 'scs-login-name';
 
-  // Người đang đăng nhập, lấy từ /auth/me: { id, name, role }.
+  // Người đang đăng nhập, lấy từ /auth/me: { id, name, role, level, level_name, account }.
   let me = null;
   let pendingCount = 0; // số máy chờ duyệt
-  const isAdmin = () => !!me && me.role === 'admin';
+  // Mức quyền: số nhỏ = quyền cao, mức trên có mọi quyền của mức dưới (server cũng kiểm bằng 403).
+  const LV = { root: 0, cluster: 1, rules: 2, agents: 3, servers: 4, incidents: 5, agentInfo: 6, view: 7 };
+  const LEVEL_NAMES = ['Quản trị gốc', 'Duyệt cụm server', 'Duyệt và phát hành rule', 'Duyệt agent, phát hành bản cập nhật',
+    'Địa chỉ server gửi cho agent', 'Xác nhận sự cố', 'Chỉnh thông tin agent', 'Chỉ xem'];
+  const myLevel = () => (me && Number.isInteger(me.level) ? me.level : LV.view);
+  const can = (need) => !!me && myLevel() <= need;
+  const isAdmin = () => can(LV.root); // quản trị gốc
 
   // ---------------------------------------------------------------- tiện ích
   const $ = (sel, el = document) => el.querySelector(sel);
@@ -114,8 +120,8 @@
   }
 
 
-  // Thuộc tính cho nút ghi: quyền Chỉ xem thì khóa nút (server cũng chặn bằng 403).
-  const adminOnly = () => (isAdmin() ? '' : ' disabled title="Cần quyền Admin"');
+  // Thuộc tính cho nút ghi: chưa đủ mức quyền thì khóa nút (server cũng chặn bằng 403).
+  const adminOnly = (need = LV.root) => (can(need) ? '' : ` disabled title="Cần quyền: ${esc(LEVEL_NAMES[need])}"`);
 
   // ---------------------------------------------------------------- gọi API
   // Đọc JSON; lỗi thì ném Error mang câu báo của server.
@@ -575,7 +581,7 @@
           ${p.events ? `<span class="sub">${fmtNum(p.events)} sự kiện</span>` : ''}
           ${p.offline_since ? '<span class="pill pill-warn no-dot">đang mất liên lạc</span>' : ''}
           ${!open && p.closed_by ? `<span class="sub">${esc(closedText(p.closed_by))}</span>` : ''}
-          ${open && p.kind === 'alert' ? `<button class="btn btn-sm btn-primary" data-resolve="${p.id}"${adminOnly()}>Đã xử lý</button>
+          ${open && p.kind === 'alert' ? `<button class="btn btn-sm btn-primary" data-resolve="${p.id}"${adminOnly(LV.incidents)}>Đã xử lý</button>
             <span class="sub">${p.severity === 'critical' ? 'chỉ admin đóng' : `tự đóng khi yên ${esc(fmtDur(policy.autoclose_min * 60000))}`}</span>` : ''}
         </div>
         ${all.length ? `<ul class="period-rules">${all.slice(0, TL_RULES).map(ruleLi).join('')}</ul>` : ''}
@@ -652,8 +658,8 @@
         <dt>${d.status === 'approved' ? 'Duyệt' : 'Quyết định'}</dt><dd>${esc(when(d.decided_at))}${d.decided_by ? ` · ${esc(d.decided_by)}` : ''}</dd>
       </dl></section>
       ${d.status === 'approved' ? `<section><h3>Thao tác</h3><div class="drawer-actions">
-        <button class="btn btn-sm" data-dev-action="test-ring"${adminOnly()}>${d.test_ring ? 'Bỏ khỏi nhóm thử' : 'Thêm vào nhóm thử'}</button>
-        <button class="btn btn-sm btn-danger" data-dev-action="revoke"${adminOnly()}>Thu hồi máy</button>
+        <button class="btn btn-sm" data-dev-action="test-ring"${adminOnly(LV.agentInfo)}>${d.test_ring ? 'Bỏ khỏi nhóm thử' : 'Thêm vào nhóm thử'}</button>
+        <button class="btn btn-sm btn-danger" data-dev-action="revoke"${adminOnly(LV.agents)}>Thu hồi máy</button>
       </div><p class="hint">${d.test_ring ? 'Máy đang trong nhóm thử: nhận bản agent mới trước các máy khác.' : 'Máy trong nhóm thử nhận bản agent mới trước để kiểm tra.'}</p></section>` : ''}`);
 
     loadTimeline(d);
@@ -731,7 +737,7 @@
           <td>${esc(ago(new Date(a.last_at)))}</td>
           <td>${a.acked_at
             ? `<span class="sub">${a.kind === 'event' ? 'Đã đóng' : 'Đã xác nhận'} · ${esc(a.acked_by)}</span>`
-            : `<button class="btn btn-sm${a.kind === 'event' ? ' btn-primary' : ''}" data-ack="${a.id}" data-kind="${esc(a.kind)}"${adminOnly()}>${a.kind === 'event' ? 'Đã xử lý' : 'Xác nhận'}</button>
+            : `<button class="btn btn-sm${a.kind === 'event' ? ' btn-primary' : ''}" data-ack="${a.id}" data-kind="${esc(a.kind)}"${adminOnly(LV.incidents)}>${a.kind === 'event' ? 'Đã xử lý' : 'Xác nhận'}</button>
                ${a.kind === 'event' ? `<span class="sub">${a.severity === 'critical' ? 'Chỉ admin đóng' : `Tự đóng khi yên ${esc(fmtDur(state.policy.autoclose_min * 60000))}`}</span>` : ''}`}</td>
         </tr>`).join('') || `<tr><td colspan="7" class="empty">Không có cảnh báo${state.all ? '' : ' đang mở'}.</td></tr>`;
     };
@@ -849,10 +855,10 @@
             ${ipCheck(d)}
           </ul>
           ${d.hostname_ok ? '' : `<label class="store-field">Mã siêu thị (bắt buộc khi hostname sai)
-            <input class="store-input" id="store-${d.id}" data-store-for="${d.id}" inputmode="numeric" maxlength="10" placeholder="12345" autocomplete="off"${adminOnly()}></label>`}
+            <input class="store-input" id="store-${d.id}" data-store-for="${d.id}" inputmode="numeric" maxlength="10" placeholder="12345" autocomplete="off"${adminOnly(LV.agents)}></label>`}
           <div class="req-actions">
-            <button class="btn btn-danger" data-req="reject" data-id="${d.id}"${adminOnly()}>Từ chối</button>
-            <button class="btn btn-primary" data-req="approve" data-id="${d.id}"${adminOnly()}>Duyệt</button>
+            <button class="btn btn-danger" data-req="reject" data-id="${d.id}"${adminOnly(LV.agents)}>Từ chối</button>
+            <button class="btn btn-primary" data-req="approve" data-id="${d.id}"${adminOnly(LV.agents)}>Duyệt</button>
           </div></div>`;
       }).join('')}</div>` : `<div class="card soon">${ICON.check}<h2>Không có yêu cầu nào</h2><p>Không có máy nào đang chờ duyệt.</p></div>`}`;
 
@@ -956,12 +962,111 @@
     body.innerHTML = list.map((s) => `
       <tr class="${s.current ? 'current' : ''}">
         <td><span class="strong">${esc(s.name)}</span>${s.current ? '<span class="sub">phiên này</span>' : ''}</td>
-        <td>${s.role === 'admin' ? '<span class="pill pill-ok no-dot">Admin</span>' : '<span class="pill pill-info no-dot">Chỉ xem</span>'}</td>
+        <td>${levelPill(s.level)}${s.account ? '<span class="sub">tài khoản email</span>' : ''}</td>
         <td class="hide-sm mono">${esc(s.ip)}</td>
         <td class="hide-sm">${esc(fmtTime(new Date(s.created)))}</td>
         <td>${esc(ago(new Date(s.last_seen)))}</td>
         <td>${s.current ? '' : `<button class="btn btn-sm btn-danger" data-revoke="${esc(s.id)}" data-name="${esc(s.name)}">Thu hồi</button>`}</td>
       </tr>`).join('') || '<tr><td colspan="6" class="empty">Không có phiên nào.</td></tr>';
+  }
+
+  function levelPill(l) {
+    const cls = l === LV.root ? 'pill-ok' : l === LV.view ? 'pill-info' : 'pill-warn';
+    return `<span class="pill ${cls} no-dot">${esc(l)} · ${esc(LEVEL_NAMES[l] ?? '?')}</span>`;
+  }
+
+  // ---------------------------------------------------------------- tài khoản (chỉ quản trị gốc)
+  async function refreshAccountCount() {
+    const nav = $('#nav-accounts');
+    nav.hidden = !isAdmin();
+    if (!isAdmin()) return;
+    try {
+      const j = await getJSON('/admin/v1/accounts');
+      const n = (j.accounts || []).filter((a) => a.status === 'pending').length;
+      const b = $('#nav-acct-pending');
+      b.textContent = n ? String(n) : '';
+      b.title = n ? `${n} tài khoản chờ duyệt` : '';
+    } catch { /* bỏ qua */ }
+  }
+
+  function levelSelect(id, cur) {
+    return `<select id="${esc(id)}" aria-label="Mức quyền">${LEVEL_NAMES.map((n, i) => (i === 0 ? '' :
+      `<option value="${i}"${i === (cur || LV.view) ? ' selected' : ''}>${i} · ${esc(n)}</option>`)).join('')}</select>`;
+  }
+
+  async function pageAccounts(soft) {
+    setTitle('Tài khoản');
+    soft = soft === true;
+    if (!isAdmin()) {
+      view.innerHTML = `<div class="card soon">${ICON.warn}<h2>Cần quyền quản trị gốc</h2><p>Chỉ người đăng nhập bằng mã lấy qua SSH trên máy server mới duyệt và đặt quyền tài khoản.</p></div>`;
+      return;
+    }
+    if (!soft) view.innerHTML = '<p class="hint">Đang tải…</p>';
+    let j;
+    try { j = await getJSON('/admin/v1/accounts'); } catch (err) { showLoadError(view, err); return; }
+    const list = j.accounts || [];
+    const pending = list.filter((a) => a.status === 'pending');
+    const others = list.filter((a) => a.status !== 'pending');
+    const t = (v) => (v ? esc(fmtTime(new Date(v))) : '—');
+    view.innerHTML = `
+      ${j.email ? '' : `<div class="card banner-warn"><p><strong>Server chưa cấu hình gửi mail</strong> (SCS_SMTP_* trong server.env): chưa ai đăng ký hay đăng nhập bằng email được.</p></div>`}
+      <div class="card">
+        <div class="card-head"><h2>Chờ duyệt</h2><span class="sub">Đã xác minh email; chọn mức quyền rồi duyệt</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Tên đăng nhập</th><th>Email</th><th class="hide-sm">Đăng ký lúc</th><th>Mức quyền</th><th></th></tr></thead>
+          <tbody id="acct-pending">${pending.map((a) => `<tr>
+            <td class="strong">${esc(a.username)}</td><td class="mono">${esc(a.email)}</td><td class="hide-sm">${t(a.created_at)}</td>
+            <td>${levelSelect(`lv-${a.username}`, LV.view)}</td>
+            <td class="actions"><button class="btn btn-sm btn-danger" data-acct="delete" data-user="${esc(a.username)}">Từ chối</button>
+              <button class="btn btn-sm btn-primary" data-acct="approve" data-user="${esc(a.username)}">Duyệt</button></td></tr>`).join('')
+              || '<tr><td colspan="5" class="empty">Không có tài khoản chờ duyệt.</td></tr>'}</tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Tài khoản</h2><span class="sub">Đổi quyền, khóa hay xóa đều cắt ngay các phiên đang mở của tài khoản đó</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Tên đăng nhập</th><th class="hide-sm">Email</th><th>Trạng thái</th><th>Mức quyền</th><th class="hide-sm">Đăng nhập cuối</th><th></th></tr></thead>
+          <tbody>${others.map((a) => `<tr>
+            <td class="strong">${esc(a.username)}<span class="sub">duyệt bởi ${esc(a.approved_by || '—')}</span></td>
+            <td class="hide-sm mono">${esc(a.email)}</td>
+            <td>${a.status === 'active' ? '<span class="pill pill-ok no-dot">Hoạt động</span>' : '<span class="pill pill-bad no-dot">Đã khóa</span>'}</td>
+            <td>${levelSelect(`lv-${a.username}`, a.level)} <button class="btn btn-sm" data-acct="level" data-user="${esc(a.username)}">Đổi</button></td>
+            <td class="hide-sm">${t(a.last_login)}</td>
+            <td class="actions">${a.status === 'active'
+              ? `<button class="btn btn-sm" data-acct="disable" data-user="${esc(a.username)}">Khóa</button>`
+              : `<button class="btn btn-sm" data-acct="enable" data-user="${esc(a.username)}">Mở khóa</button>`}
+              <button class="btn btn-sm btn-danger" data-acct="delete" data-user="${esc(a.username)}">Xóa</button></td></tr>`).join('')
+              || '<tr><td colspan="6" class="empty">Chưa có tài khoản nào.</td></tr>'}</tbody>
+        </table></div>
+      </div>
+      <div class="card"><div class="card-head"><h2>Các mức quyền</h2><span class="sub">Số nhỏ = quyền cao; mức trên làm được mọi việc của mức dưới</span></div>
+        <ol class="level-list" start="0">${LEVEL_NAMES.map((n, i) => `<li><strong>${esc(n)}</strong>${i === 0 ? ' — chỉ khi đăng nhập bằng mã SSH; duyệt tài khoản, đặt quyền, thu hồi phiên' : ''}</li>`).join('')}</ol>
+        <p class="hint">Tài khoản không cấp quyền cho tài khoản khác được: chỉ quản trị gốc duyệt và đặt quyền.</p></div>`;
+    view.addEventListener('click', onAccountClick);
+    refreshAccountCount();
+  }
+
+  async function onAccountClick(e) {
+    const b = e.target.closest('[data-acct]'); if (!b) return;
+    const user = b.dataset.user, act = b.dataset.acct;
+    const sel = document.getElementById(`lv-${user}`);
+    const level = sel ? Number(sel.value) : 0;
+    const titles = {
+      approve: ['Duyệt tài khoản?', `<p>Tài khoản <strong>${esc(user)}</strong> sẽ đăng nhập được với quyền <strong>${esc(level)} · ${esc(LEVEL_NAMES[level])}</strong>.</p>`, 'Duyệt', false],
+      level: ['Đổi mức quyền?', `<p><strong>${esc(user)}</strong> → <strong>${esc(level)} · ${esc(LEVEL_NAMES[level])}</strong>. Phiên đang mở của tài khoản bị đăng xuất.</p>`, 'Đổi', false],
+      disable: ['Khóa tài khoản?', `<p><strong>${esc(user)}</strong> bị đăng xuất ngay và không đăng nhập được tới khi mở khóa.</p>`, 'Khóa', true],
+      enable: ['Mở khóa tài khoản?', `<p><strong>${esc(user)}</strong> đăng nhập lại được với mức quyền cũ.</p>`, 'Mở khóa', false],
+      delete: ['Xóa tài khoản?', `<p>Xóa hẳn <strong>${esc(user)}</strong>. Muốn dùng lại thì phải đăng ký lại.</p>`, 'Xóa', true],
+    }[act];
+    if (!titles || !(await confirmBox(...titles))) return;
+    b.disabled = true;
+    try {
+      await postJSON(`/admin/v1/accounts/${encodeURIComponent(user)}`, { action: act, level });
+      toast('Đã lưu.');
+    } catch (err) {
+      toast(`Không lưu được: ${err.message}`);
+    }
+    pageAccounts(true);
   }
 
   async function onRevokeClick(e) {
@@ -1024,8 +1129,8 @@
       <div class="card">
         <div class="card-head"><h2>Đang phát hành</h2><span class="sub">Máy nhóm thử theo bản "Nhóm thử" nếu có, các máy khác theo bản "Tất cả máy"</span></div>
         <dl class="kv">
-          <dt>Nhóm thử (${fmtNum(testers.length)} máy)</dt><dd>${ringPill(ro.test)} ${ro.test ? `<button class="btn btn-sm" data-ring-stop="test"${adminOnly()}>Dừng</button>` : ''}</dd>
-          <dt>Tất cả máy</dt><dd>${ringPill(ro.all)} ${ro.all ? `<button class="btn btn-sm" data-ring-stop="all"${adminOnly()}>Dừng</button>` : ''}</dd>
+          <dt>Nhóm thử (${fmtNum(testers.length)} máy)</dt><dd>${ringPill(ro.test)} ${ro.test ? `<button class="btn btn-sm" data-ring-stop="test"${adminOnly(LV.agents)}>Dừng</button>` : ''}</dd>
+          <dt>Tất cả máy</dt><dd>${ringPill(ro.all)} ${ro.all ? `<button class="btn btn-sm" data-ring-stop="all"${adminOnly(LV.agents)}>Dừng</button>` : ''}</dd>
         </dl>
         <p class="hint">Dừng phát hành thì máy giữ bản đang chạy. Bản mới khởi động lỗi 3 lần liền thì agent tự quay về bản cài ban đầu.</p>
       </div>
@@ -1039,8 +1144,8 @@
               <td>${fmtNum(running[r.version] || 0)} máy</td>
               <td class="hide-sm">${esc(fmtTime(new Date(r.created_at)))}</td>
               <td><div class="btns">
-                <button class="btn btn-sm" data-rollout="test" data-version="${esc(r.version)}"${adminOnly()}${ro.test === r.version ? ' disabled' : ''}>Phát hành nhóm thử</button>
-                <button class="btn btn-sm btn-primary" data-rollout="all" data-version="${esc(r.version)}"${adminOnly()}${ro.all === r.version ? ' disabled' : ''}>Phát hành tất cả</button>
+                <button class="btn btn-sm" data-rollout="test" data-version="${esc(r.version)}"${adminOnly(LV.agents)}${ro.test === r.version ? ' disabled' : ''}>Phát hành nhóm thử</button>
+                <button class="btn btn-sm btn-primary" data-rollout="all" data-version="${esc(r.version)}"${adminOnly(LV.agents)}${ro.all === r.version ? ' disabled' : ''}>Phát hành tất cả</button>
               </div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Chưa có bản agent nào. Cập nhật server (menu mục 4) để có bản đầu tiên.</td></tr>'}
           </tbody></table></div>
         <p class="hint">Phiên bản đang chạy trên các máy: ${Object.entries(running).map(([v, n]) => `<span class="mono">${esc(v)}</span> × ${fmtNum(n)}`).join(', ') || '—'}</p>
@@ -1053,10 +1158,10 @@
         <div class="card-head"><h2>Cấu hình agent</h2><span class="sub">Máy &gt; siêu thị &gt; chung. Agent nhận trong vòng 10 phút</span></div>
         <div class="form-grid">
           <label class="field full">Dịch vụ cần báo trạng thái, dùng chung cho mọi máy
-            <input id="cfg-global" placeholder="pos.service, printer.service" value="${esc((globalCfg?.watch_services || []).join(', '))}"${adminOnly()}>
+            <input id="cfg-global" placeholder="pos.service, printer.service" value="${esc((globalCfg?.watch_services || []).join(', '))}"${adminOnly(LV.agentInfo)}>
             <small>Tên dịch vụ systemd, cách nhau dấu phẩy. Để trống và lưu = không theo dõi dịch vụ nào.</small></label>
         </div>
-        <div class="form-actions"><button class="btn btn-primary btn-sm" id="cfg-global-save"${adminOnly()}>Lưu cấu hình chung</button></div>
+        <div class="form-actions"><button class="btn btn-primary btn-sm" id="cfg-global-save"${adminOnly(LV.agentInfo)}>Lưu cấu hình chung</button></div>
         <h3>Ghi đè theo siêu thị / máy</h3>
         <div class="table-wrap"><table>
           <thead><tr><th>Áp cho</th><th>Dịch vụ</th><th class="hide-sm">Sửa lúc</th><th></th></tr></thead>
@@ -1064,17 +1169,17 @@
             <tr><td>${c.scope === 'store' ? `Siêu thị <span class="mono">${esc(c.key)}</span>` : `Máy <span class="mono">${esc(hostOf(c.key))}</span>`}</td>
               <td class="mono">${esc((c.watch_services || []).join(', ') || '(không theo dõi)')}</td>
               <td class="hide-sm">${esc(c.updated_at ? fmtTime(new Date(c.updated_at)) : '')}${c.updated_by ? ` · ${esc(c.updated_by)}` : ''}</td>
-              <td><button class="btn btn-sm btn-danger" data-cfg-del="${esc(c.scope)}" data-key="${esc(c.key)}"${adminOnly()}>Bỏ ghi đè</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Chưa có ghi đè nào.</td></tr>'}
+              <td><button class="btn btn-sm btn-danger" data-cfg-del="${esc(c.scope)}" data-key="${esc(c.key)}"${adminOnly(LV.agentInfo)}>Bỏ ghi đè</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Chưa có ghi đè nào.</td></tr>'}
           </tbody></table></div>
         <div class="form-grid">
           <label class="field">Áp cho
-            <select id="ov-scope"${adminOnly()}><option value="store">Siêu thị (mã)</option><option value="device">Máy (hostname)</option></select></label>
+            <select id="ov-scope"${adminOnly(LV.agentInfo)}><option value="store">Siêu thị (mã)</option><option value="device">Máy (hostname)</option></select></label>
           <label class="field">Mã siêu thị / hostname
-            <input id="ov-key" placeholder="12345 hoặc 12345-TN1-PRI"${adminOnly()}></label>
+            <input id="ov-key" placeholder="12345 hoặc 12345-TN1-PRI"${adminOnly(LV.agentInfo)}></label>
           <label class="field full">Dịch vụ
-            <input id="ov-watch" placeholder="pos.service"${adminOnly()}></label>
+            <input id="ov-watch" placeholder="pos.service"${adminOnly(LV.agentInfo)}></label>
         </div>
-        <div class="form-actions"><button class="btn btn-sm" id="ov-save"${adminOnly()}>Thêm / sửa ghi đè</button></div>
+        <div class="form-actions"><button class="btn btn-sm" id="ov-save"${adminOnly(LV.agentInfo)}>Thêm / sửa ghi đè</button></div>
       </div>
       <div class="card">
         <div class="card-head"><h2>Nhãn máy (chọn rule)</h2><span class="sub">Gộp theo từng nhãn: chung &lt; siêu thị &lt; máy. Agent nhận trong vòng 10 phút</span></div>
@@ -1086,18 +1191,18 @@
             <tr><td>${c.scope === 'global' ? 'Mọi máy' : c.scope === 'store' ? `Siêu thị <span class="mono">${esc(c.key)}</span>` : `Máy <span class="mono">${esc(hostOf(c.key))}</span>`}</td>
               <td class="mono">${esc(fmtLabels(c.labels))}</td>
               <td class="hide-sm">${esc(c.updated_at ? fmtTime(new Date(c.updated_at)) : '')}${c.updated_by ? ` · ${esc(c.updated_by)}` : ''}</td>
-              <td><button class="btn btn-sm btn-danger" data-lb-del="${esc(c.scope)}" data-key="${esc(c.key)}"${adminOnly()}>Bỏ nhãn</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Chưa đặt nhãn nào: agent dùng role / store / os tự suy ra.</td></tr>'}
+              <td><button class="btn btn-sm btn-danger" data-lb-del="${esc(c.scope)}" data-key="${esc(c.key)}"${adminOnly(LV.agentInfo)}>Bỏ nhãn</button></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Chưa đặt nhãn nào: agent dùng role / store / os tự suy ra.</td></tr>'}
           </tbody></table></div>
         <div class="form-grid">
           <label class="field">Áp cho
-            <select id="lb-scope"${adminOnly()}><option value="global">Mọi máy</option><option value="store">Siêu thị (mã)</option><option value="device">Máy (hostname)</option></select></label>
+            <select id="lb-scope"${adminOnly(LV.agentInfo)}><option value="global">Mọi máy</option><option value="store">Siêu thị (mã)</option><option value="device">Máy (hostname)</option></select></label>
           <label class="field">Mã siêu thị / hostname
-            <input id="lb-key" placeholder="bỏ trống khi áp cho mọi máy"${adminOnly()}></label>
+            <input id="lb-key" placeholder="bỏ trống khi áp cho mọi máy"${adminOnly(LV.agentInfo)}></label>
           <label class="field full">Nhãn
-            <input id="lb-labels" placeholder="role=pri, vung=mien-nam" autocomplete="off" spellcheck="false"${adminOnly()}>
+            <input id="lb-labels" placeholder="role=pri, vung=mien-nam" autocomplete="off" spellcheck="false"${adminOnly(LV.agentInfo)}>
             <small>khoa=gia_tri, cách nhau dấu phẩy. Chữ thường, số, . _ -. Lưu sẽ thay toàn bộ nhãn ở cấp này.</small></label>
         </div>
-        <div class="form-actions"><button class="btn btn-sm" id="lb-save"${adminOnly()}>Lưu nhãn</button></div>
+        <div class="form-actions"><button class="btn btn-sm" id="lb-save"${adminOnly(LV.agentInfo)}>Lưu nhãn</button></div>
       </div>`;
 
     const saveCfg = async (scope, key, watch, okMsg) => {
@@ -1202,8 +1307,8 @@
       }
       const approved = (type, id) => Boolean((c.approvals || {})[`${type}:${id}`]);
       const actBtn = (type, m, label, cls) => (approved(type, m.id)
-        ? `<button class="btn btn-sm" data-unapprove="${type}" data-id="${esc(m.id)}" data-name="${esc(m.name)}"${adminOnly()}>Rút xác nhận ${esc(CLUSTER_ACT[type])}</button>`
-        : `<button class="btn btn-sm ${cls || ''}" data-approve="${type}" data-id="${esc(m.id)}" data-name="${esc(m.name)}" data-fp="${esc(m.fingerprint)}"${adminOnly()}>${esc(label)}</button>`);
+        ? `<button class="btn btn-sm" data-unapprove="${type}" data-id="${esc(m.id)}" data-name="${esc(m.name)}"${adminOnly(LV.cluster)}>Rút xác nhận ${esc(CLUSTER_ACT[type])}</button>`
+        : `<button class="btn btn-sm ${cls || ''}" data-approve="${type}" data-id="${esc(m.id)}" data-name="${esc(m.name)}" data-fp="${esc(m.fingerprint)}"${adminOnly(LV.cluster)}>${esc(label)}</button>`);
       const waiting = Object.keys(c.approvals || {});
       const equiv = Object.entries(c.equivocators || {});
       page.innerHTML = `
@@ -1232,7 +1337,7 @@
                   ${m.isolated_local ? '<br><span class="pill pill-warn no-dot">Cô lập tại node này</span>' : ''}</td>
                 <td class="hide-sm mono">${m.addrs.cluster.map(esc).join('<br>')}</td>
                 <td>${m.self ? '' : `<div class="btns btns-col">
-                  <button class="btn btn-sm" data-local="${m.isolated_local ? 'off' : 'on'}" data-id="${esc(m.id)}" data-name="${esc(m.name)}"${adminOnly()}>${m.isolated_local ? 'Nối lại tại đây' : 'Cô lập tại đây'}</button>
+                  <button class="btn btn-sm" data-local="${m.isolated_local ? 'off' : 'on'}" data-id="${esc(m.id)}" data-name="${esc(m.name)}"${adminOnly(LV.cluster)}>${m.isolated_local ? 'Nối lại tại đây' : 'Cô lập tại đây'}</button>
                   ${m.status === 'active' ? actBtn('member.isolate', m, 'Cô lập toàn cụm', 'btn-danger') : actBtn('member.restore', m, 'Bỏ cô lập')}
                   ${actBtn('member.remove', m, 'Gỡ khỏi cụm')}
                 </div>`}</td></tr>`).join('')}
@@ -1252,8 +1357,8 @@
                 <td class="hide-sm">${esc(fmtTime(new Date(j.received_at)))}${j.via ? '<br>qua node khác' : ''}</td>
                 <td><div class="btns">
                   ${j.approved ? '<span class="pill pill-ok no-dot">Đã duyệt trên node này</span>'
-    : `<button class="btn btn-sm btn-primary" data-approve="member.add" data-id="${esc(j.member.id)}" data-name="${esc(j.member.name)}" data-fp="${esc(j.fingerprint)}"${adminOnly()}>Duyệt</button>`}
-                  <button class="btn btn-sm" data-reject="${esc(j.member.id)}" data-name="${esc(j.member.name)}"${adminOnly()}>Từ chối</button>
+    : `<button class="btn btn-sm btn-primary" data-approve="member.add" data-id="${esc(j.member.id)}" data-name="${esc(j.member.name)}" data-fp="${esc(j.fingerprint)}"${adminOnly(LV.cluster)}>Duyệt</button>`}
+                  <button class="btn btn-sm" data-reject="${esc(j.member.id)}" data-name="${esc(j.member.name)}"${adminOnly(LV.cluster)}>Từ chối</button>
                 </div></td></tr>`).join('') || '<tr><td colspan="5" class="empty">Không có server nào đang xin vào cụm.</td></tr>'}
             </tbody></table></div>
         </div>
@@ -1325,9 +1430,9 @@
           <td class="num">${fmtNum(a.using)}</td>
           <td class="hide-sm">${esc(a.added ? fmtTime(new Date(a.added)) : '')}</td>
           <td><div class="btns">
-            <button class="btn btn-sm" data-act="up" data-url="${esc(a.url)}"${i === 0 ? ' disabled' : adminOnly()} aria-label="Lên">↑</button>
-            <button class="btn btn-sm" data-act="down" data-url="${esc(a.url)}"${i === inList.length - 1 ? ' disabled' : adminOnly()} aria-label="Xuống">↓</button>
-            <button class="btn btn-sm btn-danger" data-act="remove" data-url="${esc(a.url)}" data-using="${a.using}"${inList.length === 1 ? ' disabled title="Phải còn ít nhất một địa chỉ"' : adminOnly()}>Gỡ</button>
+            <button class="btn btn-sm" data-act="up" data-url="${esc(a.url)}"${i === 0 ? ' disabled' : adminOnly(LV.servers)} aria-label="Lên">↑</button>
+            <button class="btn btn-sm" data-act="down" data-url="${esc(a.url)}"${i === inList.length - 1 ? ' disabled' : adminOnly(LV.servers)} aria-label="Xuống">↓</button>
+            <button class="btn btn-sm btn-danger" data-act="remove" data-url="${esc(a.url)}" data-using="${a.using}"${inList.length === 1 ? ' disabled title="Phải còn ít nhất một địa chỉ"' : adminOnly(LV.servers)}>Gỡ</button>
           </div></td></tr>`;
       page.innerHTML = `
         ${s.file_error ? `<div class="card soon">${ICON.warn}<h2>File danh sách bị lỗi</h2><p class="mono">${esc(s.file_error)}</p>
@@ -1347,14 +1452,14 @@
           <div class="card-body">
             <div class="form-grid">
               <label class="field">Địa chỉ mới
-                <input id="sv-url" placeholder="https://ten.ddns.net:16222" autocomplete="off" spellcheck="false"${adminOnly()}>
+                <input id="sv-url" placeholder="https://ten.ddns.net:16222" autocomplete="off" spellcheck="false"${adminOnly(LV.servers)}>
                 <small>Dạng https://&lt;IP hoặc tên miền&gt;:&lt;cổng&gt;. IP WAN / tên miền dùng cổng chuyển tiếp trên router về 6222.</small></label>
               <label class="field">Ghi chú
-                <input id="sv-note" maxlength="80" placeholder="Địa điểm mới - mạng VNPT"${adminOnly()}></label>
+                <input id="sv-note" maxlength="80" placeholder="Địa điểm mới - mạng VNPT"${adminOnly(LV.servers)}></label>
             </div>
             <div class="form-actions">
-              <label class="check"><input type="checkbox" id="sv-first"${adminOnly()}> Đặt lên đầu</label>
-              <button class="btn btn-primary btn-sm" id="sv-add"${adminOnly()}>Thêm địa chỉ</button>
+              <label class="check"><input type="checkbox" id="sv-first"${adminOnly(LV.servers)}> Đặt lên đầu</label>
+              <button class="btn btn-primary btn-sm" id="sv-add"${adminOnly(LV.servers)}>Thêm địa chỉ</button>
             </div>
           </div>
         </div>
@@ -1475,7 +1580,7 @@
         // "Cần ký lại" vì sửa nguồn mà giữ version thì không ký được (phải tăng version); vì đổi khóa thì ký lại được.
         const edited = /đã sửa sau khi ký/.test(e.error || '');
         const canSign = !!e.file && (e.status === 'chua-ky' || (e.status === 'can-ky-lai' && !edited));
-        const signAttr = j.signing ? adminOnly() : ' disabled title="Server chưa có khóa phát hành"';
+        const signAttr = j.signing ? adminOnly(LV.rules) : ' disabled title="Server chưa có khóa phát hành"';
         const bundleURL = `/admin/v1/rules/bundle?name=${encodeURIComponent(e.name)}&version=${encodeURIComponent(e.version)}`;
         return `<tr>
           <td><span class="strong">${esc(e.name || '(không đọc được)')}</span><br><span class="mono hint">${esc(e.version || e.file)}</span></td>
@@ -1488,7 +1593,7 @@
             <button class="btn btn-sm" data-act="view" data-file="${esc(e.file)}" data-key="${esc(ruleKey(e))}">Xem</button>
             ${canSign ? `<button class="btn btn-sm btn-primary" data-act="approve" data-file="${esc(e.file)}"${signAttr}>Duyệt &amp; ký</button>` : ''}
             ${e.bundle && e.status === 'da-ky' ? `<a class="btn btn-sm" href="${esc(bundleURL)}" download>Tải bản ký</a>` : ''}
-            <button class="btn btn-sm btn-danger" data-act="remove" data-file="${esc(e.file)}" data-name="${esc(e.name)}" data-version="${esc(e.version)}" data-bundle="${e.bundle ? 1 : 0}"${adminOnly()}>Xóa</button>
+            <button class="btn btn-sm btn-danger" data-act="remove" data-file="${esc(e.file)}" data-name="${esc(e.name)}" data-version="${esc(e.version)}" data-bundle="${e.bundle ? 1 : 0}"${adminOnly(LV.rules)}>Xóa</button>
           </div></td></tr>`;
       };
       const only = j.cluster_only || [];
@@ -1532,11 +1637,11 @@
           <div class="card-body">
             <div class="form-grid">
               <label class="field">File rule
-                <input type="file" id="ru-file" accept=".yaml,.yml"${adminOnly()}>
+                <input type="file" id="ru-file" accept=".yaml,.yml"${adminOnly(LV.rules)}>
                 <small>Server kiểm cú pháp, giới hạn và chạy tests của từng rule. Hợp lệ thì vào nhóm "Chưa ký".
                   Bộ đã ký mà muốn sửa: tăng <span class="mono">version</span> rồi thêm lại.</small></label>
             </div>
-            <div class="form-actions"><button class="btn btn-primary btn-sm" id="ru-add"${adminOnly()}>Kiểm tra và thêm</button></div>
+            <div class="form-actions"><button class="btn btn-primary btn-sm" id="ru-add"${adminOnly(LV.rules)}>Kiểm tra và thêm</button></div>
             <p class="hint">Rule chỉ đọc log và khớp regex, không chạy được lệnh trên máy. Agent hiện chưa tự tải bộ rule:
               tải bản ký, chép sang máy rồi chạy <span class="mono">sudo scs-agent rules -install FILE.json</span> (server tự phát bộ rule là mốc M7).
               Thư mục kho trên server: <span class="mono">${esc(j.dir)}</span>.</p>
@@ -1574,20 +1679,20 @@
       const scopeTxt = (a) => (a.scope === 'global' ? 'Tất cả máy' : a.scope === 'store' ? `Siêu thị ${esc(a.key)}` : `Máy ${esc(hostOf(a.key))}`);
       const rows = (state.assign || []).map((a) => `<tr><td>${scopeTxt(a)}</td><td class="mono">${esc(a.rule_set)}</td>
         <td class="hide-sm">${a.updated_at ? esc(fmtTime(new Date(a.updated_at))) : ''}${a.updated_by ? ` · ${esc(a.updated_by)}` : ''}</td>
-        <td><button class="btn btn-sm btn-danger" data-unassign="${esc(a.scope)}" data-key="${esc(a.key)}"${adminOnly()}>Bỏ gán</button></td></tr>`).join('');
+        <td><button class="btn btn-sm btn-danger" data-unassign="${esc(a.scope)}" data-key="${esc(a.key)}"${adminOnly(LV.rules)}>Bỏ gán</button></td></tr>`).join('');
       return `<div class="card">
         <div class="card-head"><h2>Áp dụng bộ rule cho máy</h2><span class="sub">Máy &gt; siêu thị &gt; tất cả máy. Agent nhận trong vòng 10 phút</span></div>
         <div class="table-wrap"><table><thead><tr><th>Cấp</th><th>Bộ rule</th><th class="hide-sm">Gán lúc · bởi</th><th></th></tr></thead>
           <tbody>${rows || '<tr><td colspan="4" class="empty">Chưa gán bộ nào: agent giữ bộ đang cài (nếu có).</td></tr>'}</tbody></table></div>
         <div class="card-body">
           ${signed.length ? `<div class="form-grid">
-            <label class="field">Bộ rule (đã ký)<select id="as-set"${adminOnly()}>${signed.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join('')}</select></label>
-            <label class="field">Áp dụng cho<select id="as-scope"${adminOnly()}>
+            <label class="field">Bộ rule (đã ký)<select id="as-set"${adminOnly(LV.rules)}>${signed.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join('')}</select></label>
+            <label class="field">Áp dụng cho<select id="as-scope"${adminOnly(LV.rules)}>
               <option value="global">Tất cả máy</option><option value="store">Một siêu thị</option><option value="device">Một máy</option></select></label>
-            <label class="field" id="as-store-f" hidden>Mã siêu thị<input id="as-store" inputmode="numeric" placeholder="12345"${adminOnly()}></label>
-            <label class="field" id="as-dev-f" hidden>Máy<select id="as-dev"${adminOnly()}>${(state.devices || []).map((d) => `<option value="${esc(d.id)}">${esc(d.hostname)}</option>`).join('')}</select></label>
+            <label class="field" id="as-store-f" hidden>Mã siêu thị<input id="as-store" inputmode="numeric" placeholder="12345"${adminOnly(LV.rules)}></label>
+            <label class="field" id="as-dev-f" hidden>Máy<select id="as-dev"${adminOnly(LV.rules)}>${(state.devices || []).map((d) => `<option value="${esc(d.id)}">${esc(d.hostname)}</option>`).join('')}</select></label>
           </div>
-          <div class="form-actions"><button class="btn btn-primary btn-sm" id="as-save"${adminOnly()}>Áp dụng</button></div>`
+          <div class="form-actions"><button class="btn btn-primary btn-sm" id="as-save"${adminOnly(LV.rules)}>Áp dụng</button></div>`
           : '<p class="hint">Chưa có bộ nào đã ký: thêm file rule rồi bấm "Duyệt &amp; ký" trước.</p>'}
           <p class="hint">Máy nhận bộ mới ở heartbeat kế tiếp, tự tải từ server, kiểm chữ ký bằng khóa phát hành rồi cài và quét log
             theo bộ đó; cột "Máy đang dùng" và trang Máy cập nhật sau đó. Bỏ gán thì máy giữ bộ đang cài.</p>
@@ -1723,6 +1828,7 @@
     'cap-nhat': pageAgent,
     cum: pageCluster,
     'dia-chi': pageServers,
+    'tai-khoan': pageAccounts,
   };
 
   function route() {
@@ -1743,18 +1849,134 @@
   }
 
   // ---------------------------------------------------------------- đăng nhập
+  const USER_KEY = 'scs-login-user';
+  let emailOn = false; // server có gửi mail không (GET /auth/options)
+  let loginTab = 'ssh';
+
+  function loginMsg(err, ok) {
+    const e = $('#login-error'), o = $('#login-ok');
+    e.hidden = !err; e.textContent = err || '';
+    o.hidden = !ok; o.textContent = ok || '';
+  }
+
+  function setLoginTab(tab) {
+    if (!emailOn) tab = 'ssh';
+    loginTab = tab;
+    $$('[data-login-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.loginTab === tab)));
+    $$('[data-pane]').forEach((f) => { f.hidden = f.dataset.pane !== tab; });
+    const focus = { email: '#email-user', register: '#reg-user', ssh: '#login-code' }[tab];
+    $(focus).focus();
+  }
+
+  function resetEmailForms() {
+    $('#email-code-f').hidden = true; $('#email-code').value = '';
+    $('#email-btn').textContent = 'Gửi mã về email'; $('#email-resend').hidden = true;
+    $('#email-user').readOnly = false;
+    $('#reg-code-f').hidden = true; $('#reg-code').value = '';
+    $('#reg-btn').textContent = 'Gửi mã xác minh';
+    $('#reg-user').readOnly = false; $('#reg-email').readOnly = false;
+  }
+
   function showLogin(message) {
     stopLive();
     $('#app').hidden = true;
     $('#login').hidden = false;
-    const err = $('#login-error');
-    err.hidden = !message;
-    err.textContent = message || '';
+    loginMsg(message, '');
     $('#login-code').value = '';
     const name = $('#login-name');
     if (!name.value) name.value = local.get(NAME_KEY) || '';
-    $('#login-code').focus();
+    const user = $('#email-user');
+    if (!user.value) user.value = local.get(USER_KEY) || '';
+    resetEmailForms();
+    setLoginTab(loginTab);
   }
+
+  async function loadLoginOptions() {
+    try {
+      const j = await (await api('/auth/options')).json();
+      emailOn = !!j.email;
+      $('#reg-domains').textContent = j.domains && j.domains.length ? `Chỉ nhận email @${j.domains.join(', @')}.` : '';
+    } catch { emailOn = false; }
+    $('#login-tabs').hidden = !emailOn;
+    if (emailOn && !local.get(NAME_KEY)) loginTab = 'email';
+    if (emailOn && local.get(USER_KEY)) loginTab = 'email';
+  }
+
+  // POST JSON cho trang đăng nhập: trả { ok, j } với câu báo lỗi của server.
+  async function loginPost(path, body) {
+    const r = await api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    let j = {};
+    try { j = await r.json(); } catch { /* bỏ qua */ }
+    const cap = (t) => t.charAt(0).toUpperCase() + t.slice(1) + (/[.!?)]$/.test(t) ? '' : '.');
+    return { ok: r.ok, j, err: r.ok ? '' : cap(j.error || `Server lỗi (${r.status})`) };
+  }
+
+  $$('[data-login-tab]').forEach((b) => b.addEventListener('click', () => { loginMsg('', ''); setLoginTab(b.dataset.loginTab); }));
+
+  $('#email-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#email-btn');
+    const username = $('#email-user').value.trim().toLowerCase();
+    if (!username) return;
+    btn.disabled = true;
+    try {
+      if ($('#email-code-f').hidden) {
+        const r = await loginPost('/auth/email/code', { username });
+        if (!r.ok) { loginMsg(r.err, ''); return; }
+        local.set(USER_KEY, username);
+        loginMsg('', r.j.message);
+        $('#email-user').readOnly = true;
+        $('#email-code-f').hidden = false; $('#email-resend').hidden = false;
+        btn.textContent = 'Đăng nhập';
+        $('#email-code').focus();
+        return;
+      }
+      const code = $('#email-code').value.replace(/\D/g, '');
+      if (code.length !== 6) { loginMsg('Mã gồm 6 chữ số.', ''); return; }
+      const r = await loginPost('/auth/email/login', { username, code });
+      if (!r.ok) { resetEmailForms(); loginMsg(r.err, ''); return; }
+      showApp();
+    } catch {
+      loginMsg('Không kết nối được server.', '');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  $('#email-resend').addEventListener('click', () => { resetEmailForms(); loginMsg('', ''); $('#email-btn').click(); });
+
+  $('#reg-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#reg-btn');
+    const username = $('#reg-user').value.trim().toLowerCase();
+    const email = $('#reg-email').value.trim().toLowerCase();
+    if (!username || !email) return;
+    btn.disabled = true;
+    try {
+      if ($('#reg-code-f').hidden) {
+        const r = await loginPost('/auth/register', { username, email });
+        if (!r.ok) { loginMsg(r.err, ''); return; }
+        loginMsg('', r.j.message);
+        $('#reg-user').readOnly = true; $('#reg-email').readOnly = true;
+        $('#reg-code-f').hidden = false;
+        btn.textContent = 'Xác minh';
+        $('#reg-code').focus();
+        return;
+      }
+      const code = $('#reg-code').value.replace(/\D/g, '');
+      if (code.length !== 6) { loginMsg('Mã gồm 6 chữ số.', ''); return; }
+      const r = await loginPost('/auth/register/verify', { username, code });
+      resetEmailForms();
+      if (!r.ok) { loginMsg(r.err, ''); return; }
+      local.set(USER_KEY, username);
+      $('#email-user').value = username;
+      $('#reg-form').reset();
+      loginMsg('', r.j.message);
+    } catch {
+      loginMsg('Không kết nối được server.', '');
+    } finally {
+      btn.disabled = false;
+    }
+  });
 
   // Hỏi server phiên hiện tại; null nếu chưa đăng nhập hoặc phiên đã hết.
   async function fetchMe() {
@@ -1772,8 +1994,10 @@
     $('#login').hidden = true;
     $('#app').hidden = false;
     $('#me-name').textContent = me.name;
-    $('#me-role').textContent = isAdmin() ? 'Admin' : 'Chỉ xem';
-    $('#me-role').className = `pill no-dot ${isAdmin() ? 'pill-ok' : 'pill-info'}`;
+    $('#me-role').textContent = me.level_name || LEVEL_NAMES[myLevel()];
+    $('#me-role').title = `Mức quyền ${myLevel()}${me.account ? ' · tài khoản email' : ' · mã SSH'}`;
+    $('#me-role').className = `pill no-dot ${isAdmin() ? 'pill-ok' : myLevel() === LV.view ? 'pill-info' : 'pill-warn'}`;
+    refreshAccountCount();
     refreshPendingCount();
     refreshAlertCount();
     refreshRuleCount();
@@ -1851,5 +2075,5 @@
   const savedTheme = local.get(THEME_KEY);
   if (savedTheme === 'light' || savedTheme === 'dark') document.documentElement.dataset.theme = savedTheme;
 
-  fetchMe().then((m) => { if (m) showApp(); else showLogin(''); });
+  loadLoginOptions().then(fetchMe).then((m) => { if (m) showApp(); else showLogin(''); });
 })();

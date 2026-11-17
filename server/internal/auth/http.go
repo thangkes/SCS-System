@@ -28,11 +28,17 @@ type Manager struct {
 	// apiToken (SCS_ADMIN_TOKEN) cho script tự động gọi API bằng Bearer; giao diện web không dùng.
 	apiToken [32]byte
 	hasToken bool
+
+	// Tài khoản đăng nhập bằng mã gửi qua email (nil = tắt).
+	Accounts     AccountStore
+	Mail         Mailer
+	EmailDomains []string // tên miền email được đăng ký (rỗng = mọi tên miền)
+	email        *emailAuth
 }
 
 // NewManager tạo bộ đăng nhập. apiToken rỗng thì không nhận Bearer token.
 func NewManager(apiToken string, log *slog.Logger) *Manager {
-	m := &Manager{Codes: NewCodes(), lim: newLimiter(time.Now), sess: newSessions(time.Now), log: log}
+	m := &Manager{Codes: NewCodes(), lim: newLimiter(time.Now), sess: newSessions(time.Now), log: log, email: newEmailAuth()}
 	if apiToken != "" {
 		m.apiToken, m.hasToken = sha256.Sum256([]byte(apiToken)), true
 	}
@@ -65,7 +71,7 @@ func (m *Manager) Identify(r *http.Request) (Session, bool) {
 	if tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok && m.hasToken {
 		got := sha256.Sum256([]byte(tok))
 		if subtle.ConstantTimeCompare(got[:], m.apiToken[:]) == 1 {
-			return Session{ID: "api-token", Name: "API token", Role: RoleAdmin}, true
+			return Session{ID: "api-token", Name: "API token", Role: RoleAdmin, Level: LevelRoot}, true
 		}
 		return Session{}, false
 	}
@@ -76,9 +82,17 @@ func (m *Manager) Identify(r *http.Request) (Session, bool) {
 	return m.sess.get(c.Value, clientIP(r))
 }
 
-// Require chỉ cho qua người đã đăng nhập; need = RoleAdmin thì phiên Chỉ xem bị 403.
-// Request thay đổi dữ liệu còn phải đến từ chính trang này (chống CSRF).
+// Require (cũ): RoleViewer = mọi người đã đăng nhập, RoleAdmin = quản trị gốc.
 func (m *Manager) Require(need Role) func(http.Handler) http.Handler {
+	if need == RoleAdmin {
+		return m.RequireLevel(LevelRoot)
+	}
+	return m.RequireLevel(LevelView)
+}
+
+// RequireLevel chỉ cho qua phiên có mức quyền đủ (số mức <= need).
+// Request thay đổi dữ liệu còn phải đến từ chính trang này (chống CSRF).
+func (m *Manager) RequireLevel(need Level) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !safeMethod(r.Method) && !sameOrigin(r) {
@@ -90,8 +104,8 @@ func (m *Manager) Require(need Role) func(http.Handler) http.Handler {
 				httpx.WriteError(w, http.StatusUnauthorized, "chưa đăng nhập hoặc phiên đã hết hạn")
 				return
 			}
-			if need == RoleAdmin && s.Role != RoleAdmin {
-				httpx.WriteError(w, http.StatusForbidden, "cần quyền Admin")
+			if !s.Level.Allows(need) {
+				httpx.WriteError(w, http.StatusForbidden, "cần quyền: "+LevelNames[need])
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, s)))
@@ -104,8 +118,17 @@ func (m *Manager) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/login", m.login)
 	mux.HandleFunc("POST /auth/logout", m.logout)
 	mux.HandleFunc("GET /auth/me", m.me)
-	mux.Handle("GET /admin/v1/sessions", m.Require(RoleAdmin)(http.HandlerFunc(m.listSessions)))
-	mux.Handle("POST /admin/v1/sessions/{id}/revoke", m.Require(RoleAdmin)(http.HandlerFunc(m.revokeSession)))
+	mux.Handle("GET /admin/v1/sessions", m.RequireLevel(LevelRoot)(http.HandlerFunc(m.listSessions)))
+	mux.Handle("POST /admin/v1/sessions/{id}/revoke", m.RequireLevel(LevelRoot)(http.HandlerFunc(m.revokeSession)))
+	m.mountEmail(mux)
+}
+
+func setSessionCookie(w http.ResponseWriter, r *http.Request, cookie string) {
+	http.SetCookie(w, &http.Cookie{
+		Name: CookieName, Value: cookie, Path: "/",
+		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode,
+		// Không đặt MaxAge/Expires: tắt trình duyệt là mất; server tự cắt sau 24 giờ.
+	})
 }
 
 type loginReq struct {
@@ -169,11 +192,7 @@ func (m *Manager) login(w http.ResponseWriter, r *http.Request) {
 	m.lim.refund(ip) // đúng mã: trả lại lượt đã đặt
 
 	cookie, s := m.sess.create(name, Role(role), ip, truncate(r.UserAgent(), 160))
-	http.SetCookie(w, &http.Cookie{
-		Name: CookieName, Value: cookie, Path: "/",
-		HttpOnly: true, Secure: r.TLS != nil, SameSite: http.SameSiteStrictMode,
-		// Không đặt MaxAge/Expires: tắt trình duyệt là mất; server tự cắt sau 24 giờ.
-	})
+	setSessionCookie(w, r, cookie)
 	// "quyen" chứ không phải "role": logger đã có khóa "role" là vai trò tiến trình (admin/ingest).
 	m.log.Info("đăng nhập web quản trị", "name", s.Name, "quyen", s.Role, "ip", ip, "session", s.ID)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "name": s.Name, "role": s.Role, "expires": s.Expires})
@@ -200,7 +219,8 @@ func (m *Manager) me(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "chưa đăng nhập")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "id": s.ID, "name": s.Name, "role": s.Role, "expires": s.Expires})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "id": s.ID, "name": s.Name, "role": s.Role,
+		"level": s.Level, "level_name": LevelNames[s.Level], "account": s.Account, "expires": s.Expires})
 }
 
 func (m *Manager) listSessions(w http.ResponseWriter, r *http.Request) {

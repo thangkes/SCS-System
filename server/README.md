@@ -239,7 +239,7 @@ scs-server login-code          # hoặc: go run ./cmd/scs-server login-code
 scs-server login-code -watch   # tự in mã mới mỗi phút, Ctrl+C để thoát
 ```
 
-- Hai mã: **Admin** (toàn quyền) và **Chỉ xem** (mọi thao tác ghi bị chặn 403). Hai mã không bao giờ trùng nhau.
+- Hai mã: **Admin** (= quản trị gốc, mức 0, toàn quyền) và **Chỉ xem** (mức 7, mọi thao tác ghi bị chặn 403). Hai mã không bao giờ trùng nhau.
 - Mã đổi đầu mỗi phút, mã cũ còn dùng được thêm 10 giây. Mỗi mã dùng một lần; dùng mã Admin thì chỉ mã Admin đổi.
 - Sai 5 lần thì đổi mã sớm. Mỗi IP sai tối đa 10 lần / 15 phút; toàn hệ thống 20 lần / 5 phút thì khóa đăng nhập
   5 phút, bị khóa lại liên tiếp thì gấp đôi (10, 20, 40, tối đa 60 phút), yên 1 giờ thì về 5 phút.
@@ -253,8 +253,42 @@ scs-server login-code -watch   # tự in mã mới mỗi phút, Ctrl+C để tho
 - Không chạy web quản trị sau reverse proxy và không chuyển tiếp cổng 7222 trên máy server: danh sách
   `SCS_ADMIN_ALLOW` xét IP nguồn, mà mọi thứ chạy trên máy server đều mang IP 127.0.0.1. Request có header
   của proxy (`X-Forwarded-For`, `Forwarded`, ...) bị trả 403.
-- Tên nhập lúc đăng nhập được ghi vào log (đăng nhập, đăng xuất, thu hồi phiên). Admin xem và thu hồi phiên ở trang **Hệ thống**.
+- Tên nhập lúc đăng nhập được ghi vào log (đăng nhập, đăng xuất, thu hồi phiên). Quản trị gốc xem và thu hồi phiên ở trang **Hệ thống**.
 - `SCS_ADMIN_TOKEN` (tùy chọn) chỉ dành cho script gọi API bằng `Authorization: Bearer`, có quyền Admin.
+
+### Tài khoản và mức quyền (đăng nhập bằng mã gửi qua email)
+
+Ngoài mã lấy qua SSH, người dùng có thể đăng ký tài khoản bằng email (mặc định chỉ nhận `@gmail.com`,
+`SCS_ACCOUNT_DOMAINS`). Không có mật khẩu: mỗi lần đăng nhập server gửi một mã 6 số về email đã đăng ký.
+
+| Mức | Quyền | Thao tác trên web / API |
+|---|---|---|
+| 0 | Quản trị gốc | Chỉ khi đăng nhập bằng mã **Admin** lấy qua SSH (hoặc Bearer `SCS_ADMIN_TOKEN`). Duyệt tài khoản, đặt / đổi mức quyền, khóa, xóa; xem và thu hồi phiên |
+| 1 | Duyệt cụm server | Duyệt / rút xác nhận quyết định cụm, duyệt server xin vào cụm, cô lập tại chỗ |
+| 2 | Duyệt và phát hành rule | Thêm, ký duyệt, xóa bộ rule; gán bộ rule cho máy |
+| 3 | Duyệt agent, phát hành bản cập nhật | Duyệt / từ chối / thu hồi máy; phát hành bản agent |
+| 4 | Địa chỉ server gửi cho agent | Thêm / gỡ / sắp xếp địa chỉ server |
+| 5 | Xác nhận sự cố | Xác nhận cảnh báo, đóng sự cố |
+| 6 | Chỉnh thông tin agent | Cấu hình dịch vụ theo dõi, nhãn máy, nhóm thử |
+| 7 | Chỉ xem | Chỉ đọc (mã **Chỉ xem** lấy qua SSH cũng là mức này) |
+
+Số nhỏ hơn là quyền cao hơn, và mức trên làm được mọi việc của các mức dưới (mức 3 cũng xác nhận được sự cố).
+
+- **Đăng ký:** tab **Đăng ký** → tên đăng nhập + email → mã xác minh gửi về email → nhập mã → tài khoản **chờ duyệt**.
+  Quản trị gốc vào trang **Tài khoản**, chọn mức 1–7 rồi **Duyệt** (người đăng ký nhận mail báo).
+- **Đăng nhập:** tab **Email** → tên đăng nhập → **Gửi mã về email** → nhập mã.
+- Mã hạn **5 phút** và **chỉ nhập được một lần**: nhập sai là mã bị hủy, phải xin mã mới. Mã chỉ nằm trong RAM
+  (lưu dạng băm), không ghi vào DB hay log.
+- Tài khoản không cấp quyền cho tài khoản khác được, kể cả mức 1. Đổi mức, khóa hay xóa tài khoản thì
+  mọi phiên đang mở của tài khoản đó bị cắt ngay.
+- Chống dò và chống spam mail: server luôn trả cùng một câu dù tên / email có tồn tại hay không; mỗi tài khoản
+  xin tối đa 3 mã / 15 phút, mỗi IP 10 mã / 15 phút và 20 lần nhập mã / 15 phút, đăng ký 5 lần / giờ / IP;
+  tối đa 50 tài khoản chờ duyệt. Mail gửi ngầm (tối đa 4 mail cùng lúc).
+- Cấu hình gửi mail: `SCS_SMTP_HOST/PORT/USER/PASSWORD/FROM` (bắt buộc STARTTLS, TLS 1.2+). Gmail:
+  `smtp.gmail.com`, cổng `587`, nên dùng một Gmail riêng chỉ để gửi, bật xác minh 2 bước và tạo **Mật khẩu ứng dụng**.
+  Không khai SMTP thì tab Email / Đăng ký bị ẩn, chỉ đăng nhập được bằng mã SSH.
+- Bảng `accounts` (migration 0007): tên, email, trạng thái, mức quyền, ai duyệt, lần đăng nhập cuối. Mọi thay đổi
+  ghi vào bảng `audit` (`account.register`, `account.update`, `account.delete`).
 
 ### Mã nguồn giao diện
 
