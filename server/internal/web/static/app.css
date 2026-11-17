@@ -320,6 +320,7 @@ td .sub { display: block; color: var(--faint); font-size: 12px; }
 .period-rules { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; font-size: 12.5px; }
 .rule-notice { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 16px; }
 .rule-notice .btn { margin-left: auto; }
+#notify-btn.on svg { color: var(--accent); fill: var(--accent-soft); }
 .break-all { overflow-wrap: anywhere; word-break: break-all; }
 .err-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; color: var(--bad); }
 .callout { padding: 10px 12px; border-radius: 8px; font-size: 13px; background: var(--warn-soft); color: var(--warn); }

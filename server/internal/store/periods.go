@@ -441,3 +441,46 @@ func resolvePeriod(ctx context.Context, tx pgx.Tx, pol periods.Policy, periodID 
 	}
 	return audit(ctx, tx, by, "period.resolve", deviceID, "", map[string]any{"period_id": periodID, "note": note})
 }
+
+func (g *Registry) Pulse(ctx context.Context, since time.Time) (app.Pulse, error) {
+	var p app.Pulse
+	var last *time.Time
+	err := g.pool.QueryRow(ctx, `SELECT
+		count(*) FILTER (WHERE acked_at IS NULL),
+		count(*) FILTER (WHERE acked_at IS NULL AND severity IN ('high', 'critical')),
+		count(*) FILTER (WHERE acked_at IS NULL AND kind = 'offline'),
+		(SELECT count(*) FROM devices WHERE status = 'pending'),
+		greatest(max(last_at), max(acked_at))
+		FROM alerts`).Scan(&p.OpenAlerts, &p.Serious, &p.Offline, &p.Pending, &last)
+	if err != nil {
+		return p, err
+	}
+	if last != nil {
+		p.LastChange = *last
+	}
+	p.Changed = []app.Alert{}
+	if since.IsZero() || !p.LastChange.After(since) {
+		return p, nil
+	}
+	rows, err := g.pool.Query(ctx, `
+		SELECT a.id, coalesce(a.device_id, 0), coalesce(d.hostname, ''), coalesce(a.store_code, d.store_code, ''),
+		       a.kind, a.severity, a.created_at, a.last_at, a.occurrences, a.detail, coalesce(a.period_id, 0)
+		FROM alerts a LEFT JOIN devices d ON d.id = a.device_id
+		WHERE a.acked_at IS NULL AND a.last_at > $1
+		ORDER BY a.last_at DESC LIMIT 20`, since)
+	if err != nil {
+		return p, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var a app.Alert
+		var detail []byte
+		if err := rows.Scan(&a.ID, &a.DeviceID, &a.Hostname, &a.StoreCode, &a.Kind, &a.Severity, &a.CreatedAt,
+			&a.LastAt, &a.Occurrences, &detail, &a.PeriodID); err != nil {
+			return p, err
+		}
+		a.Detail = detail
+		p.Changed = append(p.Changed, a)
+	}
+	return p, rows.Err()
+}

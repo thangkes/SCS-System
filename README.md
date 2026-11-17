@@ -52,6 +52,7 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 | Cấu hình agent và nhãn máy 3 cấp (chung / siêu thị / máy) trên web | Đã có |
 | Rule quét log: khung rule, schema 2 (`tags`, `applies_to`), **kho rule trên server**: tự chia chưa ký / đã ký / cần ký lại / lỗi, duyệt (ký) trên web và menu mục 16, báo bộ cần ký ở Tổng quan và đầu menu | Đã có |
 | **Lưu theo giai đoạn**: trạng thái máy (chỉ ghi khi đổi đáng kể), cảnh báo high tự đóng sau 24 giờ, critical chỉ admin đóng, mất liên lạc sau 15 phút tự đóng khi máy gửi lại; dòng thời gian từng máy trên web; cổng nhận sự kiện `POST /v1/logs` | Đã có phía server |
+| **Thông báo tức thời trên web** (không dùng dịch vụ ngoài): số trên thanh bên và trang đang xem tự cập nhật, cảnh báo mới hiện góc màn hình; bật nút chuông thì thêm thông báo hệ điều hành và tiếng báo cho mức cao / nghiêm trọng / mất liên lạc. Cần mở ít nhất một tab web | Đã có |
 | Agent gửi trạng thái máy (RAM, ổ đĩa, dịch vụ…) trong heartbeat | Chưa có (A2) |
 | Agent đọc log liên tục theo rule, gửi sự kiện, hàng đợi khi mất mạng | Chưa có (A3) |
 | Server tự phát bộ rule cho agent qua heartbeat | Chưa có (M7) |

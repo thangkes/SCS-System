@@ -62,6 +62,8 @@
   // Vùng nội dung; được thay bằng phần tử mới mỗi lần đổi trang để bỏ listener của trang trước.
   let view = $('#view');
   let refreshTimer = null;
+  // liveReload: trang hiện tại tự tải lại khi luồng thông báo báo có thay đổi (null = không).
+  let liveReload = null;
 
   function setTitle(t) {
     $('#page-title').textContent = t;
@@ -170,9 +172,129 @@
     try { setAlertCount((await getJSON('/admin/v1/alerts')).alerts); } catch { /* bỏ qua */ }
   }
 
+  // ---------------------------------------------------------------- thông báo tức thời
+  // Luồng Server-Sent Events /admin/v1/stream (cùng cổng, cùng phiên đăng nhập, không dịch vụ ngoài).
+  // Server đẩy số liệu khi có thay đổi: số trên thanh bên cập nhật ngay, trang đang xem tự tải lại,
+  // cảnh báo mới hiện ở góc màn hình. Bật "Thông báo" thì thêm thông báo của hệ điều hành và tiếng báo
+  // cho cảnh báo mức cao / nghiêm trọng / mất liên lạc (cài đặt lưu trong trình duyệt này).
+  const NOTIFY_KEY = 'scs-notify';
+  const SEV_RANK = { info: 1, low: 2, medium: 3, high: 4, critical: 5 };
+  let live = null;
+  let liveSeen = null; // id cảnh báo → mức đã báo (null = chưa nhận gói đầu)
+  let liveRetry = null;
+  let audioCtx = null;
+  const notifyOn = () => local.get(NOTIFY_KEY) === '1';
+
+  function setNotifyButton() {
+    const b = $('#notify-btn');
+    if (!b) return;
+    const on = notifyOn();
+    b.classList.toggle('on', on);
+    b.title = on ? 'Thông báo đang bật (bấm để tắt)' : 'Bật thông báo và tiếng báo cho cảnh báo mới';
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+
+  function beep(serious) {
+    try {
+      audioCtx ||= new AudioContext();
+      const t = audioCtx.currentTime;
+      (serious ? [880, 660, 880] : [660]).forEach((f, i) => {
+        const o = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t + i * 0.22);
+        g.gain.exponentialRampToValueAtTime(0.2, t + i * 0.22 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.22 + 0.2);
+        o.connect(g).connect(audioCtx.destination);
+        o.start(t + i * 0.22);
+        o.stop(t + i * 0.22 + 0.21);
+      });
+    } catch { /* trình duyệt chặn âm thanh: bỏ qua */ }
+  }
+
+  function notifyAlert(a) {
+    const host = a.hostname || a.store_code || '';
+    const title = `${(SEV[a.severity] || SEV.low)[1]} · ${KIND[a.kind] || a.kind}`;
+    const body = [host, alertText(a)].filter(Boolean).join(' — ');
+    toast(`${title}${body ? `: ${body}` : ''}`);
+    const loud = a.kind === 'offline' || SEV_RANK[a.severity] >= SEV_RANK.high;
+    if (!notifyOn() || !loud) return;
+    beep(a.severity === 'critical');
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        const n = new Notification(title, { body, tag: `scs-alert-${a.id}` });
+        n.onclick = () => { window.focus(); location.hash = '#/canh-bao'; n.close(); };
+      } catch { /* bỏ qua */ }
+    }
+  }
+
+  function onPulse(p) {
+    $('#nav-alerts').textContent = p.open_alerts || '';
+    setPendingCount(p.pending);
+    $('#nav-rules').textContent = p.rules_pending || '';
+    const changed = p.changed || [];
+    if (liveSeen === null) {
+      liveSeen = new Map(changed.map((a) => [a.id, SEV_RANK[a.severity] || 0]));
+    } else {
+      for (const a of changed) {
+        const rank = SEV_RANK[a.severity] || 0;
+        const prev = liveSeen.get(a.id);
+        liveSeen.set(a.id, Math.max(rank, prev || 0));
+        // Chỉ báo cảnh báo mới hoặc vừa lên mức cao hơn (cảnh báo cũ lặp lại thì không báo nữa).
+        if (prev === undefined || rank > prev) notifyAlert(a);
+      }
+    }
+    if (liveReload && !$('#dialog').open && !$('#drawer').classList.contains('open')) {
+      const typing = document.activeElement && ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName);
+      if (!typing) liveReload();
+    }
+  }
+
+  function startLive() {
+    stopLive();
+    if (!('EventSource' in window)) return;
+    live = new EventSource('/admin/v1/stream');
+    live.addEventListener('pulse', (e) => {
+      try { onPulse(JSON.parse(e.data)); } catch { /* gói hỏng: bỏ qua */ }
+    });
+    live.addEventListener('logout', () => { stopLive(); showLogin('Phiên đăng nhập đã hết, hãy đăng nhập lại.'); });
+    live.onerror = () => {
+      // Trình duyệt tự nối lại khi mất mạng. Bị từ chối hẳn (hết phiên, server tắt luồng) thì thử lại sau 30 giây.
+      if (live && live.readyState === EventSource.CLOSED) {
+        stopLive();
+        liveRetry = setTimeout(() => { fetchMe().then((m) => { if (m && !$('#app').hidden) startLive(); }); }, 30000);
+      }
+    };
+  }
+
+  function stopLive() {
+    clearTimeout(liveRetry);
+    if (live) live.close();
+    live = null;
+  }
+
+  async function toggleNotify() {
+    if (notifyOn()) {
+      local.set(NOTIFY_KEY, '0');
+      setNotifyButton();
+      toast('Đã tắt thông báo và tiếng báo');
+      return;
+    }
+    local.set(NOTIFY_KEY, '1');
+    setNotifyButton();
+    beep(false); // bấm nút là cho phép trình duyệt phát âm thanh
+    if ('Notification' in window && Notification.permission === 'default') {
+      try { await Notification.requestPermission(); } catch { /* bỏ qua */ }
+    }
+    const granted = 'Notification' in window && Notification.permission === 'granted';
+    toast(granted ? 'Đã bật thông báo và tiếng báo cho cảnh báo mức cao, nghiêm trọng, mất liên lạc'
+      : 'Đã bật tiếng báo; trình duyệt chưa cho hiện thông báo hệ điều hành (xem quyền của trang)');
+  }
+
   // ---------------------------------------------------------------- trang: Tổng quan
   async function pageOverview() {
     setTitle('Tổng quan');
+    liveReload = pageOverview;
     const page = view;
     page.innerHTML = '<p class="hint">Đang tải…</p>';
     let approved, pending, alerts;
@@ -312,6 +434,7 @@
       if (tr) showDevice(state.list.find((d) => String(d.id) === tr.dataset.id), load);
     });
     load();
+    liveReload = load;
   }
 
   const DEV_STATUS = {
@@ -561,6 +684,7 @@
       }
     });
     load();
+    liveReload = load;
   }
 
   // ---------------------------------------------------------------- trang: Chờ duyệt
@@ -578,6 +702,7 @@
 
   async function pagePending() {
     setTitle('Chờ duyệt');
+    liveReload = pagePending;
     const page = view;
     page.innerHTML = '<p class="hint">Đang tải…</p>';
     let list = [];
@@ -1405,6 +1530,7 @@
       }
     });
     await load();
+    liveReload = load;
     refreshTimer = setInterval(() => {
       if (!$('#dialog').open && !$('#drawer').classList.contains('open')) load();
     }, 30000);
@@ -1430,6 +1556,7 @@
 
   function route() {
     clearInterval(refreshTimer);
+    liveReload = null;
     closeDrawer();
     $('#app').classList.remove('menu-open');
     const raw = location.hash.replace(/^#\/?/, '');
@@ -1446,6 +1573,7 @@
 
   // ---------------------------------------------------------------- đăng nhập
   function showLogin(message) {
+    stopLive();
     $('#app').hidden = true;
     $('#login').hidden = false;
     const err = $('#login-error');
@@ -1478,6 +1606,8 @@
     refreshPendingCount();
     refreshAlertCount();
     refreshRuleCount();
+    setNotifyButton();
+    startLive();
     try {
       const h = await (await api('/healthz')).json();
       $('#server-version').textContent = `SCS-Server ${h.version}`;
@@ -1528,7 +1658,9 @@
     switch (a.dataset.action) {
       case 'menu': $('#app').classList.toggle('menu-open'); break;
       case 'close-drawer': closeDrawer(); break;
+      case 'notify': toggleNotify(); break;
       case 'logout':
+        stopLive();
         api('/auth/logout', { method: 'POST' }).catch(() => {}).finally(() => { me = null; showLogin(''); });
         break;
       case 'theme': {

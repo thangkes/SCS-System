@@ -37,6 +37,8 @@ type Deps struct {
 	Servers *addrbook.Book
 	// Rules: kho bộ rule (file nguồn, bản đã ký); nil = chưa mở được (trang Rule báo lỗi).
 	Rules *rulestore.Store
+	// Live: thông báo tức thời cho web quản trị (nil = không có luồng, trang tự tải lại định kỳ).
+	Live *Live
 }
 
 // agentServers: danh sách địa chỉ gửi cho agent ở enroll / heartbeat.
@@ -137,6 +139,11 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/cluster/unapprove", admin(http.HandlerFunc(cl.unapprove)))
 	mux.Handle("POST /admin/v1/cluster/reject-join", admin(http.HandlerFunc(cl.rejectJoin)))
 	mux.Handle("POST /admin/v1/cluster/isolate-local", admin(http.HandlerFunc(cl.isolateLocal)))
+	if d.Live != nil {
+		mux.Handle("GET /admin/v1/stream", view(d.Live.Handler(d.Auth)))
+	} else {
+		mux.Handle("GET /admin/v1/stream", view(httpx.NotImplemented("thông báo tức thời")))
+	}
 	ru := rulesAPI{d}
 	mux.Handle("GET /admin/v1/rules", view(http.HandlerFunc(ru.list)))
 	mux.Handle("GET /admin/v1/rules/source", view(http.HandlerFunc(ru.source)))

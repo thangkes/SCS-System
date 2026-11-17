@@ -58,6 +58,10 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+// Unwrap: cho http.ResponseController (Flush, SetWriteDeadline) đi xuyên lớp ghi log này — luồng
+// thông báo tức thời của web quản trị cần đẩy dữ liệu xuống ngay.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
+
 func (w *statusWriter) Write(b []byte) (int, error) {
 	if w.status == 0 {
 		w.status = http.StatusOK

@@ -182,6 +182,15 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
   (hoặc `all`) kiểm mỗi phút.
 - API web: `GET /admin/v1/devices/{id}/periods`, `POST /admin/v1/periods/{id}/resolve`.
 
+## Thông báo tức thời trên web
+
+`GET /admin/v1/stream` (Server-Sent Events, cùng cổng 7222, cùng phiên đăng nhập, không dùng dịch vụ ngoài). Khi có
+trình duyệt đang mở, server hỏi DB 3 giây một lần (một câu SQL nhỏ) và đẩy số liệu khi có thay đổi: số cảnh báo, máy
+chờ duyệt, mất liên lạc, bộ rule cần ký, các cảnh báo vừa mở / vừa nâng mức. Web cập nhật ngay, hiện cảnh báo mới ở góc
+màn hình; nút chuông (thanh bên) bật thông báo hệ điều hành và tiếng báo cho mức cao / nghiêm trọng / mất liên lạc.
+Tối đa 64 trình duyệt mở cùng lúc; phiên đăng xuất / bị thu hồi thì luồng bị ngắt trong 30 giây. Đóng hết tab web thì
+không nhận được (không gửi ra ngoài).
+
 ## Chạy lâu dài: dịch vụ systemd
 
 Để SCS-Server tự chạy khi khởi động lại máy và tự bật lại khi chết:

@@ -47,6 +47,9 @@ type Registry interface {
 	ListPeriods(ctx context.Context, deviceID int64, limit int) (Timeline, error)
 	// ResolvePeriod: admin "Đã xử lý" một cảnh báo đang mở (đóng cảnh báo trong alerts luôn).
 	ResolvePeriod(ctx context.Context, periodID int64, by, note string) error
+	// Pulse: số liệu nhanh cho thông báo tức thời trên web (một câu SQL nhỏ, gọi vài giây một lần
+	// khi có trình duyệt đang mở) và các cảnh báo đang mở có thay đổi sau since (tối đa 20).
+	Pulse(ctx context.Context, since time.Time) (Pulse, error)
 
 	// Bản agent: thêm (đã có thì bỏ qua), liệt kê, lấy một bản.
 	AddRelease(ctx context.Context, r Release) error
@@ -65,6 +68,16 @@ type Registry interface {
 	// SetLabels đặt nhãn ngữ cảnh máy ở một cấp (chỉ cột labels, giữ watch_services).
 	// Labels nil = bỏ nhãn ở cấp này.
 	SetLabels(ctx context.Context, c ConfigEntry) error
+}
+
+// Pulse: số liệu cho thông báo tức thời. Changed: cảnh báo đang mở mới / vừa cập nhật sau mốc hỏi.
+type Pulse struct {
+	OpenAlerts int       `json:"open_alerts"`
+	Serious    int       `json:"serious"` // đang mở, mức high / critical
+	Offline    int       `json:"offline"` // máy đang mất liên lạc
+	Pending    int       `json:"pending"` // máy chờ duyệt
+	LastChange time.Time `json:"last_change,omitzero"`
+	Changed    []Alert   `json:"changed"`
 }
 
 // Timeline: dòng thời gian của một máy.

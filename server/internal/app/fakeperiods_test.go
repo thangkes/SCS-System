@@ -187,3 +187,36 @@ func (f *fakeRegistry) resolveLocked(pid int64, by, note string) error {
 	f.apply(p, r, now)
 	return nil
 }
+
+func (f *fakeRegistry) Pulse(_ context.Context, since time.Time) (Pulse, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p := Pulse{Changed: []Alert{}}
+	for _, a := range f.alerts {
+		if a.LastAt.After(p.LastChange) {
+			p.LastChange = a.LastAt
+		}
+		if a.AckedAt.After(p.LastChange) {
+			p.LastChange = a.AckedAt
+		}
+		if !a.AckedAt.IsZero() {
+			continue
+		}
+		p.OpenAlerts++
+		if a.Severity == "high" || a.Severity == "critical" {
+			p.Serious++
+		}
+		if a.Kind == "offline" {
+			p.Offline++
+		}
+		if !since.IsZero() && a.LastAt.After(since) && len(p.Changed) < 20 {
+			p.Changed = append(p.Changed, a)
+		}
+	}
+	for _, d := range f.devices {
+		if d.Status == DevicePending {
+			p.Pending++
+		}
+	}
+	return p, nil
+}

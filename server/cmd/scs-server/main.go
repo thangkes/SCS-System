@@ -248,6 +248,9 @@ func build(cmd string, cfg *config.Config, log *slog.Logger, base app.Deps) ([]r
 	if cmd == "admin" || cmd == "all" {
 		al := log.With("role", "admin")
 		am := auth.NewManager(cfg.AdminToken.Value(), al)
+		// Thông báo tức thời cho web quản trị (luồng SSE, hỏi DB vài giây một lần khi có người xem).
+		base.Live = app.NewLive(app.Deps{Log: log.With("role", "live"), Registry: base.Registry, Rules: base.Rules})
+		rs = append(rs, base.Live.Run)
 		r, err := httpServer("admin", cfg.AdminListen, cfg, httpx.NoClientCert, app.AdminHandler, log, base, am)
 		if err != nil {
 			return nil, err
@@ -297,7 +300,7 @@ func httpServer(role, addr string, cfg *config.Config, mode httpx.ClientAuth,
 		Name: role,
 		Addr: addr,
 		Handler: handler(app.Deps{Cfg: cfg, Log: l, Version: version, ReadyChecks: base.ReadyChecks,
-			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey, Cluster: base.Cluster, Servers: base.Servers, Rules: base.Rules}),
+			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey, Cluster: base.Cluster, Servers: base.Servers, Rules: base.Rules, Live: base.Live}),
 		TLS: tlsCfg,
 		Log: l,
 	}
