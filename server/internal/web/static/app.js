@@ -445,7 +445,7 @@
     if (r.error) return `<span class="pill pill-bad no-dot">Lỗi bộ rule</span>`;
     if (!r.installed) return '<span class="pill no-dot">Chưa cài</span>';
     return `<span class="mono">${esc(r.name)}@${esc(r.version)}</span>
-      <span class="sub">${fmtNum(r.active)}/${fmtNum(r.total)} rule chạy trên máy${r.scanning ? '' : ' · chưa quét liên tục'}</span>`;
+      <span class="sub">${fmtNum(r.active)}/${fmtNum(r.total)} rule chạy trên máy · ${r.scanning ? 'đang quét log' : 'chưa quét'}</span>`;
   }
 
   const DEV_STATUS = {
@@ -574,7 +574,7 @@
         ${d.rules.name ? `<dt>Bộ</dt><dd class="mono">${esc(d.rules.name)}@${esc(d.rules.version)}</dd>` : ''}
         ${d.rules.sha256 ? `<dt>SHA-256</dt><dd class="mono break-all">${esc(d.rules.sha256)}</dd>` : ''}
         ${d.rules.installed ? `<dt>Rule chạy trên máy</dt><dd>${fmtNum(d.rules.active)} / ${fmtNum(d.rules.total)} (rule không khớp applies_to của máy thì bỏ qua)</dd>
-        <dt>Quét log</dt><dd>${d.rules.scanning ? 'Đang quét liên tục' : 'Chưa quét liên tục (agent đọc log liên tục là mốc A3)'}</dd>` : ''}
+        <dt>Quét log</dt><dd>${d.rules.scanning ? 'Đang quét liên tục, sự kiện gửi về server' : 'Chưa quét (agent bản cũ, hoặc không có rule nào chạy trên máy này)'}</dd>` : ''}
       </dl>`}</section>
       <section id="dev-timeline"><h3>Dòng thời gian</h3><p class="hint">Đang tải…</p></section>
       <section><h3>Nhận dạng</h3><dl class="kv">
@@ -1368,7 +1368,7 @@
   async function pageRules() {
     setTitle('Rule quét log');
     const page = view;
-    const state = { filter: '', data: null };
+    const state = { filter: '', data: null, assign: [], devices: [] };
     page.innerHTML = '<p class="hint">Đang tải…</p>';
 
     const counts = (list) => {
@@ -1444,6 +1444,7 @@
               <td>#${esc(x.seq)}${x.admin ? ` · ${esc(x.admin)}` : ''}</td><td class="mono hide-sm">${esc(String(x.sha256).slice(0, 16))}…</td></tr>`).join('')}</tbody></table></div>
           <div class="card-body"><p class="hint">Thêm đúng file nguồn của bộ đó (cùng nội dung) rồi bấm "Duyệt &amp; ký": ký ngay, các server không phải bỏ phiếu lại.</p></div>
         </div>` : ''}
+        ${assignCard(j)}
         <div class="card">
           <div class="card-head"><h2>Thêm bộ rule</h2><span class="sub">File .yaml viết theo docs/huong-dan-viet-rule.md</span></div>
           <div class="card-body">
@@ -1463,7 +1464,14 @@
 
     async function load() {
       try {
-        state.data = await getJSON('/admin/v1/rules');
+        const [j, as, devs] = await Promise.all([
+          getJSON('/admin/v1/rules'),
+          getJSON('/admin/v1/rules/assign').then((x) => x.assignments).catch(() => []),
+          getJSON('/admin/v1/devices?status=approved').then((x) => x.devices).catch(() => []),
+        ]);
+        state.data = j;
+        state.assign = as;
+        state.devices = devs;
       } catch (err) {
         if (page === view) showLoadError(page, err);
         return;
@@ -1471,6 +1479,34 @@
       if (page !== view) return;
       setRuleCount(state.data.entries);
       render();
+    }
+
+    // Gán bộ rule cho máy: cấp cụ thể hơn thắng (máy > siêu thị > tất cả máy). Agent nhận ở heartbeat kế
+    // tiếp (≤ 10 phút), tự tải, kiểm chữ ký, cài rồi quét log theo bộ mới.
+    function assignCard(j) {
+      const signed = j.entries.filter((e) => e.status === 'da-ky' && e.bundle).map(ruleKey);
+      const hostOf = (id) => (state.devices || []).find((d) => String(d.id) === String(id))?.hostname || `máy #${id}`;
+      const scopeTxt = (a) => (a.scope === 'global' ? 'Tất cả máy' : a.scope === 'store' ? `Siêu thị ${esc(a.key)}` : `Máy ${esc(hostOf(a.key))}`);
+      const rows = (state.assign || []).map((a) => `<tr><td>${scopeTxt(a)}</td><td class="mono">${esc(a.rule_set)}</td>
+        <td class="hide-sm">${a.updated_at ? esc(fmtTime(new Date(a.updated_at))) : ''}${a.updated_by ? ` · ${esc(a.updated_by)}` : ''}</td>
+        <td><button class="btn btn-sm btn-danger" data-unassign="${esc(a.scope)}" data-key="${esc(a.key)}"${adminOnly()}>Bỏ gán</button></td></tr>`).join('');
+      return `<div class="card">
+        <div class="card-head"><h2>Áp dụng bộ rule cho máy</h2><span class="sub">Máy &gt; siêu thị &gt; tất cả máy. Agent nhận trong vòng 10 phút</span></div>
+        <div class="table-wrap"><table><thead><tr><th>Cấp</th><th>Bộ rule</th><th class="hide-sm">Gán lúc · bởi</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4" class="empty">Chưa gán bộ nào: agent giữ bộ đang cài (nếu có).</td></tr>'}</tbody></table></div>
+        <div class="card-body">
+          ${signed.length ? `<div class="form-grid">
+            <label class="field">Bộ rule (đã ký)<select id="as-set"${adminOnly()}>${signed.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join('')}</select></label>
+            <label class="field">Áp dụng cho<select id="as-scope"${adminOnly()}>
+              <option value="global">Tất cả máy</option><option value="store">Một siêu thị</option><option value="device">Một máy</option></select></label>
+            <label class="field" id="as-store-f" hidden>Mã siêu thị<input id="as-store" inputmode="numeric" placeholder="12345"${adminOnly()}></label>
+            <label class="field" id="as-dev-f" hidden>Máy<select id="as-dev"${adminOnly()}>${(state.devices || []).map((d) => `<option value="${esc(d.id)}">${esc(d.hostname)}</option>`).join('')}</select></label>
+          </div>
+          <div class="form-actions"><button class="btn btn-primary btn-sm" id="as-save"${adminOnly()}>Áp dụng</button></div>`
+          : '<p class="hint">Chưa có bộ nào đã ký: thêm file rule rồi bấm "Duyệt &amp; ký" trước.</p>'}
+          <p class="hint">Máy nhận bộ mới ở heartbeat kế tiếp, tự tải từ server, kiểm chữ ký bằng khóa phát hành rồi cài và quét log
+            theo bộ đó; cột "Máy đang dùng" và trang Máy cập nhật sau đó. Bỏ gán thì máy giữ bộ đang cài.</p>
+        </div></div>`;
     }
 
     async function viewEntry(file, key) {
@@ -1498,6 +1534,12 @@
         ${src ? `<h3>Nội dung</h3><pre class="src-view">${esc(src)}</pre>` : ''}`);
     }
 
+    page.addEventListener('change', (ev) => {
+      if (ev.target.id !== 'as-scope') return;
+      $('#as-store-f').hidden = ev.target.value !== 'store';
+      $('#as-dev-f').hidden = ev.target.value !== 'device';
+    });
+
     page.addEventListener('click', async (ev) => {
       const chipB = ev.target.closest('[data-filter]');
       if (chipB) {
@@ -1520,6 +1562,21 @@
           }
           toast(`Đã thêm ${ruleKey(j.entry)}: ${(RULE_ST[j.entry.status] || ['', j.entry.status])[1]}`);
           state.filter = '';
+        } else if (b.id === 'as-save') {
+          const scope = $('#as-scope').value;
+          const key = scope === 'store' ? $('#as-store').value.trim() : scope === 'device' ? $('#as-dev').value : '';
+          if (scope === 'store' && !/^[0-9]{1,10}$/.test(key)) { toast('Nhập mã siêu thị (chỉ chữ số)'); return; }
+          const set = $('#as-set').value;
+          const where = scope === 'global' ? 'mọi máy' : scope === 'store' ? `siêu thị ${key}` : $('#as-dev').selectedOptions[0].textContent;
+          if (!(await confirmBox(`Áp dụng ${set}?`,
+            `<p>Bộ <span class="mono">${esc(set)}</span> sẽ được cài cho <strong>${esc(where)}</strong> ở heartbeat kế tiếp (≤ 10 phút),
+             thay bộ đang cài trên các máy đó (cấp cụ thể hơn vẫn thắng).</p>`, 'Áp dụng'))) return;
+          await postJSON('/admin/v1/rules/assign', { scope, key, rule_set: set });
+          toast(`Đã gán ${set} cho ${where}`);
+        } else if (b.dataset.unassign) {
+          if (!(await confirmBox('Bỏ gán bộ rule ở cấp này?', '<p>Máy giữ bộ đang cài; cấp trên (nếu có gán) sẽ áp dụng.</p>', 'Bỏ gán', true))) return;
+          await postJSON('/admin/v1/rules/assign', { scope: b.dataset.unassign, key: b.dataset.key, rule_set: '' });
+          toast('Đã bỏ gán');
         } else if (b.dataset.act === 'view') {
           await viewEntry(b.dataset.file, b.dataset.key);
           return;

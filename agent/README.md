@@ -84,8 +84,8 @@ thì để trống kèm lý do, không làm hỏng cả heartbeat.
 | A0 | Khung, cấu hình, lệnh con, khóa máy, fingerprint, trạng thái máy | xong |
 | A1 | Ký gói, mTLS, đăng ký → chờ duyệt → nhận chứng chỉ | xong (server M3 xong) |
 | A2 | Heartbeat, bù lệch giờ, giãn nhịp khi server bận, nhiều địa chỉ server, cấu hình từ server xong; **gửi trạng thái máy trong heartbeat chưa làm** (server đã lưu theo giai đoạn) | một phần |
-| A3 | Quét log (journald + file), hàng đợi trên đĩa, gửi lô; server đã nhận `POST /v1/logs` và lưu theo giai đoạn | chưa làm (khung rule + chạy thử đã có) |
-| A4 | Kéo rule có chữ ký (hiện cài tay bằng `scs-agent rules -install`) | cần server M7 |
+| A3 | Quét log liên tục (`internal/watch`): file trong /var/log (nhớ vị trí `scan/positions.json`, nhận ra logrotate / cắt ngắn, lần đầu bắt đầu từ cuối file), journald qua `journalctl -f -o json` (nhớ con trỏ `scan/journal.cursor`), hàng đợi trên đĩa `scan/queue.jsonl` (tối đa 5.000, đầy thì bỏ sự kiện thường cũ trước), gửi `POST /v1/logs`: high / critical sau ~3 giây, còn lại mỗi phút; tự nạp lại khi bộ rule / nhãn máy đổi | xong, chưa chạy thật trên Ubuntu |
+| A4 | Kéo rule có chữ ký: heartbeat trả bộ server gán, agent tải `GET /v1/rules/{tên@phiên bản}`, kiểm chữ ký, cài (lỗi thì 1 giờ sau thử lại) | xong |
 | A5 | Cài đặt: script + systemd (giới hạn quyền, tài nguyên) xong; gói .deb để sau | một phần |
 | A6 | Watchdog, cập nhật, quay về bản cũ, thay bản khung từ server | xong |
 

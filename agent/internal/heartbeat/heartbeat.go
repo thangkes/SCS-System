@@ -6,9 +6,11 @@ package heartbeat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"net/url"
 	"runtime"
 	"slices"
 	"strconv"
@@ -50,6 +52,14 @@ type Deps struct {
 	State      identity.State
 	Version    string // phiên bản agent đang chạy
 	ReleasePub string // khóa công khai phát hành (kiểm bản cập nhật)
+	// Scanner: phần quét log (nil = không quét). Active: SHA bộ đang quét; Reload: nạp lại ngay.
+	Scanner RuleScanner
+}
+
+// RuleScanner: phần quét log (watch.Scanner) heartbeat cần.
+type RuleScanner interface {
+	Active() string
+	Reload()
 }
 
 // Run gửi heartbeat tới khi ctx bị hủy, hoặc trả ErrRestart khi đã tải xong bản agent mới.
@@ -61,14 +71,15 @@ func Run(ctx context.Context, d Deps) error {
 	backoff := BackoffMin
 	lastServer := d.Client.Current()
 	marked := false
-	failedUpdate, failedAt := "", time.Time{} // bản tải / kiểm lỗi lần trước và lúc lỗi
+	failedUpdate, failedAt := "", time.Time{}     // bản tải / kiểm lỗi lần trước và lúc lỗi
+	failedRules, failedRulesAt := "", time.Time{} // bộ rule tải / kiểm lỗi lần trước
 	for {
 		comps, _ := sysinfo.Components()
 		body := protocol.HeartbeatBody{UptimeS: int64(time.Since(start) / time.Second), RuleSetVersion: st.RuleSetVersion,
 			Arch: runtime.GOARCH, ConfigVersion: st.ConfigVersion,
 			ServersHash: protocol.ServersHash(st.Servers), ServerURL: d.Client.Current(),
 			Capabilities: []string{protocol.CapRulesPrefix + strconv.Itoa(rules.SchemaMax)},
-			Rules:        scan.Report(d.StateDir, d.ReleasePub, st.Labels)}
+			Rules:        report(d, st)}
 		var resp protocol.Response
 		err := d.Client.Send(ctx, "/v1/heartbeat", protocol.TypeHeartbeat, st.DeviceID, comps.Hash(), body, &resp)
 
@@ -110,6 +121,19 @@ func Run(ctx context.Context, d Deps) error {
 				st = st2
 				if err := identity.SaveState(d.StateDir, st); err != nil {
 					d.Log.Error("không lưu được cấu hình server gửi xuống", "err", err)
+				}
+			}
+			// Bộ rule server gán cho máy khác bộ đang cài: tải, kiểm chữ ký rồi cài (lỗi thì 1 giờ sau thử lại).
+			if v := resp.RuleSetVersion; v != "" && v != installedRules(d) &&
+				(v != failedRules || time.Since(failedRulesAt) >= RetryUpdate) {
+				if err := fetchRules(ctx, d, v); err != nil {
+					failedRules, failedRulesAt = v, time.Now()
+					d.Log.Error("không cài được bộ rule server gán", "bo", v, "err", err)
+				} else {
+					d.Log.Info("đã tải, kiểm chữ ký và cài bộ rule server gán", "bo", v)
+					if d.Scanner != nil {
+						d.Scanner.Reload()
+					}
 				}
 			}
 			if u := resp.Update; u != nil && u.Version != d.Version &&
@@ -189,4 +213,38 @@ func jitter(d time.Duration) time.Duration {
 		return 0
 	}
 	return d + time.Duration((rand.Float64()*0.4-0.2)*float64(d))
+}
+
+// report: bộ rule đang cài, và agent có đang quét theo đúng bộ đó không.
+func report(d Deps, st identity.State) *protocol.RuleSetReport {
+	r := scan.Report(d.StateDir, d.ReleasePub, st.Labels)
+	if d.Scanner != nil && r.Installed && r.SHA256 != "" && d.Scanner.Active() == r.SHA256 {
+		r.Scanning = true
+	}
+	return r
+}
+
+// installedRules: "tên@phiên bản" bộ đang cài hợp lệ ("" nếu chưa có / lỗi).
+func installedRules(d Deps) string {
+	r := scan.Report(d.StateDir, d.ReleasePub, nil)
+	if !r.Installed {
+		return ""
+	}
+	return r.Name + "@" + r.Version
+}
+
+// fetchRules tải bộ rule v từ server và cài (scan.Install kiểm chữ ký bằng release.pub trước khi thay).
+func fetchRules(ctx context.Context, d Deps, v string) error {
+	data, err := d.Client.Download(ctx, "/v1/rules/"+url.PathEscape(v), 2*rules.MaxBundle)
+	if err != nil {
+		return err
+	}
+	set, err := scan.Install(d.StateDir, d.ReleasePub, data)
+	if err != nil {
+		return err
+	}
+	if got := set.Name + "@" + set.Version; got != v {
+		return fmt.Errorf("server gửi bộ %s, không phải %s", got, v)
+	}
+	return nil
 }

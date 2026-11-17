@@ -99,7 +99,7 @@ func IngestHandler(d Deps) http.Handler {
 	mux.Handle("POST /v1/heartbeat", route(cert, ingestBody.heartbeat, agent, heartbeatHandler(d)))
 	mux.Handle("POST /v1/logs", route(cert, ingestBody.logs, logs, logsHandler(d)))
 	mux.Handle("POST /v1/cert/renew", route(cert, ingestBody.renew, agent, httpx.NotImplemented("M3")))
-	mux.Handle("GET /v1/rules/{version}", route(cert, ingestBody.get, agent, httpx.NotImplemented("M7")))
+	mux.Handle("GET /v1/rules/{version}", route(cert, ingestBody.get, agent, rulesHandler(d)))
 	mux.Handle("GET /v1/updates/{version}", route(cert, ingestBody.get, agent, updateHandler(d)))
 	return wrap(d, mux, httpx.PublicAccessLog(d.Log))
 }
@@ -151,6 +151,8 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/rules", admin(http.HandlerFunc(ru.add)))
 	mux.Handle("POST /admin/v1/rules/approve", admin(http.HandlerFunc(ru.approve)))
 	mux.Handle("POST /admin/v1/rules/remove", admin(http.HandlerFunc(ru.remove)))
+	mux.Handle("GET /admin/v1/rules/assign", view(http.HandlerFunc(ru.assignments)))
+	mux.Handle("POST /admin/v1/rules/assign", admin(http.HandlerFunc(ru.assign)))
 	return wrap(d, httpx.RejectProxied(d.Log)(mux), httpx.AggregatedAccessLog(d.Log, slog.LevelInfo))
 }
 

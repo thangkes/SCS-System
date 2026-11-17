@@ -247,3 +247,18 @@ func (f *fakeRegistry) RuleUsage(context.Context) ([]RuleUsage, int, int, error)
 	}
 	return out, none, unknown, nil
 }
+
+func (f *fakeRegistry) SetRuleSet(_ context.Context, c ConfigEntry) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	k := c.Scope + "/" + c.Key
+	old := f.configs[k]
+	c.WatchServices, c.Labels = old.WatchServices, old.Labels
+	if c.WatchServices == nil && c.Labels == nil && c.RuleSet == "" {
+		delete(f.configs, k)
+	} else {
+		c.UpdatedAt = time.Now()
+		f.configs[k] = c
+	}
+	return nil
+}

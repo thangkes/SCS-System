@@ -55,8 +55,8 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 | **Thông báo tức thời trên web** (không dùng dịch vụ ngoài): số trên thanh bên và trang đang xem tự cập nhật, cảnh báo mới hiện góc màn hình; bật nút chuông thì thêm thông báo hệ điều hành và tiếng báo cho mức cao / nghiêm trọng / mất liên lạc. Cần mở ít nhất một tab web | Đã có |
 | **Bộ rule đã áp dụng trên từng máy**: agent báo bộ đang cài (tên, phiên bản, SHA-256, chữ ký đúng / lỗi, số rule chạy trên máy) trong heartbeat; web hiện ở trang Máy, chi tiết máy, và số máy đang dùng mỗi bộ ở trang Rule. Cần agent bản mới | Đã có |
 | Agent gửi trạng thái máy (RAM, ổ đĩa, dịch vụ…) trong heartbeat | Chưa có (A2) |
-| Agent đọc log liên tục theo rule, gửi sự kiện, hàng đợi khi mất mạng | Chưa có (A3) |
-| Server tự phát bộ rule cho agent qua heartbeat | Chưa có (M7) |
+| **Agent quét log liên tục** theo bộ rule (file trong /var/log nhớ vị trí, nhận ra xoay vòng; journald qua `journalctl`), hàng đợi trên đĩa khi mất mạng, gửi sự kiện: high / critical sau vài giây, còn lại mỗi phút | Đã có (A3), chưa chạy thật trên Ubuntu |
+| **Server phát bộ rule**: gán bộ đã ký cho tất cả máy / siêu thị / máy trên trang Rule; agent nhận qua heartbeat, tự tải, kiểm chữ ký, cài rồi quét theo bộ mới | Đã có (M7), chưa chạy thật trên Ubuntu |
 | Gia hạn chứng chỉ máy (90 ngày), kiểm nonce chống gửi lại gói | Chưa có |
 | Tăng cứng web quản trị khi mở ra Internet (mật khẩu / TOTP, khóa theo từng IP, chứng chỉ thật) | Chưa có |
 

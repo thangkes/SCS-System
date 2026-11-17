@@ -552,6 +552,16 @@ func (g *Registry) AgentPlan(ctx context.Context, id int64, arch string) (app.Ag
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return plan, err
 	}
+	// Bộ rule: cấp cụ thể nhất có gán (máy > siêu thị > chung).
+	err = g.pool.QueryRow(ctx, `
+		SELECT rule_set FROM agent_config
+		WHERE rule_set IS NOT NULL AND (
+			(scope = 'device' AND scope_key = $1) OR (scope = 'store' AND scope_key = $2) OR scope = 'global')
+		ORDER BY CASE scope WHEN 'device' THEN 0 WHEN 'store' THEN 1 ELSE 2 END
+		LIMIT 1`, fmt.Sprint(id), storeKey).Scan(&plan.RuleSet)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return plan, err
+	}
 	// Nhãn máy: gộp theo từng khóa, cấp cụ thể hơn ghi đè (chung < siêu thị < máy).
 	rows, err := g.pool.Query(ctx, `
 		SELECT labels FROM agent_config
@@ -579,7 +589,7 @@ func (g *Registry) AgentPlan(ctx context.Context, id int64, arch string) (app.Ag
 
 func (g *Registry) ListConfigs(ctx context.Context) ([]app.ConfigEntry, error) {
 	rows, err := g.pool.Query(ctx, `
-		SELECT scope, scope_key, watch_services, labels, updated_at, updated_by FROM agent_config
+		SELECT scope, scope_key, watch_services, labels, coalesce(rule_set, ''), updated_at, updated_by FROM agent_config
 		ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'store' THEN 1 ELSE 2 END, scope_key LIMIT 5000`)
 	if err != nil {
 		return nil, err
@@ -588,7 +598,7 @@ func (g *Registry) ListConfigs(ctx context.Context) ([]app.ConfigEntry, error) {
 	var out []app.ConfigEntry
 	for rows.Next() {
 		var c app.ConfigEntry
-		if err := rows.Scan(&c.Scope, &c.Key, &c.WatchServices, &c.Labels, &c.UpdatedAt, &c.UpdatedBy); err != nil {
+		if err := rows.Scan(&c.Scope, &c.Key, &c.WatchServices, &c.Labels, &c.RuleSet, &c.UpdatedAt, &c.UpdatedBy); err != nil {
 			return nil, err
 		}
 		out = append(out, c)
@@ -605,7 +615,7 @@ func (g *Registry) SetConfig(ctx context.Context, c app.ConfigEntry) error {
 				WHERE scope = $1 AND scope_key = $2`, c.Scope, c.Key, c.UpdatedBy)
 			if err == nil {
 				_, err = tx.Exec(ctx, `DELETE FROM agent_config WHERE scope = $1 AND scope_key = $2
-					AND watch_services IS NULL AND labels IS NULL`, c.Scope, c.Key)
+					AND watch_services IS NULL AND labels IS NULL AND rule_set IS NULL`, c.Scope, c.Key)
 			}
 		} else {
 			_, err = tx.Exec(ctx, `
@@ -629,7 +639,7 @@ func (g *Registry) SetLabels(ctx context.Context, c app.ConfigEntry) error {
 				WHERE scope = $1 AND scope_key = $2`, c.Scope, c.Key, c.UpdatedBy)
 			if err == nil {
 				_, err = tx.Exec(ctx, `DELETE FROM agent_config WHERE scope = $1 AND scope_key = $2
-					AND watch_services IS NULL AND labels IS NULL`, c.Scope, c.Key)
+					AND watch_services IS NULL AND labels IS NULL AND rule_set IS NULL`, c.Scope, c.Key)
 			}
 		} else {
 			raw, merr := json.Marshal(c.Labels)
@@ -646,5 +656,29 @@ func (g *Registry) SetLabels(ctx context.Context, c app.ConfigEntry) error {
 		}
 		return audit(ctx, tx, c.UpdatedBy, "agent.labels", 0, "",
 			map[string]any{"scope": c.Scope, "key": c.Key, "labels": c.Labels})
+	})
+}
+
+func (g *Registry) SetRuleSet(ctx context.Context, c app.ConfigEntry) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		var err error
+		if c.RuleSet == "" {
+			_, err = tx.Exec(ctx, `UPDATE agent_config SET rule_set = NULL, updated_at = now(), updated_by = $3
+				WHERE scope = $1 AND scope_key = $2`, c.Scope, c.Key, c.UpdatedBy)
+			if err == nil {
+				_, err = tx.Exec(ctx, `DELETE FROM agent_config WHERE scope = $1 AND scope_key = $2
+					AND watch_services IS NULL AND labels IS NULL AND rule_set IS NULL`, c.Scope, c.Key)
+			}
+		} else {
+			_, err = tx.Exec(ctx, `
+				INSERT INTO agent_config (scope, scope_key, rule_set, updated_by) VALUES ($1, $2, $3, $4)
+				ON CONFLICT (scope, scope_key) DO UPDATE SET rule_set = EXCLUDED.rule_set,
+					updated_at = now(), updated_by = EXCLUDED.updated_by`, c.Scope, c.Key, c.RuleSet, c.UpdatedBy)
+		}
+		if err != nil {
+			return err
+		}
+		return audit(ctx, tx, c.UpdatedBy, "agent.rule_set", 0, "",
+			map[string]any{"scope": c.Scope, "key": c.Key, "rule_set": c.RuleSet})
 	})
 }

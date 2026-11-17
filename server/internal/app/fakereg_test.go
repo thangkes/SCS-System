@@ -297,6 +297,16 @@ func (f *fakeRegistry) AgentPlan(ctx context.Context, id int64, arch string) (Ag
 	}
 	plan := AgentPlan{WatchServices: watch}
 	if d != nil {
+		f.mu.Lock()
+		for _, k := range []string{ScopeDevice + "/" + strconv.FormatInt(id, 10), ScopeStore + "/" + d.StoreCode, ScopeGlobal + "/"} {
+			if c, ok := f.configs[k]; ok && c.RuleSet != "" {
+				plan.RuleSet = c.RuleSet
+				break
+			}
+		}
+		f.mu.Unlock()
+	}
+	if d != nil {
 		for _, k := range []string{ScopeGlobal + "/", ScopeStore + "/" + d.StoreCode, ScopeDevice + "/" + strconv.FormatInt(id, 10)} {
 			f.mu.Lock()
 			c, ok := f.configs[k]
@@ -338,8 +348,8 @@ func (f *fakeRegistry) SetConfig(_ context.Context, c ConfigEntry) error {
 	defer f.mu.Unlock()
 	k := c.Scope + "/" + c.Key
 	old := f.configs[k]
-	c.Labels = old.Labels
-	if c.WatchServices == nil && c.Labels == nil {
+	c.Labels, c.RuleSet = old.Labels, old.RuleSet
+	if c.WatchServices == nil && c.Labels == nil && c.RuleSet == "" {
 		delete(f.configs, k)
 	} else {
 		c.UpdatedAt = time.Now()
@@ -353,8 +363,8 @@ func (f *fakeRegistry) SetLabels(_ context.Context, c ConfigEntry) error {
 	defer f.mu.Unlock()
 	k := c.Scope + "/" + c.Key
 	old := f.configs[k]
-	c.WatchServices = old.WatchServices
-	if c.WatchServices == nil && c.Labels == nil {
+	c.WatchServices, c.RuleSet = old.WatchServices, old.RuleSet
+	if c.WatchServices == nil && c.Labels == nil && c.RuleSet == "" {
 		delete(f.configs, k)
 	} else {
 		c.UpdatedAt = time.Now()

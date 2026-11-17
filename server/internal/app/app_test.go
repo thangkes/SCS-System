@@ -75,7 +75,7 @@ func TestPlaceholderRoutes(t *testing.T) {
 		h            http.Handler
 		method, path string
 	}{
-		{IngestHandler(d), "GET", "/v1/rules/2026.10.27-03"},
+		{IngestHandler(d), "POST", "/v1/cert/renew"},
 	}
 	for _, c := range cases {
 		if rec := do(t, c.h, c.method, c.path, nil); rec.Code != http.StatusNotImplemented {

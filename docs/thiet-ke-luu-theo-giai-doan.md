@@ -1,7 +1,8 @@
 # Thiết kế: lưu sự kiện và trạng thái máy theo giai đoạn
 
 > Trạng thái (2026-11-17): **đã làm phía server** (bước 1–4 mục 13 và cổng nhận sự kiện `POST /v1/logs`).
-> Chưa làm: agent đọc log liên tục và gửi sự kiện (mốc A3). Thay cách lưu "mỗi sự kiện / mỗi heartbeat
+> Agent đọc log liên tục và gửi sự kiện (mốc A3) đã làm: sự kiện high / critical gửi sau vài giây, còn lại gom
+> gửi mỗi phút qua `POST /v1/logs` (chưa gộp vào heartbeat như mục 8 dự tính). Thay cách lưu "mỗi sự kiện / mỗi heartbeat
 > một dòng" trong kế hoạch cũ (bảng `events`, `heartbeats`, `device_days` của migration 0001, chưa từng có
 > dữ liệu, migration 0004 đã bỏ).
 

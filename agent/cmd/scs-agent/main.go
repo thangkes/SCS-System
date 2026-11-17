@@ -25,6 +25,7 @@ import (
 	"github.com/thangkes/SCS-System/agent/internal/identity"
 	"github.com/thangkes/SCS-System/agent/internal/sysinfo"
 	"github.com/thangkes/SCS-System/agent/internal/update"
+	"github.com/thangkes/SCS-System/agent/internal/watch"
 	"github.com/thangkes/SCS-System/common/fleet"
 )
 
@@ -183,8 +184,16 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 	switch st.Status {
 	case identity.StatusApproved:
 		log.Info("đã được duyệt, bắt đầu gửi heartbeat", "device_id", st.DeviceID, "dia_chi", c.Servers())
+		// Quét log liên tục theo bộ rule đang cài, gửi sự kiện lên server (mốc A3).
+		sc := &watch.Scanner{Log: log.With("phan", "quet-log"), StateDir: cfg.StateDir, ReleasePub: cfg.ReleasePub,
+			Client: c, DeviceID: st.DeviceID, Fingerprint: func() string { comps, _ := sysinfo.Components(); return comps.Hash() }}
+		scanCtx, stopScan := context.WithCancel(ctx)
+		scanDone := make(chan struct{})
+		go func() { defer close(scanDone); sc.Run(scanCtx) }()
 		err := heartbeat.Run(ctx, heartbeat.Deps{Log: log, Client: c, StateDir: cfg.StateDir, State: st,
-			Version: version, ReleasePub: cfg.ReleasePub})
+			Version: version, ReleasePub: cfg.ReleasePub, Scanner: sc})
+		stopScan()
+		<-scanDone
 		if errors.Is(err, heartbeat.ErrRestart) {
 			return 0 // systemd bật lại (Restart=always), bản khung chuyển sang bản vừa tải
 		}

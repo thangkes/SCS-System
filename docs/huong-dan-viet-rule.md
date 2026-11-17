@@ -451,7 +451,18 @@ Thêm bộ rule thì server kiểm cú pháp, giới hạn và chạy tests ngay
 SHA-256, chữ ký đúng hay lỗi, số rule chạy trên máy đó (rule không khớp `applies_to` bị bỏ qua). Web hiện ở trang
 **Máy** (cột "Bộ rule"), chi tiết máy (mục "Bộ rule"), và trang **Rule quét log** (cột "Máy đang dùng" — chỉ đếm máy
 cài **đúng bản ký** trong kho; mục "Máy chưa dùng bộ nào trong kho" liệt kê máy chạy bản khác, chưa cài, hoặc agent
-bản cũ chưa báo). "Đã cài" chưa có nghĩa là đang quét log: agent đọc log liên tục là mốc A3.
+bản cũ chưa báo). Trang Máy ghi thêm "đang quét log" khi agent quét đúng bộ đang cài.
+
+**Phát bộ rule cho agent (M7):** trang Rule quét log, mục **"Áp dụng bộ rule cho máy"**: chọn bộ đã ký và cấp
+(tất cả máy / một siêu thị / một máy; cấp cụ thể hơn thắng). Heartbeat trả `tên@phiên bản` máy cần chạy; agent
+khác bộ đang cài thì tải `GET /v1/rules/{tên@phiên bản}` (server chỉ cho tải đúng bộ đang gán cho máy đó), kiểm chữ
+ký bằng `release.pub`, cài, rồi quét theo bộ mới trong vòng 30 giây. Agent bản cũ (không báo `rules/N`) không nhận.
+Bỏ gán thì máy giữ bộ đang cài. Bản ký bị xóa khỏi kho thì server ngừng phát bộ đó.
+
+**Quét log (A3):** agent đọc file trong `/var/log` (lần đầu bắt đầu từ cuối file, nhớ vị trí, nhận ra logrotate) và
+journald (`journalctl`, lọc theo unit các rule cần), cho từng dòng qua bộ máy khớp (aggregate, cooldown như lúc chạy
+thử), sự kiện vào hàng đợi trên đĩa và gửi về server: high / critical sau vài giây, còn lại gom mỗi phút; mất mạng thì
+giữ lại (tối đa 5.000 sự kiện). Server cộng vào giai đoạn của máy ([lưu theo giai đoạn](thiet-ke-luu-theo-giai-doan.md)).
 
 Hiện tại mỗi server vẫn ký bằng khóa phát hành của nó và agent kiểm khóa đó; agent kiểm chữ ký của quá nửa server là mốc C6.
 
@@ -577,11 +588,12 @@ sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journa
 | Đọc YAML, `scs-server rules check / test / build`, ký bộ rule | **Đã có** |
 | Agent nạp / cài bộ rule có chữ ký, `scs-agent rules` (xem, cài tay, chạy thử) | **Đã có** |
 | Schema 2: `tags`, `applies_to`, ngữ cảnh máy (hostname, os-release, nhãn trên web 3 cấp) | **Đã có** |
-| Agent đọc file log liên tục (nhớ vị trí đã đọc, xử lý xoay vòng log) và đọc journald | Chưa có (mốc A3) |
+| Agent đọc file log liên tục (nhớ vị trí đã đọc, xử lý xoay vòng log) và đọc journald | **Đã có** (A3) |
 | Kho bộ rule trên server: tự chia chưa ký / đã ký / cần ký lại / lỗi, duyệt (ký) trên web, menu mục 16, `rules list/add/approve`; trong cụm cần quá nửa server duyệt (`ruleset.publish`) | **Đã có** |
-| Gán bộ rule theo nhóm máy trên web, phát qua heartbeat (`rule_set_version`) | Chưa có (mốc M7) |
-| Agent gửi sự kiện lên server, hàng đợi khi mất mạng; server lưu sự kiện, tạo cảnh báo trên web | Chưa có (mốc A3 / M5) |
+| Gán bộ rule theo cấp chung / siêu thị / máy trên web, phát qua heartbeat (`rule_set_version`) | **Đã có** (M7) |
+| Agent gửi sự kiện lên server, hàng đợi khi mất mạng; server lưu theo giai đoạn, cảnh báo trên web | **Đã có** (A3, lưu theo giai đoạn) |
 
-Trong lúc chưa có các phần trên, quy trình là: viết rule trong `~/scs-rules/` → `rules check` / `rules test` trên server → đưa vào kho và **Duyệt & ký** (web trang "Rule quét log" hoặc menu mục 16) → tải / xuất bản ký `.json`, chép sang máy → `scs-agent rules -install` → `scs-agent rules -log ...` để xem rule bắt được gì trên log thật của máy đó. (`sudo ... rules build` vẫn dùng được để ký một file lẻ ngoài kho.)
-
-Lưu ý: dịch vụ agent **chưa** tự đọc log theo bộ rule (mốc A3). Hiện bộ rule chỉ dùng được bằng lệnh `scs-agent rules -log` để chạy thử; cài sẵn bây giờ thì khi có A3 agent dùng luôn.
+Quy trình: viết rule trong `~/scs-rules/` → `rules check` / `rules test` trên server → đưa vào kho và **Duyệt & ký**
+(web trang "Rule quét log" hoặc menu mục 16) → **Áp dụng bộ rule cho máy** (thử trước cho một máy, ổn rồi mới cho siêu
+thị / tất cả) → xem trang Máy (đang quét log) và dòng thời gian của máy. `scs-agent rules -log ...` vẫn dùng để chạy thử
+bộ rule trên log thật của một máy mà không gửi gì lên server.

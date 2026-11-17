@@ -255,8 +255,10 @@ Trên máy agent: `sudo scs-agent rules -install cong-ty.json`, rồi `sudo scs-
   server (menu mục 4) bị từ chối vì "Thư mục code có thay đổi chưa commit".
 - Dòng log mẫu dán vào `tests` phải che tên tài khoản, tên máy, IP, tên miền thật.
 - Bộ đã ký mà muốn sửa: **tăng `version`** rồi thêm lại (cùng phiên bản không nhận nội dung khác).
-- Hiện tại bộ rule cài tay và chỉ chạy thử được bằng `scs-agent rules -log`; agent tự đọc log và server tự phát
-  bộ rule qua heartbeat là các mốc sau (A3, M7).
+- **Phát cho agent:** trang **Rule quét log** → mục "Áp dụng bộ rule cho máy" → chọn bộ đã ký và cấp (tất cả máy /
+  một siêu thị / một máy) → **Áp dụng**. Agent nhận ở heartbeat kế tiếp (≤ 10 phút), tự tải, kiểm chữ ký, cài và
+  **quét log liên tục** theo bộ đó; sự kiện về server thành giai đoạn OK / cảnh báo. Trang **Máy** hiện "đang quét log".
+  Cài tay (`scs-agent rules -install`) vẫn dùng được cho máy chưa gán.
 
 ---
 

@@ -72,6 +72,8 @@ type Registry interface {
 	// SetLabels đặt nhãn ngữ cảnh máy ở một cấp (chỉ cột labels, giữ watch_services).
 	// Labels nil = bỏ nhãn ở cấp này.
 	SetLabels(ctx context.Context, c ConfigEntry) error
+	// SetRuleSet gán bộ rule ở một cấp (chỉ cột rule_set). RuleSet "" = bỏ gán ở cấp này.
+	SetRuleSet(ctx context.Context, c ConfigEntry) error
 }
 
 // Pulse: số liệu cho thông báo tức thời. Changed: cảnh báo đang mở mới / vừa cập nhật sau mốc hỏi.
@@ -127,9 +129,11 @@ type ConfigEntry struct {
 	WatchServices []string `json:"watch_services"`
 	// Labels: nhãn ngữ cảnh máy (role, store, os, khóa tự do) dùng chọn rule theo applies_to.
 	// Gộp theo từng khóa: chung < siêu thị < máy. nil = cấp này không đặt nhãn.
-	Labels    map[string]string `json:"labels"`
-	UpdatedAt time.Time         `json:"updated_at,omitzero"`
-	UpdatedBy string            `json:"updated_by,omitempty"`
+	Labels map[string]string `json:"labels"`
+	// RuleSet: bộ rule gán ở cấp này ("tên@phiên bản", "" = kế thừa cấp trên).
+	RuleSet   string    `json:"rule_set,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitzero"`
+	UpdatedBy string    `json:"updated_by,omitempty"`
 }
 
 // AgentPlan: những gì một máy cần chạy.
@@ -137,6 +141,7 @@ type AgentPlan struct {
 	Release       *Release
 	WatchServices []string
 	Labels        map[string]string // đã gộp các cấp; nil = không cấp nào đặt nhãn
+	RuleSet       string            // bộ rule cấp cụ thể nhất gán ("tên@phiên bản"; "" = chưa gán)
 }
 
 // AgentAuth: thông tin để xác thực gói tin của một máy.

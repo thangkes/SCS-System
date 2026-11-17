@@ -123,7 +123,7 @@ Test: `go test ./common/cluster/ ./server/internal/cluster/` (cụm 3, 4, 5 serv
 
 Mỗi lệnh đều có `/healthz` (tiến trình còn sống) và `/readyz` (kiểm PostgreSQL bằng `SELECT 1`;
 DB chưa lên thì trả `503`, chi tiết lỗi nằm trong log). Server vẫn khởi động khi DB chưa lên.
-Route còn trả `501` kèm mốc sẽ làm: `GET /v1/rules/{version}` (M7), `POST /v1/cert/renew` (M3, gia hạn chứng chỉ),
+Route còn trả `501` kèm mốc sẽ làm: `POST /v1/cert/renew` (M3, gia hạn chứng chỉ),
 `GET /admin/v1/devices/{id}` (M6). `/readyz` chưa kiểm NATS.
 `/readyz` dùng lại kết quả kiểm trong 2 giây (gọi dồn dập không làm cạn pool DB). `/healthz` trên cổng
 agent (công khai) không trả phiên bản.
@@ -178,7 +178,7 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
 - Sự kiện `info` / `low` / `medium` cộng vào giai đoạn đang mở; `high` / `critical` đóng OK, mở **cảnh báo**.
 - Cảnh báo high tự đóng sau `SCS_ALERT_AUTOCLOSE` (mặc định 24h) không có sự kiện nặng mới; đã lên critical thì chỉ
   admin đóng (web: **Đã xử lý**). Quá `SCS_OFFLINE_AFTER` (30m; agent gọi về ngẫu nhiên 5–10 phút) không nghe máy: **mất liên lạc**, tự đóng khi máy gửi lại.
-- Agent gửi sự kiện qua `POST /v1/logs` (lô đã ký, tối đa 500 sự kiện; agent chưa gửi, mốc A3). Tiến trình `worker`
+- Agent gửi sự kiện qua `POST /v1/logs` (lô đã ký, tối đa 500 sự kiện; high / critical sau vài giây, còn lại mỗi phút). Tiến trình `worker`
   (hoặc `all`) kiểm mỗi phút.
 - API web: `GET /admin/v1/devices/{id}/periods`, `POST /admin/v1/periods/{id}/resolve`.
 

@@ -142,6 +142,11 @@ func heartbeatHandler(d Deps) http.Handler {
 				resp.Update = &protocol.UpdateInfo{Version: rel.Version, Arch: rel.Arch, SHA256: rel.SHA256,
 					Size: rel.Size, Sig: rel.Sig}
 			}
+			if v := plan.RuleSet; v != "" && d.Rules != nil && hasCap(body.Capabilities, protocol.CapRulesPrefix) {
+				if _, err := ruleBundleFor(d, v); err == nil {
+					resp.RuleSetVersion = v
+				}
+			}
 			// Chưa đặt cấu hình ở cấp nào thì không gửi: agent giữ cấu hình đang có.
 			if plan.WatchServices != nil || plan.Labels != nil {
 				if c := configOf(plan.WatchServices, plan.Labels); c.Version != body.ConfigVersion {

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"net/netip"
+	"strconv"
 	"testing"
 	"time"
 
@@ -124,5 +125,58 @@ func TestPeriodsOnPostgres(t *testing.T) {
 	}
 	if n := count(`SELECT count(*) FROM device_periods WHERE device_id = $1 AND ended_at IS NULL`, id); n != 0 {
 		t.Fatal("máy thu hồi không còn giai đoạn mở")
+	}
+}
+
+// Gán bộ rule theo cấp (M7) trên PostgreSQL thật: cấp máy thắng siêu thị thắng chung; bỏ gán không
+// làm mất cấu hình khác của cùng cấp.
+func TestRuleSetOnPostgres(t *testing.T) {
+	pool := testPool(t)
+	migrateOnce(t, pool)
+	ctx := context.Background()
+	g := NewRegistry(pool)
+	res, err := g.Enroll(ctx, enrollReq(t, "12345-TN1-PRI", "203.0.113.10"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.Approve(ctx, res.DeviceID, "Quản trị", ""); err != nil {
+		t.Fatal(err)
+	}
+	dev := strconv.FormatInt(res.DeviceID, 10)
+	set := func(scope, key, v string) {
+		t.Helper()
+		if err := g.SetRuleSet(ctx, app.ConfigEntry{Scope: scope, Key: key, RuleSet: v, UpdatedBy: "Quản trị"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan := func() string {
+		t.Helper()
+		p, err := g.AgentPlan(ctx, res.DeviceID, "amd64")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.RuleSet
+	}
+	set("global", "", "bo@1")
+	if v := plan(); v != "bo@1" {
+		t.Fatalf("chung: %q", v)
+	}
+	set("store", "12345", "bo@2")
+	set("device", dev, "bo@3")
+	if v := plan(); v != "bo@3" {
+		t.Fatalf("máy phải thắng: %q", v)
+	}
+	if err := g.SetLabels(ctx, app.ConfigEntry{Scope: "device", Key: dev, Labels: map[string]string{"role": "pri"}, UpdatedBy: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	set("device", dev, "")
+	if v := plan(); v != "bo@2" {
+		t.Fatalf("bỏ gán cấp máy: %q", v)
+	}
+	if p, _ := g.AgentPlan(ctx, res.DeviceID, "amd64"); p.Labels["role"] != "pri" {
+		t.Fatal("bỏ gán bộ rule không được xóa nhãn máy")
+	}
+	if err := g.SetRuleSet(ctx, app.ConfigEntry{Scope: "global", RuleSet: "../x@1", UpdatedBy: "x"}); err == nil {
+		t.Fatal("DB phải chặn tên bộ rule sai")
 	}
 }
