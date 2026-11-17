@@ -68,7 +68,7 @@ Script:
   Máy ở ngoài cài bằng gói đóng với `https://<IP WAN hoặc tên miền>:16222`.
 - **Agent tự chuyển địa chỉ:** server giữ danh sách địa chỉ server (IP LAN, IP WAN, tên miền DDNS, IP VPN; tối đa 8)
   trong file `SCS_AGENT_SERVERS_FILE` (mặc định `/var/lib/scs-server/data/agent-servers.json`) và gửi cho agent đã
-  duyệt (lúc duyệt và mỗi heartbeat 5 phút); agent lưu lại, địa chỉ đang dùng không kết nối được thì thử ngay địa
+  duyệt (lúc duyệt và mỗi heartbeat, 5–10 phút một lần); agent lưu lại, địa chỉ đang dùng không kết nối được thì thử ngay địa
   chỉ kế tiếp, khởi động lại thì thử địa chỉ gọi được lần cuối trước. Máy cài bằng gói LAN mang ra ngoài vẫn gọi về
   được qua IP WAN. Mục 3/7 ghi cả danh sách; thêm / gỡ từng địa chỉ: web trang **Địa chỉ server** hoặc menu
   mục **15** (`scs-server servers list|add|remove|set`), có hiệu lực ngay, không khởi động lại, không cấp lại chứng chỉ.
@@ -103,7 +103,7 @@ Hai hạn chỉnh trong `/etc/scs-server/server.env` (không có dòng thì dùn
 
 ```bash
 SCS_ALERT_AUTOCLOSE=24h   # cảnh báo mức high tự đóng sau bấy lâu không có sự kiện high / critical mới (critical: chỉ admin)
-SCS_OFFLINE_AFTER=15m     # không nghe máy gửi gì bấy lâu thì báo mất liên lạc (tự đóng khi máy gửi lại)
+SCS_OFFLINE_AFTER=30m     # không nghe máy gửi gì bấy lâu thì báo mất liên lạc (tự đóng khi máy gửi lại); nên từ 20m
 ```
 
 Xem dòng thời gian của máy: web, trang **Máy** → bấm vào máy. Đóng sự cố: trang **Cảnh báo** → **Đã xử lý**.
@@ -139,7 +139,7 @@ Khi chạy thật nên đặt `SCS_ENV=prod` trong `/etc/scs-server/server.env` 
 ## 2. SCS-Agent (mỗi máy tại điểm bán)
 
 **Cách hoạt động:** máy tại điểm bán chỉ cài một lần **bản agent khung** (đóng gói trên server). Bản khung đăng ký
-với server và chờ admin duyệt. Duyệt xong, agent nhận qua heartbeat (5 phút một lần):
+với server và chờ admin duyệt. Duyệt xong, agent nhận qua heartbeat (ngẫu nhiên 5–10 phút một lần):
 
 - **cấu hình** đặt trên web, trang **Agent** (dịch vụ cần theo dõi: chung, theo siêu thị, theo máy);
 - **bản agent cần chạy**: mỗi lần cập nhật server (menu mục 4) có thêm bản agent cùng phiên bản; admin bấm

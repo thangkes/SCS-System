@@ -61,7 +61,7 @@ Dùng đúng các mức của rule (`severity` trong file rule):
 | Biến | Mặc định đề xuất | Nghĩa |
 |---|---|---|
 | `SCS_ALERT_AUTOCLOSE` | **24h** (chốt) | Cảnh báo mức high tự đóng khi đã 24 giờ không có sự kiện high / critical mới. Cho phép 1h – 720h |
-| `SCS_OFFLINE_AFTER` | **15m** (chốt) | 3 nhịp heartbeat (5 phút) không nghe gì → mất liên lạc. Cho phép 10m – 24h |
+| `SCS_OFFLINE_AFTER` | **30m** | 3 nhịp heartbeat tối đa không nghe gì → mất liên lạc (agent gọi về ngẫu nhiên 5–10 phút từ 2026-11-17; trước đó 15m với nhịp 5 phút). Cho phép 10m – 24h, dưới 20m server ghi cảnh báo |
 
 Server kiểm mỗi phút (tiến trình `worker` hoặc `all`).
 
@@ -112,7 +112,7 @@ bảng `alerts` (loại `event` / `offline`). Nút xác nhận trên web = "Đã
 
 ## 9. Lượng ghi vào DB
 
-Ví dụ 5.000 máy, heartbeat 5 phút: khoảng **17 lệnh UPDATE / giây** cho `device_status`, cộng vài dòng
+Ví dụ 5.000 máy, heartbeat ngẫu nhiên 5–10 phút (trung bình 7,5 phút): khoảng **11 lệnh UPDATE / giây** cho `device_status`, cộng vài dòng
 `device_status_changes` và `device_periods` mỗi phút. Cách cũ là thêm khoảng 17 dòng mới / giây vào
 `heartbeats` cộng mỗi sự kiện một dòng, rồi phải nén và xóa theo ngày.
 

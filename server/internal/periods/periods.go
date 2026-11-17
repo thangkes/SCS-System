@@ -49,8 +49,8 @@ type Policy struct {
 	OfflineAfter time.Duration // không nghe máy gửi gì bấy lâu → mất liên lạc
 }
 
-// DefaultPolicy: 24 giờ, 15 phút (3 nhịp heartbeat 5 phút).
-var DefaultPolicy = Policy{AutoClose: 24 * time.Hour, OfflineAfter: 15 * time.Minute}
+// DefaultPolicy: 24 giờ, 30 phút (3 nhịp heartbeat tối đa 10 phút).
+var DefaultPolicy = Policy{AutoClose: 24 * time.Hour, OfflineAfter: 30 * time.Minute}
 
 // severityRank: thứ tự mức nghiêm trọng (giống common/rules.Severities).
 var severityRank = map[string]int{"info": 1, "low": 2, "medium": 3, "high": 4, "critical": 5}

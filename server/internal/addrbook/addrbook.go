@@ -422,8 +422,8 @@ func (b *Book) Forget(device int64) {
 	b.mu.Unlock()
 }
 
-// Window: chỉ tính các máy đã gọi heartbeat trong khoảng này (3 nhịp heartbeat).
-const Window = 15 * time.Minute
+// Window: chỉ tính các máy đã gọi heartbeat trong khoảng này (heartbeat 5–10 phút: ít nhất 2 nhịp).
+const Window = 20 * time.Minute
 
 // AddrStat: số máy gọi qua một địa chỉ.
 type AddrStat struct {

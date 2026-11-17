@@ -177,7 +177,7 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
 
 - Sự kiện `info` / `low` / `medium` cộng vào giai đoạn đang mở; `high` / `critical` đóng OK, mở **cảnh báo**.
 - Cảnh báo high tự đóng sau `SCS_ALERT_AUTOCLOSE` (mặc định 24h) không có sự kiện nặng mới; đã lên critical thì chỉ
-  admin đóng (web: **Đã xử lý**). Quá `SCS_OFFLINE_AFTER` (15m) không nghe máy: **mất liên lạc**, tự đóng khi máy gửi lại.
+  admin đóng (web: **Đã xử lý**). Quá `SCS_OFFLINE_AFTER` (30m; agent gọi về ngẫu nhiên 5–10 phút) không nghe máy: **mất liên lạc**, tự đóng khi máy gửi lại.
 - Agent gửi sự kiện qua `POST /v1/logs` (lô đã ký, tối đa 500 sự kiện; agent chưa gửi, mốc A3). Tiến trình `worker`
   (hoặc `all`) kiểm mỗi phút.
 - API web: `GET /admin/v1/devices/{id}/periods`, `POST /admin/v1/periods/{id}/resolve`.

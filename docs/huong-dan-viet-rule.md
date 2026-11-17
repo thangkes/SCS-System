@@ -186,7 +186,7 @@ Ngữ cảnh máy (agent tự suy ra, xem bằng `sudo scs-agent rules`, dòng "
 | khóa tự do | web, trang "Agent: cập nhật, cấu hình" → **Nhãn máy** | ví dụ `vung=mien-nam` |
 
 Nhãn đặt trên web theo 3 cấp (mọi máy / siêu thị / máy), gộp theo từng khóa (máy ghi đè siêu thị, siêu thị
-ghi đè chung) và **ghi đè** giá trị agent tự suy ra. Agent nhận trong vòng 5 phút qua heartbeat.
+ghi đè chung) và **ghi đè** giá trị agent tự suy ra. Agent nhận trong vòng 10 phút qua heartbeat.
 
 **Tương thích**: agent bản cũ chỉ đọc schema 1, gặp bộ có `schema` / `tags` / `applies_to` sẽ **từ chối cả bộ** và
 giữ bộ đang dùng (không chạy nhầm rule viết cho máy khác). Agent mới báo `rules/2` trong heartbeat; khi server tự

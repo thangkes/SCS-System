@@ -14,7 +14,7 @@ import (
 // tên miền DDNS, IP VPN) và số máy đã nhận / đang dùng từng địa chỉ.
 //
 // Quy trình đổi địa điểm / đổi mạng: thêm địa chỉ mới → chờ gần đủ máy nhận danh sách mới (mỗi
-// heartbeat 5 phút) → chuyển mạng → địa chỉ cũ không còn máy dùng thì gỡ.
+// heartbeat 5–10 phút) → chuyển mạng → địa chỉ cũ không còn máy dùng thì gỡ.
 type serversAPI struct{ d Deps }
 
 // list: GET /admin/v1/agent/servers.

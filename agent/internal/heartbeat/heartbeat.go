@@ -26,7 +26,10 @@ import (
 
 // Nhịp gọi (test đổi được).
 var (
-	Every      = 5 * time.Minute // khi server chưa trả next_poll_s
+	Every = 5 * time.Minute // khi server chưa trả next_poll_s
+	// Heartbeat thành công: chờ ngẫu nhiên từ nhịp server trả (next_poll_s, 5 phút) tới gấp đôi
+	// (10 phút), để hàng nghìn máy không gọi về dồn cùng lúc và giảm tải cho server.
+	SpreadMax  = 2.0
 	MinEvery   = 1 * time.Minute // server trả nhịp nhỏ hơn thì vẫn chờ ít nhất bấy lâu
 	MaxEvery   = 1 * time.Hour
 	BackoffMin = 30 * time.Second
@@ -70,6 +73,7 @@ func Run(ctx context.Context, d Deps) error {
 		err := d.Client.Send(ctx, "/v1/heartbeat", protocol.TypeHeartbeat, st.DeviceID, comps.Hash(), body, &resp)
 
 		var wait time.Duration
+		spread := false // heartbeat thành công: chờ ngẫu nhiên [wait, 2×wait]; lỗi: ±20%
 		var he *client.HTTPError
 		switch {
 		case ctx.Err() != nil:
@@ -87,7 +91,7 @@ func Run(ctx context.Context, d Deps) error {
 				"thu_lai_sau", wait.Round(time.Second).String())
 		default:
 			backoff = BackoffMin
-			wait = Every
+			wait, spread = Every, true
 			if resp.NextPollS > 0 {
 				wait = min(max(time.Duration(resp.NextPollS)*time.Second, MinEvery), MaxEvery)
 			}
@@ -127,7 +131,7 @@ func Run(ctx context.Context, d Deps) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(jitter(wait)):
+		case <-time.After(nextWait(wait, spread)):
 		}
 	}
 }
@@ -165,6 +169,18 @@ func apply(d Deps, st identity.State, resp protocol.Response) (identity.State, b
 		changed = true
 	}
 	return st, changed
+}
+
+// nextWait: heartbeat thành công thì ngẫu nhiên đều trong [d, SpreadMax×d] (5–10 phút với nhịp 5 phút
+// của server); thử lại sau lỗi thì ±20% quanh d.
+func nextWait(d time.Duration, spread bool) time.Duration {
+	if !spread {
+		return jitter(d)
+	}
+	if d <= 0 {
+		return 0
+	}
+	return d + time.Duration(rand.Float64()*(SpreadMax-1)*float64(d))
 }
 
 // jitter: ±20% để các máy không gọi về cùng một lúc.

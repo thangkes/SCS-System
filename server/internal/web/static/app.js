@@ -904,7 +904,7 @@
 
   // ---------------------------------------------------------------- trang: Agent (cập nhật + cấu hình)
   // Bản agent server giữ, phát hành cho nhóm thử rồi cho tất cả; cấu hình agent theo cấp
-  // (chung / siêu thị / máy). Agent nhận cả hai qua heartbeat (5 phút).
+  // (chung / siêu thị / máy). Agent nhận cả hai qua heartbeat (5–10 phút).
   const splitList = (s) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
 
   async function pageAgent() {
@@ -968,7 +968,7 @@
         <p>${testers.map((d) => `<span class="pill no-dot mono">${esc(d.hostname)}</span>`).join(' ') || 'Chưa có máy nào trong nhóm thử.'}</p>
       </div>
       <div class="card">
-        <div class="card-head"><h2>Cấu hình agent</h2><span class="sub">Máy &gt; siêu thị &gt; chung. Agent nhận trong vòng 5 phút</span></div>
+        <div class="card-head"><h2>Cấu hình agent</h2><span class="sub">Máy &gt; siêu thị &gt; chung. Agent nhận trong vòng 10 phút</span></div>
         <div class="form-grid">
           <label class="field full">Dịch vụ cần báo trạng thái, dùng chung cho mọi máy
             <input id="cfg-global" placeholder="pos.service, printer.service" value="${esc((globalCfg?.watch_services || []).join(', '))}"${adminOnly()}>
@@ -995,7 +995,7 @@
         <div class="form-actions"><button class="btn btn-sm" id="ov-save"${adminOnly()}>Thêm / sửa ghi đè</button></div>
       </div>
       <div class="card">
-        <div class="card-head"><h2>Nhãn máy (chọn rule)</h2><span class="sub">Gộp theo từng nhãn: chung &lt; siêu thị &lt; máy. Agent nhận trong vòng 5 phút</span></div>
+        <div class="card-head"><h2>Nhãn máy (chọn rule)</h2><span class="sub">Gộp theo từng nhãn: chung &lt; siêu thị &lt; máy. Agent nhận trong vòng 10 phút</span></div>
         <p class="hint">Agent tự biết <span class="mono">role</span> (pri / sec / phu) và <span class="mono">store</span> từ hostname, <span class="mono">os</span> (ví dụ ubuntu-22.04) từ /etc/os-release.
           Nhãn ở đây ghi đè các giá trị đó hoặc thêm nhãn tự do; rule có <span class="mono">applies_to</span> chỉ chạy trên máy có nhãn khớp.</p>
         <div class="table-wrap"><table>
@@ -1039,7 +1039,7 @@
       if (ro2 && !ro2.disabled) {
         const ring = ro2.dataset.rollout, v = ro2.dataset.version;
         const ok = await confirmBox(ring === 'test' ? 'Phát hành cho nhóm thử?' : 'Phát hành cho tất cả máy?',
-          `<p>Bản <strong class="mono">${esc(v)}</strong> sẽ được ${ring === 'test' ? `${fmtNum(testers.length)} máy nhóm thử` : 'mọi máy đã duyệt'} tải về ở lần heartbeat tới (tối đa khoảng 5 phút), kiểm chữ ký rồi tự khởi động lại.</p>`,
+          `<p>Bản <strong class="mono">${esc(v)}</strong> sẽ được ${ring === 'test' ? `${fmtNum(testers.length)} máy nhóm thử` : 'mọi máy đã duyệt'} tải về ở lần heartbeat tới (tối đa khoảng 10 phút), kiểm chữ ký rồi tự khởi động lại.</p>`,
           'Phát hành', ring === 'all');
         if (!ok) return;
         try { await postJSON('/admin/v1/agent/rollout', { ring, version: v }); toast(`Đã phát hành ${v}`); pageAgent(); }
@@ -1283,14 +1283,14 @@
           <div class="card-body"><p class="hint">Agent luôn giữ địa chỉ lúc cài trong danh sách của nó. Khi địa chỉ đó không còn dùng được, agent tự chuyển sang địa chỉ trong danh sách và lần khởi động sau thử địa chỉ gọi được lần cuối trước.</p></div>
         </div>` : ''}
         ${s.pending.length ? `<div class="card">
-          <div class="card-head"><h2>Máy chưa nhận danh sách hiện tại</h2><span class="sub">Nhận ở lần heartbeat kế tiếp (≤ 5 phút)</span></div>
+          <div class="card-head"><h2>Máy chưa nhận danh sách hiện tại</h2><span class="sub">Nhận ở lần heartbeat kế tiếp (≤ 10 phút)</span></div>
           <div class="card-body"><p>${s.pending.map((id) => `<span class="pill no-dot mono">${esc(hosts.get(id) || `#${id}`)}</span>`).join(' ')}</p></div></div>` : ''}
         <div class="card">
           <div class="card-head"><h2>Đổi địa điểm / đổi mạng không mất kết nối</h2></div>
           <div class="card-body">
             <ol class="hint">
               <li>Thêm địa chỉ mới (IP WAN mới hoặc tên miền DDNS) <strong>trước khi</strong> chuyển, lúc agent còn gọi được server.</li>
-              <li>Chờ ô "Đã nhận danh sách hiện tại" gần 100% (mỗi máy nhận ở heartbeat kế tiếp, tối đa khoảng 5 phút).</li>
+              <li>Chờ ô "Đã nhận danh sách hiện tại" gần 100% (mỗi máy nhận ở heartbeat kế tiếp, tối đa khoảng 10 phút).</li>
               <li>Chuyển server sang mạng mới. Agent thấy địa chỉ cũ không gọi được thì tự thử địa chỉ kế tiếp.</li>
               <li>Khi cột "Máy đang dùng" của địa chỉ cũ về 0, gỡ địa chỉ cũ.</li>
             </ol>
@@ -1315,7 +1315,7 @@
           if (!url) { toast('Nhập địa chỉ trước'); return; }
           const { status, j } = await change({ action: 'add', url, note: $('#sv-note').value.trim(), first: $('#sv-first').checked });
           if (status !== 200) throw new Error(j.error || `lỗi ${status}`);
-          toast(`Đã thêm ${url}. Agent nhận trong vòng 5 phút.`);
+          toast(`Đã thêm ${url}. Agent nhận trong vòng 10 phút.`);
         } else if (b.dataset.act === 'remove') {
           const url = b.dataset.url;
           const using = Number(b.dataset.using || 0);

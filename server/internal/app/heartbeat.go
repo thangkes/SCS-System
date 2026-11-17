@@ -13,7 +13,8 @@ import (
 	"github.com/thangkes/SCS-System/server/internal/pki"
 )
 
-// heartbeatEvery: nhịp agent gọi về (agent tự cộng trừ ngẫu nhiên để không dồn cùng lúc).
+// heartbeatEvery: nhịp tối thiểu agent gọi về. Agent chờ ngẫu nhiên từ nhịp này tới gấp đôi
+// (5–10 phút) để không dồn cùng lúc; agent bản cũ chờ 5 phút ±20%.
 const heartbeatEvery = 5 * time.Minute
 
 // authDevice: máy gọi bằng chứng chỉ client (requireClientCert đã kiểm do CA ký) phải còn được

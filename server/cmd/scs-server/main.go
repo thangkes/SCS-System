@@ -143,6 +143,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		log.Error("không khởi động được", "err", err)
 		return 1
 	}
+	if cfg.OfflineAfter < 20*time.Minute {
+		// Agent gọi về ngẫu nhiên 5–10 phút: hạn ngắn hơn 2 nhịp tối đa sẽ báo mất liên lạc oan.
+		log.Warn("SCS_OFFLINE_AFTER ngắn: agent gọi về ngẫu nhiên 5–10 phút một lần, nên đặt từ 20m (mặc định 30m)",
+			"SCS_OFFLINE_AFTER", cfg.OfflineAfter.String())
+	}
 	reg := store.NewRegistry(db)
 	reg.Policy = periods.Policy{AutoClose: cfg.AlertAutoClose, OfflineAfter: cfg.OfflineAfter}
 	base := app.Deps{

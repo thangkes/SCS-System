@@ -149,7 +149,7 @@ func Load() (*Config, error) {
 		ClusterListen:    get("SCS_CLUSTER_LISTEN", ":5222"),
 		RulesDir:         get("SCS_RULES_DIR", "data/rules"),
 		AlertAutoClose:   getDuration("SCS_ALERT_AUTOCLOSE", 24*time.Hour, time.Hour, 30*24*time.Hour, &errs),
-		OfflineAfter:     getDuration("SCS_OFFLINE_AFTER", 15*time.Minute, 10*time.Minute, 24*time.Hour, &errs),
+		OfflineAfter:     getDuration("SCS_OFFLINE_AFTER", 30*time.Minute, 10*time.Minute, 24*time.Hour, &errs),
 	}
 	errs = append(errs, c.validate()...)
 	if len(errs) > 0 {
