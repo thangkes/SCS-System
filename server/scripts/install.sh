@@ -185,6 +185,23 @@ set_env() { # set_env KEY VALUE: thay dòng KEY=... hoặc thêm vào cuối fil
 		printf '%s=%s\n' "$1" "$2" >>"$ENV_FILE"
 	fi
 }
+# Cấu hình có từ bản trước không có các khóa mới thì thêm (để trống = tắt), để thấy và điền được.
+if ! grep -qE "^SCS_SMTP_HOST=" "$ENV_FILE"; then
+	cat >>"$ENV_FILE" <<'SMTPEOF'
+
+# Tài khoản web quản trị đăng nhập bằng mã gửi qua email (server/README.md "Tài khoản và mức quyền").
+# Để trống SCS_SMTP_HOST = tắt. Điền bằng menu mục 17 (Gmail gửi mã), hoặc: smtp.gmail.com, cổng 587,
+# một Gmail riêng để gửi, SCS_SMTP_PASSWORD = Mật khẩu ứng dụng của Gmail đó (cần bật xác minh 2 bước).
+SCS_SMTP_HOST=
+SCS_SMTP_PORT=587
+SCS_SMTP_USER=
+SCS_SMTP_PASSWORD=
+SCS_SMTP_FROM=
+# Tên miền email được đăng ký, cách nhau dấu phẩy; "*" = mọi tên miền.
+SCS_ACCOUNT_DOMAINS=gmail.com
+SMTPEOF
+	ok "Đã thêm khối cấu hình gửi mail (SCS_SMTP_*, đang tắt) vào $ENV_FILE: điền bằng menu mục 17"
+fi
 # Postgres/NATS chạy bằng compose.dev.yml trên chính máy này lấy mật khẩu từ server/.env.
 # Bản sao trong $ENV_FILE lệch (tạo lại .env, xóa volume DB) thì scs-server bị từ chối đăng nhập:
 # chép mật khẩu từ server/.env sang. DB ở máy khác (SCS_DB_HOST không phải máy này) thì không đụng.

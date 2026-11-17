@@ -573,6 +573,87 @@ do_rules() {
 	done
 }
 
+# ---------------------------------------------------------------- Gmail gửi mã đăng nhập
+# env_put KEY VALUE: ghi một dòng vào server.env bằng quyền root. Giá trị đi qua stdin (printf là lệnh
+# có sẵn của bash), không nằm trên dòng lệnh nên không lộ trong ps; giữ chủ sở hữu và quyền 600.
+ENV_PUT_SH='k=$1 f=$2; v=$(cat); tmp=$(mktemp "$f.XXXXXX") || exit 1; found=0
+while IFS= read -r line || [[ -n $line ]]; do
+	if [[ $line == "$k="* ]]; then printf "%s=%s\n" "$k" "$v"; found=1; else printf "%s\n" "$line"; fi
+done <"$f" >"$tmp"
+[[ $found == 1 ]] || printf "%s=%s\n" "$k" "$v" >>"$tmp"
+chown --reference="$f" "$tmp" && chmod 600 "$tmp" && mv "$tmp" "$f"'
+env_put() { printf '%s' "$2" | sudo bash -c "$ENV_PUT_SH" _ "$1" "$ENV_FILE"; }
+
+restart_server() {
+	if sudo systemctl restart scs-server; then
+		echo "  ${C_GRN}✔${C_0} Đã khởi động lại scs-server (mọi người đăng nhập lại web)"
+	else
+		echo "  ${C_RED}Không khởi động lại được scs-server${C_0} (xem mục 9)"
+		return 1
+	fi
+}
+
+mail_test() {
+	local to="$1"
+	(cd / && sudo -u scs "$SCS_BIN" mail-test -to "$to" -env-file "$ENV_FILE")
+}
+
+do_mail() {
+	[[ -x "$SCS_BIN" ]] || { echo "  Chưa cài dịch vụ (chọn mục 3 trước)."; return 1; }
+	sudo true || return 1
+	local host user pw domains c
+	host="$(env_get SCS_SMTP_HOST)"; user="$(env_get SCS_SMTP_USER)"; domains="$(env_get SCS_ACCOUNT_DOMAINS)"
+	if [[ -n "$host" ]]; then
+		echo "  Đang bật: gửi mã qua ${C_B}${user:-?}${C_0} ($host), mật khẩu ứng dụng: $([[ -n "$(env_get SCS_SMTP_PASSWORD)" ]] && echo "đã điền" || echo "${C_RED}chưa điền${C_0}")"
+		echo "  Tên miền được đăng ký: ${domains:-gmail.com}"
+	else
+		echo "  Đăng nhập / đăng ký bằng email: ${C_YEL}đang tắt${C_0} (chỉ đăng nhập bằng mã SSH, mục 8)."
+	fi
+	echo
+	echo "  ${C_DIM}Cần một Gmail riêng để GỬI mã (không dùng Gmail cá nhân): bật xác minh 2 bước, rồi vào${C_0}"
+	echo "  ${C_DIM}Tài khoản Google → Bảo mật → Mật khẩu ứng dụng, tạo một mật khẩu (16 chữ cái).${C_0}"
+	echo "   s) Điền / đổi Gmail gửi mã    t) Gửi thư thử    k) Tắt đăng nhập bằng email    0) Quay lại"
+	read -r -p "  Chọn: " c
+	case "$c" in
+		s | S)
+			ask "Gmail gửi mã" "$user"
+			user="$(tr '[:upper:]' '[:lower:]' <<<"$REPLY" | tr -d '[:space:]')"
+			[[ "$user" =~ ^[a-z0-9.+_-]+@gmail\.com$ ]] || { echo "  ${C_RED}Phải là địa chỉ @gmail.com.${C_0}"; return 1; }
+			read -r -s -p "  Mật khẩu ứng dụng (không hiện khi gõ, dán cả dấu cách cũng được): " pw; echo
+			pw="$(tr -d '[:space:]' <<<"$pw")"
+			[[ -n "$pw" ]] || { echo "  Không đổi gì."; return 0; }
+			if ! [[ "$pw" =~ ^[a-zA-Z]{16}$ ]]; then
+				echo "  ${C_YEL}Mật khẩu ứng dụng của Gmail thường là 16 chữ cái; cái vừa nhập không giống.${C_0}"
+				confirm "Vẫn lưu?" || return 0
+			fi
+			ask "Tên miền email được đăng ký tài khoản (cách nhau dấu phẩy, * = mọi tên miền)" "${domains:-gmail.com}"
+			domains="$(tr -d '[:space:]' <<<"$REPLY")"
+			[[ "$domains" =~ ^(\*|[A-Za-z0-9.-]+(,[A-Za-z0-9.-]+)*)$ ]] || { echo "  ${C_RED}Danh sách tên miền không hợp lệ.${C_0}"; return 1; }
+			sudo cp -p "$ENV_FILE" "$ENV_FILE.bak-$(date +%Y%m%d-%H%M%S)"
+			env_put SCS_SMTP_HOST smtp.gmail.com && env_put SCS_SMTP_PORT 587 && env_put SCS_SMTP_USER "$user" &&
+				env_put SCS_SMTP_PASSWORD "$pw" && env_put SCS_SMTP_FROM "$user" && env_put SCS_ACCOUNT_DOMAINS "$domains" ||
+				{ echo "  ${C_RED}Không ghi được $ENV_FILE${C_0}"; return 1; }
+			pw=""
+			echo "  ${C_GRN}Đã lưu vào $ENV_FILE${C_0} (bản cũ: $ENV_FILE.bak-*)"
+			ask "Gửi thư thử tới (Gmail của bạn; Enter để bỏ qua)" ""
+			if [[ -n "$REPLY" ]]; then mail_test "$REPLY" || { echo "  ${C_RED}Chưa gửi được: sửa lại rồi chọn s lần nữa.${C_0}"; return 1; }; fi
+			restart_server
+			echo "  Trang đăng nhập web giờ có tab ${C_B}Email${C_0} và ${C_B}Đăng ký${C_0}; duyệt tài khoản ở trang ${C_B}Tài khoản${C_0} (đăng nhập bằng mã mục 8)."
+			;;
+		t | T)
+			[[ -n "$host" ]] || { echo "  Chưa điền Gmail gửi mã (chọn s)."; return 1; }
+			ask "Gửi thư thử tới" ""
+			[[ -n "$REPLY" ]] && mail_test "$REPLY"
+			;;
+		k | K)
+			[[ -n "$host" ]] || { echo "  Đang tắt sẵn."; return 0; }
+			confirm "Tắt đăng nhập / đăng ký bằng email? (tài khoản vẫn giữ, bật lại bằng s)" || return 0
+			env_put SCS_SMTP_HOST "" && restart_server
+			;;
+		*) return 0 ;;
+	esac
+}
+
 # ---------------------------------------------------------------- menu
 while true; do
 	clear 2>/dev/null || true
@@ -612,6 +693,9 @@ while true; do
   ${C_B}Rule quét log${C_0}
   16) Kho bộ rule: thêm, xem chưa ký / đã ký / lỗi, duyệt (ký), xuất cho agent
 
+  ${C_B}Tài khoản web quản trị${C_0}
+  17) Gmail gửi mã đăng nhập (bật / tắt đăng nhập và đăng ký bằng email, gửi thư thử)
+
    0) Thoát
 EOF
 	echo
@@ -634,6 +718,7 @@ EOF
 		14) do_cluster_join ;;
 		15) do_servers ;;
 		16) do_rules ;;
+		17) do_mail ;;
 		0 | q | Q | "") exit 0 ;;
 		*) echo "  Không có mục \"$choice\"." ;;
 	esac

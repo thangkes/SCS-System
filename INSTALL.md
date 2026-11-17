@@ -27,7 +27,7 @@ bash SCS-System/server/menu.sh
 Chạy bằng user thường hoặc root (thư mục code thuộc user nào thì script tự chạy bằng user đó). Lần đầu chọn lần lượt **1 → 2 → 3**:
 **1** kiểm tra điều kiện, **2** cài Docker/Go/PostgreSQL/NATS, **3** cài dịch vụ (hỏi IP LAN, tùy chọn IP WAN /
 tên miền DDNS, dải mạng được vào web; gợi ý sẵn IP LAN và dải LAN của máy). Về sau: **4** cập nhật, **6** cho thêm dải mạng vào web,
-**8** lấy mã đăng nhập web, **9** xem trạng thái và log.
+**8** lấy mã đăng nhập web, **9** xem trạng thái và log, **17** điền Gmail gửi mã để bật tài khoản web đăng nhập bằng email.
 
 ### 1.1 Chuẩn bị máy: Docker, Go, PostgreSQL + NATS (dùng cờ lệnh)
 
@@ -117,16 +117,15 @@ sudo bash scripts/install.sh --uninstall   # gỡ dịch vụ (giữ cấu hình
 ```
 
 Bật đăng nhập bằng tài khoản email (tùy chọn, xem `server/README.md` mục "Tài khoản và mức quyền"): tạo một Gmail
-riêng để gửi mã, bật xác minh 2 bước, tạo **Mật khẩu ứng dụng**, rồi thêm vào `/etc/scs-server/server.env`:
+riêng để gửi mã, bật xác minh 2 bước, tạo **Mật khẩu ứng dụng** (16 chữ cái), rồi chạy menu **mục 17** → `s`: nhập
+Gmail gửi mã, dán mật khẩu ứng dụng (không hiện khi gõ, không nằm trên dòng lệnh), tên miền được đăng ký (mặc định
+`gmail.com`), gửi thư thử tới Gmail của bạn; menu ghi vào `/etc/scs-server/server.env` (sao lưu bản cũ) và khởi động lại
+dịch vụ. Mục 17 còn có `t` gửi thư thử, `k` tắt đăng nhập bằng email.
 
-```bash
-SCS_SMTP_HOST=smtp.gmail.com
-SCS_SMTP_PORT=587
-SCS_SMTP_USER=<gmail-gui-ma>@gmail.com
-SCS_SMTP_PASSWORD=<mat-khau-ung-dung>
-```
-
-Rồi `sudo systemctl restart scs-server`. Trang đăng nhập sẽ có thêm tab **Email** và **Đăng ký**; tài khoản mới phải
+Server cài từ bản cũ: cập nhật (mục 4) tự thêm khối `SCS_SMTP_*` (để trống = tắt) vào cuối `server.env`. Sửa tay thì
+điền `SCS_SMTP_HOST=smtp.gmail.com`, `SCS_SMTP_USER=<gmail-gui-ma>@gmail.com`, `SCS_SMTP_PASSWORD=<mat-khau-ung-dung>`,
+rồi `sudo systemctl restart scs-server`; thử gửi bằng
+`sudo -u scs /opt/scs-server/scs-server mail-test -to <gmail-cua-ban> -env-file /etc/scs-server/server.env` (chạy từ thư mục `/`). Trang đăng nhập sẽ có thêm tab **Email** và **Đăng ký**; tài khoản mới phải
 được quản trị gốc (đăng nhập bằng `scs-login-code`) duyệt ở trang **Tài khoản**.
 
 ### 1.6 Cập nhật server

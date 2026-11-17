@@ -39,7 +39,7 @@ Cách dùng:
 
 Lệnh:
   ingest    API cho agent: đăng ký, heartbeat, log, rule, cập nhật (cổng 6222)
-  admin       web quản trị HTTPS (cổng 7222), đăng nhập bằng mã 6 số
+  admin       web quản trị HTTPS (cổng 7222), đăng nhập bằng mã 6 số (SSH hoặc gửi qua email)
   worker      xử lý hàng đợi
   all         chạy tất cả trong một tiến trình (dùng khi dev)
   login-code  xem mã đăng nhập web quản trị (chạy trên máy server; -watch để tự cập nhật,
@@ -49,6 +49,7 @@ Lệnh:
   rules       viết rule quét log: rules check | test | build (scs-server rules -h)
   cluster     cụm nhiều server: cluster init | status | ping (scs-server cluster -h)
   servers     địa chỉ server gửi cho agent: servers list | add | remove | set (scs-server servers -h)
+  mail-test   gửi thư thử bằng cấu hình SCS_SMTP_* (Gmail gửi mã đăng nhập): mail-test -to <email>
   version     in phiên bản
 
 Cấu hình lấy từ biến môi trường; tự nạp ./.env nếu có (xem .env.example).
@@ -81,6 +82,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runCluster(args[1:], stdout, stderr)
 	case "servers":
 		return runServers(args[1:], stdout, stderr)
+	case "mail-test":
+		return runMailTest(args[1:], stdout, stderr)
 	case "ingest", "admin", "worker", "all", "login-code":
 	default:
 		fmt.Fprintf(stderr, "lệnh không hợp lệ: %q\n\n%s", cmd, usage)

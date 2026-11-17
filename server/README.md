@@ -66,6 +66,7 @@ CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=0.1.0" -o bin/s
 | `admin` | Web HTTPS xác nhận máy và theo dõi, đăng nhập bằng mã 6 số (lấy qua SSH, hoặc tài khoản email nhận mã qua Gmail); luôn HTTPS (dev tự ký); chỉ nhận kết nối từ `SCS_ADMIN_ALLOW` (mặc định localhost, thêm dải VPN) | `:7222` |
 | `worker` | Xử lý hàng đợi | — |
 | `all` | Chạy tất cả (dev) | — |
+| `mail-test` | Gửi thư thử bằng cấu hình `SCS_SMTP_*` (`-to <email>`), để biết Gmail gửi mã đã đúng chưa; Gmail từ chối đăng nhập thì báo dùng mật khẩu ứng dụng | — |
 | `login-code` | In mã đăng nhập web hiện hành (chạy trên máy server, cùng user với dịch vụ); `-watch` để tự in mã mới; `-unlock` mở khóa khi bị khóa do nhập sai nhiều | — |
 | `pki` | Tạo CA nội bộ, chứng chỉ server, khóa phát hành: `pki init`, `pki server`, `pki release` | — |
 | `rules` | Viết rule quét log: `rules check`, `rules test`, `rules build`; kho bộ rule trên server (`SCS_RULES_DIR`): `rules list`, `add`, `approve`, `remove`, `export` ([hướng dẫn](../docs/huong-dan-viet-rule.md)) | — |
@@ -289,7 +290,9 @@ Số nhỏ hơn là quyền cao hơn, và mức trên làm được mọi việc
   tối đa 50 tài khoản chờ duyệt. Mail gửi ngầm (tối đa 4 mail cùng lúc).
 - Cấu hình gửi mail: `SCS_SMTP_HOST/PORT/USER/PASSWORD/FROM` (bắt buộc STARTTLS, TLS 1.2+). Gmail:
   `smtp.gmail.com`, cổng `587`, nên dùng một Gmail riêng chỉ để gửi, bật xác minh 2 bước và tạo **Mật khẩu ứng dụng**.
-  Không khai SMTP thì tab Email / Đăng ký bị ẩn, chỉ đăng nhập được bằng mã SSH.
+  Không khai SMTP thì tab Email / Đăng ký bị ẩn, chỉ đăng nhập được bằng mã SSH. Trên server đã cài: menu **mục 17**
+  điền Gmail và mật khẩu ứng dụng, gửi thư thử (`scs-server mail-test`), tắt / bật; cập nhật từ bản cũ tự thêm khối
+  `SCS_SMTP_*` trống vào `server.env`.
 - Bảng `accounts` (migration 0007): tên, email, trạng thái, mức quyền, ai duyệt, lần đăng nhập cuối. Mọi thay đổi
   ghi vào bảng `audit` (`account.register`, `account.update`, `account.delete`).
 
