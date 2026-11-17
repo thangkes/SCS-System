@@ -1,6 +1,7 @@
 # SCS-Agent
 
-Agent chạy trên từng máy siêu thị, gửi trạng thái máy và sự kiện log về server.
+Agent chạy trên từng máy siêu thị (một "chân" của **SCS — Spider Control Scanning**): quét log, gửi trạng thái máy và
+sự kiện log về server.
 
 - Nền tảng: Ubuntu (systemd), Go, một binary tĩnh (không cgo)
 - Kế hoạch: [../docs/ke-hoach-giai-doan-1.html](../docs/ke-hoach-giai-doan-1.html)

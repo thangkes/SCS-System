@@ -1,6 +1,6 @@
 # SCS-Server
 
-Phía trung tâm: Ingest, Enrollment, Rule, Update, Workers, web quản trị và Admin API (đăng nhập bằng mã SSH hoặc tài khoản Gmail, 8 mức quyền).
+Con nhện ở trung tâm của **SCS (Spider Control Scanning)**. Phía trung tâm: Ingest, Enrollment, Rule, Update, Workers, web quản trị và Admin API (đăng nhập bằng mã SSH hoặc tài khoản Gmail, 8 mức quyền).
 
 - Nền tảng: Ubuntu
 - Ngôn ngữ: Go (lõi), TypeScript (dashboard)

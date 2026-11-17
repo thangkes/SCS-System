@@ -138,6 +138,8 @@ tới khi lỗi; chuyển server thì server mới mở giai đoạn của nó, 
 - Trang "Cảnh báo": như hiện nay, thêm nút "Đã xử lý" (ghi chú tùy chọn); cảnh báo critical ghi rõ "cần admin
   xác nhận".
 - Trang Tổng quan: số máy đang cảnh báo / mất liên lạc.
+- Trang Máy (đã làm, 2026-11): gom theo mã siêu thị, viền đỏ khi có giai đoạn cảnh báo critical đang mở hoặc mất
+  liên lạc, vàng khi có cảnh báo khác đang mở hoặc máy chờ duyệt, xanh khi mọi máy OK.
 
 ## 13. Thứ tự làm (bước 1–4 đã làm)
 

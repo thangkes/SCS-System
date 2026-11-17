@@ -106,7 +106,7 @@ SCS_ALERT_AUTOCLOSE=24h   # cảnh báo mức high tự đóng sau bấy lâu kh
 SCS_OFFLINE_AFTER=30m     # không nghe máy gửi gì bấy lâu thì báo mất liên lạc (tự đóng khi máy gửi lại); nên từ 20m
 ```
 
-Xem dòng thời gian của máy: web, trang **Máy** → bấm vào máy. Đóng sự cố: trang **Cảnh báo** → **Đã xử lý**.
+Xem dòng thời gian của máy: web, trang **Máy** → bấm mã siêu thị (viền đỏ / vàng / xanh theo sự cố) để xổ danh sách → bấm vào máy. Đóng sự cố: trang **Cảnh báo** → **Đã xử lý**.
 
 ### 1.5 Sau khi cài
 
