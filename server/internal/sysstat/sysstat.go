@@ -107,6 +107,63 @@ type Sampler struct {
 	day   string
 	base  map[string]netCounter
 	since time.Time
+	acc   minuteAcc
+}
+
+// minuteAcc: cộng dồn các mẫu 10 giây cho tới khi TakeMinute lấy ra (ghi lịch sử mỗi phút).
+type minuteAcc struct {
+	cpuSum, cpuMax   float64
+	cpuN, n          int
+	rx, tx           uint64
+	rxPeak, txPeak   float64
+	connsMax         int64
+	hbStart, evStart int64
+	started          bool
+}
+
+// Minute: số liệu một phút để lưu lịch sử. CPUAvg < 0 = không đo được.
+type Minute struct {
+	At                  time.Time
+	Host                string
+	Samples             int
+	CPUAvg, CPUMax      float64
+	Load1               float64
+	MemUsed, MemTotal   uint64
+	DiskUsed, DiskTotal uint64
+	RxBytes, TxBytes    uint64  // tổng mọi card (trừ card ảo) trong phút
+	RxPeak, TxPeak      float64 // byte/giây cao nhất giữa hai mẫu 10 giây
+	Heartbeats          int64
+	LogEvents           int64
+	ConnsMax            int64
+	RSS                 uint64
+}
+
+// TakeMinute trả số liệu cộng dồn từ lần gọi trước và bắt đầu cộng lại. Samples = 0: chưa có mẫu nào.
+func (s *Sampler) TakeMinute(at time.Time) Minute {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, sn := s.acc, s.snap
+	hb, ev := s.Act.Heartbeats.Load(), s.Act.LogEvents.Load()
+	m := Minute{At: at, Host: sn.Host.Name, Samples: a.n, CPUAvg: -1, CPUMax: -1, MemTotal: sn.Host.MemTotal,
+		DiskTotal: sn.Host.DiskTotal, RxBytes: a.rx, TxBytes: a.tx, RxPeak: a.rxPeak, TxPeak: a.txPeak,
+		ConnsMax: a.connsMax, RSS: sn.SCS.RSS}
+	if a.cpuN > 0 {
+		m.CPUAvg, m.CPUMax = a.cpuSum/float64(a.cpuN), a.cpuMax
+	}
+	if len(sn.Host.Load) > 0 {
+		m.Load1 = sn.Host.Load[0]
+	}
+	if sn.Host.MemTotal > 0 {
+		m.MemUsed = sn.Host.MemTotal - sn.Host.MemAvail
+	}
+	if sn.Host.DiskTotal > 0 {
+		m.DiskUsed = sn.Host.DiskTotal - sn.Host.DiskFree
+	}
+	if a.started {
+		m.Heartbeats, m.LogEvents = hb-a.hbStart, ev-a.evStart
+	}
+	s.acc = minuteAcc{hbStart: hb, evStart: ev, started: true}
+	return m
 }
 
 // New tạo bộ lấy mẫu và lấy mẫu đầu tiên ngay.
@@ -185,6 +242,9 @@ func (s *Sampler) sample(now time.Time) {
 		if s.cpu.total > 0 && cpu.total > s.cpu.total {
 			pct := 100 * float64((cpu.total-cpu.idle)-(s.cpu.total-s.cpu.idle)) / float64(cpu.total-s.cpu.total)
 			sn.Host.CPUPct = &pct
+			s.acc.cpuSum += pct
+			s.acc.cpuN++
+			s.acc.cpuMax = max(s.acc.cpuMax, pct)
 		}
 		s.cpu = cpu
 	}
@@ -213,6 +273,12 @@ func (s *Sampler) sample(now time.Time) {
 		}
 	}
 	dt := now.Sub(s.netAt).Seconds()
+	if !s.acc.started {
+		s.acc.hbStart, s.acc.evStart, s.acc.started = hb, evs, true
+	}
+	s.acc.n++
+	s.acc.connsMax = max(s.acc.connsMax, s.Act.IngestConns.Load())
+	var rxRate, txRate float64
 	names := make([]string, 0, len(counters))
 	for n := range counters {
 		if !skipIface(n) {
@@ -234,6 +300,10 @@ func (s *Sampler) sample(now time.Time) {
 		ifc := Iface{Name: n, Addrs: ifaceAddrs(n), RxToday: c.rx - b.rx, TxToday: c.tx - b.tx}
 		if had && dt > 0 && c.rx >= prev.rx && c.tx >= prev.tx {
 			ifc.RxBps, ifc.TxBps = float64(c.rx-prev.rx)/dt, float64(c.tx-prev.tx)/dt
+			s.acc.rx += c.rx - prev.rx
+			s.acc.tx += c.tx - prev.tx
+			rxRate += ifc.RxBps
+			txRate += ifc.TxBps
 		}
 		// Card không có IP và chưa từng có lưu lượng thì bỏ (card thừa, đang tắt).
 		if len(ifc.Addrs) == 0 && c.rx == 0 && c.tx == 0 {
@@ -241,6 +311,7 @@ func (s *Sampler) sample(now time.Time) {
 		}
 		sn.Net.Ifaces = append(sn.Net.Ifaces, ifc)
 	}
+	s.acc.rxPeak, s.acc.txPeak = max(s.acc.rxPeak, rxRate), max(s.acc.txPeak, txRate)
 	s.net, s.netAt = counters, now
 	sn.Net.TodaySince = s.since
 	s.snap = sn

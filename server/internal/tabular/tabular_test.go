@@ -96,3 +96,21 @@ func TestCSV(t *testing.T) {
 		t.Fatalf("không phải UTF-8: %v", err)
 	}
 }
+
+func TestWriteXLSXRoundTrip(t *testing.T) {
+	data, err := WriteXLSX("Báo cáo: 11/2026", []string{"Thời điểm", "CPU (%)", "Ghi chú"},
+		[][]any{{"2026-11-18 10:00", 12.5, "a < b & \"c\"\x01"}, {"2026-11-18 11:00", int64(3), nil}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, err := ReadXLSX(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 3 || rows[0][1] != "CPU (%)" || rows[1][1] != "12.5" || rows[1][2] != `a < b & "c"` || rows[2][1] != "3" {
+		t.Fatalf("đọc lại: %q", rows)
+	}
+	if colName(0) != "A" || colName(25) != "Z" || colName(26) != "AA" || sheetName("a/b:c") != "a-b-c" {
+		t.Fatal("tên cột / tên trang tính")
+	}
+}

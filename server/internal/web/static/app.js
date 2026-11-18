@@ -480,7 +480,7 @@
   }
 
   function serverCard(j, devices) {
-    const head = (sub) => `<div class="card-head"><h2>Server</h2><span class="sub">${sub}</span></div>`;
+    const head = (sub) => `<div class="card-head"><h2>Server</h2><span class="sub">${sub}</span><div class="right"><a href="#/bao-cao" class="btn btn-sm">Báo cáo</a></div></div>`;
     if (!j) return `${head('Đang tải…')}<p class="hint srv-pad">Đang lấy số liệu…</p>`;
     if (j.error) return `${head('Chỉ xem')}<p class="hint srv-pad">Không lấy được số liệu server: ${esc(j.error)}</p>`;
     const st = j.stats, h = st.host, n = st.net, c = st.scs;
@@ -534,6 +534,164 @@
   function alertItem(a) {
     const click = a.device_id ? ` class="clickable" data-dev="${esc(a.device_id)}" tabindex="0" title="Bấm để xem tình trạng máy"` : '';
     return `<li${click}>${pill(SEV[a.severity] || SEV.low)}<div class="grow"><div class="title">${esc(KIND[a.kind] || a.kind)} · <span class="mono">${esc(a.hostname || a.store_code || '—')}</span></div><div class="reasons">${reasonsHTML(a, 2)}</div></div><span class="time">${esc(ago(new Date(a.last_at)))}</span></li>`;
+  }
+
+  // ---------------------------------------------------------------- trang: Báo cáo server
+  // Lịch sử thông số server (ghi mỗi phút): CPU, RAM, ổ đĩa, băng thông mạng, heartbeat. Xuất CSV, in / lưu PDF.
+  const STEP_NAME = { 60: 'phút', 600: '10 phút', 3600: 'giờ', 86400: 'ngày' };
+  const dayStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const pctTxt = (v) => (v == null ? '—' : `${(Math.round(v * 10) / 10).toLocaleString('vi-VN')}%`);
+
+  // lineChart: biểu đồ đường SVG đơn giản (không thư viện ngoài). series: [{label, cls, pts: [[ms, v|null]]}].
+  function lineChart(series, opt) {
+    const W = 760, H = 210, L = 52, R = 12, T = 12, B = 28;
+    const x0 = opt.from, x1 = opt.to;
+    let yMax = opt.yMax || 0;
+    series.forEach((s) => s.pts.forEach(([, v]) => { if (v != null && v > yMax) yMax = v; }));
+    if (!opt.yMax) yMax = yMax > 0 ? yMax * 1.15 : 1;
+    const X = (t) => L + ((t - x0) / Math.max(1, x1 - x0)) * (W - L - R);
+    const Y = (v) => T + (1 - v / yMax) * (H - T - B);
+    const grid = [0, 0.25, 0.5, 0.75, 1].map((f) => {
+      const v = yMax * f, y = Y(v).toFixed(1);
+      return `<line class="ch-grid" x1="${L}" x2="${W - R}" y1="${y}" y2="${y}"/><text class="ch-ax" x="${L - 6}" y="${(+y + 3.5).toFixed(1)}" text-anchor="end">${esc(opt.fmt(v))}</text>`;
+    }).join('');
+    const span = x1 - x0, nT = 6;
+    const ticks = Array.from({ length: nT + 1 }, (_, i) => x0 + (span * i) / nT).map((t) => {
+      const d = new Date(t);
+      const lbl = span > 3 * 86400000 ? `${d.getDate()}/${d.getMonth() + 1}` : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      return `<text class="ch-ax" x="${X(t).toFixed(1)}" y="${H - 8}" text-anchor="middle">${esc(lbl)}</text>`;
+    }).join('');
+    const lines = series.map((s) => {
+      // ngắt đường khi thiếu số liệu (server tắt)
+      let d = '', pen = false;
+      s.pts.forEach(([t, v]) => {
+        if (v == null) { pen = false; return; }
+        d += `${pen ? 'L' : 'M'}${X(t).toFixed(1)} ${Y(v).toFixed(1)}`;
+        pen = true;
+      });
+      return `<path class="ch-line ${s.cls}" d="${d}"/>`;
+    }).join('');
+    const legend = series.map((s) => `<span class="ch-key ${s.cls}">${esc(s.label)}</span>`).join('');
+    return `<div class="chart"><div class="ch-head"><h3>${esc(opt.title)}</h3><div class="ch-legend">${legend}</div></div>
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opt.title)}">${grid}${ticks}${lines}</svg></div>`;
+  }
+
+  async function pageReport() {
+    setTitle('Báo cáo server');
+    const page = view;
+    const now = new Date();
+    const st = { preset: '24h', from: '', to: '', step: '' };
+    page.innerHTML = `
+      <div class="card report-ctl no-print">
+        <div class="toolbar">
+          <div class="seg" id="rp-preset">
+            <button type="button" data-p="24h" class="on">24 giờ</button><button type="button" data-p="7d">7 ngày</button>
+            <button type="button" data-p="30d">30 ngày</button><button type="button" data-p="90d">90 ngày</button></div>
+          <label class="inline">Từ <input type="date" id="rp-from"></label>
+          <label class="inline">Đến <input type="date" id="rp-to" value="${dayStr(now)}"></label>
+          <label class="inline">Gom theo <select id="rp-step"><option value="">Tự động</option><option value="10min">10 phút</option>
+            <option value="hour">Giờ</option><option value="day">Ngày</option></select></label>
+          <div class="right">
+            <a class="btn btn-sm" id="rp-xlsx" download>Xuất Excel (.xlsx)</a>
+            <a class="btn btn-sm" id="rp-csv" download>Xuất CSV</a>
+            <button type="button" class="btn btn-sm btn-primary" id="rp-print">In / Lưu PDF</button></div>
+        </div>
+        <p class="hint rp-pad">Server ghi số liệu mỗi phút và giữ 90 ngày (<code>SCS_METRICS_KEEP</code>). Giờ theo giờ của máy server.</p>
+      </div>
+      <div id="rp-body"><p class="hint">Đang tải…</p></div>`;
+
+    const query = () => {
+      const p = new URLSearchParams();
+      if (st.preset) {
+        const h = { '24h': 24, '7d': 168, '30d': 720, '90d': 2160 }[st.preset];
+        const to = new Date(), from = new Date(to.getTime() - h * 3600000);
+        p.set('from', from.toISOString()); p.set('to', to.toISOString());
+        p.set('step', st.step || (h <= 24 ? '10min' : h <= 720 ? 'hour' : 'day'));
+      } else {
+        if (st.from) p.set('from', st.from);
+        if (st.to) p.set('to', st.to);
+        p.set('step', st.step || 'hour');
+      }
+      return p.toString();
+    };
+
+    const load = async () => {
+      const q = query();
+      $('#rp-csv').href = `/admin/v1/server/report.csv?${q}`;
+      $('#rp-xlsx').href = `/admin/v1/server/report.xlsx?${q}`;
+      let j;
+      try { j = await getJSON(`/admin/v1/server/report?${q}`); } catch (err) { if (page === view) showLoadError($('#rp-body'), err); return; }
+      if (page !== view) return;
+      const sm = j.summary, rows = j.rows, from = new Date(j.from), to = new Date(j.to);
+      const cover = j.summary.expected_minutes ? Math.min(100, (100 * sm.minutes) / sm.expected_minutes) : 0;
+      const pts = (f) => rows.map((r) => [new Date(r.at).getTime(), f(r)]);
+      const rate = (b, r) => (r.minutes ? (b * 8) / (r.minutes * 60) / 1e6 : null); // Mbit/s trung bình
+      const fmtD = (d) => d.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+      const mbps = (bps) => `${((bps * 8) / 1e6).toLocaleString('vi-VN', { maximumFractionDigits: 2 })} Mbit/s`;
+      const diskGrow = sm.disk_end && sm.disk_start ? sm.disk_end - sm.disk_start : null;
+      $('#rp-body').innerHTML = `
+        <div class="card report-head">
+          <h2>Báo cáo vận hành server ${esc(j.host || '')}</h2>
+          <p>Từ <b>${esc(fmtD(from))}</b> đến <b>${esc(fmtD(to))}</b> · gom theo ${esc(STEP_NAME[j.step_s] || '')} ·
+            có số liệu ${esc(pctTxt(cover))} thời gian${cover < 95 && sm.expected_minutes ? ' (phần thiếu = server tắt / khởi động lại / chưa bật ghi)' : ''}</p>
+        </div>
+        ${rows.length ? '' : '<div class="card soon"><p>Chưa có số liệu trong khoảng này. Server ghi mỗi phút kể từ bản cập nhật có trang này.</p></div>'}
+        <div class="grid-kpi rp-kpi">
+          ${kpi('CPU', pctTxt(sm.cpu_avg), `trung bình · đỉnh ${pctTxt(sm.cpu_max)}`, sm.cpu_max >= 90 ? 'is-bad' : sm.cpu_max >= 70 ? 'is-warn' : '')}
+          ${kpi('RAM', pctTxt(sm.mem_pct_avg), `trung bình · đỉnh ${pctTxt(sm.mem_pct_max)} của ${fmtBytes(sm.mem_total)}`, sm.mem_pct_max >= 90 ? 'is-bad' : sm.mem_pct_max >= 70 ? 'is-warn' : '')}
+          ${kpi('Ổ đĩa dữ liệu', sm.disk_end ? `${fmtBytes(sm.disk_end)} / ${fmtBytes(sm.disk_total)}` : '—', diskGrow != null ? `tăng ${fmtBytes(Math.max(0, diskGrow))} trong kỳ` : '', sm.disk_total && sm.disk_end / sm.disk_total >= 0.9 ? 'is-bad' : '')}
+          ${kpi('Mạng nhận', fmtBytes(sm.rx_bytes), `TB ${mbps(sm.rx_avg_bps)} · đỉnh ${mbps(sm.rx_peak_bps)}`)}
+          ${kpi('Mạng gửi', fmtBytes(sm.tx_bytes), `TB ${mbps(sm.tx_avg_bps)} · đỉnh ${mbps(sm.tx_peak_bps)}`)}
+          ${kpi('Heartbeat', fmtNum(sm.heartbeats), `${fmtNum(sm.log_events)} sự kiện log · tối đa ${fmtNum(sm.conns_max)} kết nối agent`)}
+          ${kpi('Dung lượng DB', sm.db_end ? fmtBytes(sm.db_end) : '—', sm.db_start && sm.db_end ? `đầu kỳ ${fmtBytes(sm.db_start)}` : '')}
+          ${kpi('RAM scs-server', sm.rss_max ? fmtBytes(sm.rss_max) : '—', 'cao nhất trong kỳ')}
+        </div>
+        ${rows.length ? `<div class="card rp-charts">
+          ${lineChart([{ label: 'CPU trung bình', cls: 's1', pts: pts((r) => r.cpu_avg) }, { label: 'CPU đỉnh', cls: 's2', pts: pts((r) => r.cpu_max) }],
+            { title: 'CPU (%)', from: from.getTime(), to: to.getTime(), yMax: 100, fmt: (v) => `${Math.round(v)}%` })}
+          ${lineChart([{ label: 'RAM trung bình', cls: 's1', pts: pts((r) => r.mem_pct_avg) }, { label: 'RAM đỉnh', cls: 's2', pts: pts((r) => r.mem_pct_max) }],
+            { title: 'RAM (%)', from: from.getTime(), to: to.getTime(), yMax: 100, fmt: (v) => `${Math.round(v)}%` })}
+          ${lineChart([{ label: 'Nhận (TB)', cls: 's1', pts: pts((r) => rate(r.rx_bytes, r)) }, { label: 'Gửi (TB)', cls: 's3', pts: pts((r) => rate(r.tx_bytes, r)) },
+            { label: 'Nhận (đỉnh)', cls: 's2', pts: pts((r) => (r.minutes ? (r.rx_peak_bps * 8) / 1e6 : null)) }],
+            { title: 'Băng thông mạng (Mbit/s)', from: from.getTime(), to: to.getTime(), fmt: (v) => (v >= 10 ? Math.round(v) : (Math.round(v * 100) / 100)).toLocaleString('vi-VN') })}
+          ${lineChart([{ label: 'Heartbeat', cls: 's1', pts: pts((r) => r.heartbeats) }],
+            { title: `Heartbeat mỗi ${STEP_NAME[j.step_s] || 'khoảng'}`, from: from.getTime(), to: to.getTime(), fmt: (v) => fmtNum(Math.round(v)) })}
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Chi tiết</h2><span class="sub">${rows.length > 200 ? `200 / ${fmtNum(rows.length)} dòng mới nhất — đủ trong file CSV` : `${fmtNum(rows.length)} dòng`}</span></div>
+          <div class="table-wrap"><table class="rp-table">
+            <thead><tr><th>Thời điểm</th><th class="num">CPU TB / đỉnh</th><th class="num">RAM TB / đỉnh</th><th class="num">Ổ đĩa</th>
+              <th class="num">Nhận</th><th class="num">Gửi</th><th class="num">Đỉnh nhận</th><th class="num">Heartbeat</th><th class="num hide-sm">Phút có số liệu</th></tr></thead>
+            <tbody>${rows.slice(-200).reverse().map((r) => `<tr>
+              <td class="mono">${esc(j.step_s >= 86400 ? new Date(r.at).toLocaleDateString('vi-VN') : fmtD(new Date(r.at)))}</td>
+              <td class="num">${esc(pctTxt(r.cpu_avg))} / ${esc(pctTxt(r.cpu_max))}</td>
+              <td class="num">${esc(pctTxt(r.mem_pct_avg))} / ${esc(pctTxt(r.mem_pct_max))}</td>
+              <td class="num">${r.disk_used ? esc(fmtBytes(r.disk_used)) : '—'}</td>
+              <td class="num">${esc(fmtBytes(r.rx_bytes))}</td><td class="num">${esc(fmtBytes(r.tx_bytes))}</td>
+              <td class="num">${esc(mbps(r.rx_peak_bps))}</td><td class="num">${fmtNum(r.heartbeats)}</td>
+              <td class="num hide-sm">${fmtNum(r.minutes)}</td></tr>`).join('')}</tbody></table></div>
+        </div>` : ''}
+        <p class="hint print-only">In lúc ${esc(fmtD(new Date()))} từ web quản trị SCS-System.</p>`;
+    };
+
+    $('#rp-preset').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-p]'); if (!b) return;
+      st.preset = b.dataset.p;
+      $$('#rp-preset button').forEach((x) => x.classList.toggle('on', x === b));
+      load();
+    });
+    const custom = () => {
+      st.preset = '';
+      st.from = $('#rp-from').value; st.to = $('#rp-to').value;
+      $$('#rp-preset button').forEach((x) => x.classList.remove('on'));
+      if (st.from && st.to) load();
+    };
+    $('#rp-from').addEventListener('change', custom);
+    $('#rp-to').addEventListener('change', custom);
+    $('#rp-step').addEventListener('change', (e) => { st.step = e.target.value; load(); });
+    $('#rp-print').addEventListener('click', () => window.print());
+    await load();
+    refreshTimer = setInterval(() => { if (st.preset === '24h') load(); }, 60000); // 24 giờ gần nhất: tự cập nhật mỗi phút
   }
 
   // ---------------------------------------------------------------- trang: Máy
@@ -2208,6 +2366,7 @@
     'cap-nhat': pageAgent,
     cum: pageCluster,
     'dia-chi': pageServers,
+    'bao-cao': pageReport,
     'tai-khoan': pageAccounts,
   };
 

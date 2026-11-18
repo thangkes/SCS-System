@@ -214,6 +214,22 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
   DB; dung lượng DB hỏi tối đa mỗi phút một lần. Số heartbeat / kết nối agent chỉ có khi chạy `scs-server all`
   (cổng agent cùng tiến trình, cách menu cài); số đếm về 0 khi khởi động lại.
 
+## Báo cáo server (lịch sử thông số)
+
+Server ghi **mỗi phút một dòng** vào bảng `server_metrics` (migration 0009): CPU trung bình / đỉnh, tải, RAM, ổ đĩa
+thư mục dữ liệu, lưu lượng mạng nhận / gửi (mọi card trừ card ảo Docker, loopback) và tốc độ đỉnh, heartbeat, sự kiện
+log, số kết nối agent tối đa, RAM scs-server, dung lượng DB (hỏi 10 phút một lần). Giữ `SCS_METRICS_KEEP` (mặc định 90
+ngày, xóa dòng cũ mỗi giờ; ~1.440 dòng / ngày). Chỉ ghi khi chạy web quản trị (`admin` / `all`); số heartbeat / kết nối
+chỉ có khi `all`.
+
+Web: trang **Báo cáo server** (thanh bên, hoặc nút **Báo cáo** trên khung Server ở Tổng quan; mức Chỉ xem): chọn 24 giờ /
+7 / 30 / 90 ngày hoặc khoảng ngày, gom theo 10 phút / giờ / ngày (giờ của máy server). Có tổng kết (CPU, RAM trung bình và
+đỉnh, ổ đĩa tăng bao nhiêu, tổng nhận / gửi, Mbit/s trung bình và đỉnh, heartbeat, dung lượng DB, % thời gian có số liệu
+— phần thiếu là server tắt), biểu đồ CPU / RAM / băng thông / heartbeat, bảng chi tiết, nút **Xuất Excel (.xlsx)**
+(ô số là số thật), **Xuất CSV** và **In / Lưu PDF** (bản in ẩn menu, nút). API: `GET /admin/v1/server/report`,
+`report.xlsx`, `report.csv` (`from`, `to` = RFC 3339 hoặc YYYY-MM-DD, `step` = minute | 10min | hour | day; khoảng dài
+tự tăng bước, tối đa 3.000 dòng).
+
 ## Thông báo tức thời trên web
 
 `GET /admin/v1/stream` (Server-Sent Events, cùng cổng 7222, cùng phiên đăng nhập, không dùng dịch vụ ngoài). Khi có

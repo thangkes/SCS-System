@@ -90,6 +90,18 @@ func TestSampler(t *testing.T) {
 		t.Fatalf("tổng: %+v", sn.SCS)
 	}
 
+	// Cộng dồn theo phút để lưu lịch sử.
+	m := s.TakeMinute(time.Now())
+	if m.Samples != 2 || m.CPUAvg != 50 || m.CPUMax != 50 || m.RxBytes != 100000 || m.TxBytes != 50000 {
+		t.Fatalf("phút: %+v", m)
+	}
+	if m.Heartbeats != 6 || m.LogEvents != 4 || m.ConnsMax != 3 || m.MemUsed != 2000000*1024 || m.RxPeak < 9000 {
+		t.Fatalf("phút (hoạt động, RAM, đỉnh): %+v", m)
+	}
+	if m2 := s.TakeMinute(time.Now()); m2.Samples != 0 || m2.RxBytes != 0 || m2.Heartbeats != 0 || m2.CPUAvg != -1 {
+		t.Fatalf("lấy xong phải đếm lại từ đầu: %+v", m2)
+	}
+
 	// Bộ đếm card mạng quay về 0 (card khởi động lại): không ra số âm / số khổng lồ.
 	writeProc(t, dir, map[string]string{"net/dev": netDev(10, 10)})
 	s.sample(time.Now().Add(2 * Every))

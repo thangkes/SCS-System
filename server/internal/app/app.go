@@ -160,6 +160,10 @@ func AdminHandler(d Deps) http.Handler {
 		mux.Handle("GET /admin/v1/stream", view(httpx.NotImplemented("thông báo tức thời")))
 	}
 	mux.Handle("GET /admin/v1/server/stats", view(http.HandlerFunc(statsAPI(d))))
+	rp := reportAPI{d}
+	mux.Handle("GET /admin/v1/server/report", view(http.HandlerFunc(rp.report)))
+	mux.Handle("GET /admin/v1/server/report.csv", view(http.HandlerFunc(rp.reportCSV)))
+	mux.Handle("GET /admin/v1/server/report.xlsx", view(http.HandlerFunc(rp.reportXLSX)))
 	st := storesAPI{d}
 	mux.Handle("GET /admin/v1/stores", view(http.HandlerFunc(st.list)))
 	mux.Handle("GET /admin/v1/stores/template.csv", view(http.HandlerFunc(st.template)))

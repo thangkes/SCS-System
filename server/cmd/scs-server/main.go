@@ -242,6 +242,9 @@ func build(cmd string, cfg *config.Config, log *slog.Logger, base app.Deps) ([]r
 		// cả số heartbeat, sự kiện, kết nối agent; chạy admin riêng thì chỉ có số của máy.
 		base.Stats = sysstat.New(nil, cfg.StorageRoot, cmd == "all")
 		rs = append(rs, base.Stats.Run)
+		// Lịch sử thông số server mỗi phút (trang Báo cáo server), giữ SCS_METRICS_KEEP.
+		rs = append(rs, app.MetricsRecorder(app.Deps{Log: log.With("role", "metrics"), Registry: base.Registry,
+			Stats: base.Stats}, cfg.MetricsKeep))
 	}
 	if cmd == "ingest" || cmd == "all" {
 		if cfg.IngestInsecure() && !cfg.AllowInsecureIngest() {

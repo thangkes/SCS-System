@@ -86,6 +86,8 @@ type Config struct {
 	// gửi gì bấy lâu thì báo mất liên lạc. Xem docs/thiet-ke-luu-theo-giai-doan.md.
 	AlertAutoClose time.Duration
 	OfflineAfter   time.Duration
+	// MetricsKeep (SCS_METRICS_KEEP): giữ lịch sử thông số server (trang Báo cáo server) bao lâu, mặc định 90 ngày.
+	MetricsKeep time.Duration
 }
 
 type DB struct {
@@ -166,6 +168,7 @@ func Load() (*Config, error) {
 		RulesDir:         get("SCS_RULES_DIR", "data/rules"),
 		AlertAutoClose:   getDuration("SCS_ALERT_AUTOCLOSE", 24*time.Hour, time.Hour, 30*24*time.Hour, &errs),
 		OfflineAfter:     getDuration("SCS_OFFLINE_AFTER", 30*time.Minute, 10*time.Minute, 24*time.Hour, &errs),
+		MetricsKeep:      getDuration("SCS_METRICS_KEEP", 90*24*time.Hour, 24*time.Hour, 400*24*time.Hour, &errs),
 	}
 	errs = append(errs, c.validate()...)
 	if len(errs) > 0 {
