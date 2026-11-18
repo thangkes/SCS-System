@@ -46,7 +46,7 @@ var (
 	// ký mới chỉ nhận chữ số 0–9.
 	usernameRe     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{2,31}$`)
 	registerNameRe = regexp.MustCompile(`^[0-9]{3,32}$`)
-	emailRe    = regexp.MustCompile(`^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,24}$`)
+	emailRe        = regexp.MustCompile(`^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,24}$`)
 )
 
 // emailCode: mã đang chờ nhập (lưu SHA-256, không lưu mã).
