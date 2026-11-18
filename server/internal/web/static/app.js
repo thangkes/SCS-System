@@ -540,6 +540,7 @@
 
   // ---------------------------------------------------------------- trang: Báo cáo server
   // Lịch sử thông số server (ghi mỗi phút): CPU, RAM, ổ đĩa, băng thông mạng, heartbeat. Xuất CSV, in / lưu PDF.
+  const RP_ROWS = 20; // bảng Chi tiết trang Báo cáo server: 20 dòng mới nhất (đủ trong file xuất)
   const STEP_NAME = { 60: 'phút', 600: '10 phút', 3600: 'giờ', 86400: 'ngày' };
   const dayStr = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   const pctTxt = (v) => (v == null ? '—' : `${(Math.round(v * 10) / 10).toLocaleString('vi-VN')}%`);
@@ -660,11 +661,11 @@
             { title: `Heartbeat mỗi ${STEP_NAME[j.step_s] || 'khoảng'}`, from: from.getTime(), to: to.getTime(), fmt: (v) => fmtNum(Math.round(v)) })}
         </div>
         <div class="card">
-          <div class="card-head"><h2>Chi tiết</h2><span class="sub">${rows.length > 200 ? `200 / ${fmtNum(rows.length)} dòng mới nhất — đủ trong file CSV` : `${fmtNum(rows.length)} dòng`}</span></div>
+          <div class="card-head"><h2>Chi tiết</h2><span class="sub">${rows.length > RP_ROWS ? `${RP_ROWS} / ${fmtNum(rows.length)} dòng mới nhất — đủ trong file Excel / CSV` : `${fmtNum(rows.length)} dòng`}</span></div>
           <div class="table-wrap"><table class="rp-table">
             <thead><tr><th>Thời điểm</th><th class="num">CPU TB / đỉnh</th><th class="num">RAM TB / đỉnh</th><th class="num">Ổ đĩa</th>
               <th class="num">Nhận</th><th class="num">Gửi</th><th class="num">Đỉnh nhận</th><th class="num">Heartbeat</th><th class="num hide-sm">Phút có số liệu</th></tr></thead>
-            <tbody>${rows.slice(-200).reverse().map((r) => `<tr>
+            <tbody>${rows.slice(-RP_ROWS).reverse().map((r) => `<tr>
               <td class="mono">${esc(j.step_s >= 86400 ? new Date(r.at).toLocaleDateString('vi-VN') : fmtD(new Date(r.at)))}</td>
               <td class="num">${esc(pctTxt(r.cpu_avg))} / ${esc(pctTxt(r.cpu_max))}</td>
               <td class="num">${esc(pctTxt(r.mem_pct_avg))} / ${esc(pctTxt(r.mem_pct_max))}</td>
