@@ -1,0 +1,12 @@
+[Unit]
+Description=SCS-Server: sao lưu DB 15 ngày một lần (ngày 1 và 16 hằng tháng)
+
+[Timer]
+# systemd không có "mỗi 15 ngày" theo lịch: ngày 1 và 16 hằng tháng, 02:30 giờ máy server.
+OnCalendar=*-*-01,16 02:30:00
+# Máy tắt đúng lúc đó thì chạy bù khi bật lại.
+Persistent=true
+RandomizedDelaySec=20min
+
+[Install]
+WantedBy=timers.target

@@ -27,6 +27,7 @@
 #   - lần đầu: chép server/.env → /etc/scs-server/server.env (scs, 600); đã có thì GIỮ NGUYÊN
 #   - chưa có CA: tạo CA nội bộ + chứng chỉ server vào /etc/scs-server/pki và điền SCS_TLS_*, SCS_CA_*
 #   - cài deploy/systemd/scs-server.service, bật tự chạy khi khởi động, khởi động ngay
+#   - cài timer sao lưu DB định kỳ (scs-server-backup.timer: ngày 1 và 16 hằng tháng, scripts/backup-db.sh)
 #   - cài lệnh scs-login-code để lấy mã đăng nhập web
 # Chạy lại nhiều lần được.
 
@@ -117,7 +118,8 @@ fi
 
 if [[ $MODE == uninstall ]]; then
 	systemctl disable --now scs-server 2>/dev/null || true
-	rm -f "$UNIT_DST" "$LOGIN_CMD"
+	systemctl disable --now scs-server-backup.timer 2>/dev/null || true
+	rm -f "$UNIT_DST" "$LOGIN_CMD" /etc/systemd/system/scs-server-backup.service /etc/systemd/system/scs-server-backup.timer
 	systemctl daemon-reload
 	ok "Đã gỡ dịch vụ scs-server. Giữ lại: $ETC_DIR (cấu hình, CA), $DATA_DIR (dữ liệu), $OPT_DIR (binary), user $SVC_USER"
 	exit 0
@@ -409,6 +411,18 @@ systemctl daemon-reload
 systemctl enable scs-server >/dev/null
 systemctl restart scs-server
 ok "Đã cài $UNIT_DST, bật tự chạy khi khởi động máy"
+
+# ---- sao lưu DB định kỳ (ngày 1 và 16 hằng tháng ≈ 15 ngày, giữ SCS_BACKUP_KEEP bản, mặc định 6)
+# Script chép sang /opt (root sở hữu): timer chạy bằng root, không chạy file trong thư mục code.
+install -o root -g root -m 755 "$SERVER_DIR/scripts/backup-db.sh" "$OPT_DIR/backup-db.sh"
+for u in scs-server-backup.service scs-server-backup.timer; do
+	sed "s|@SERVER_DIR@|$SERVER_DIR|g" "$SERVER_DIR/deploy/systemd/$u" >"/etc/systemd/system/$u.new"
+	chmod 644 "/etc/systemd/system/$u.new"
+	mv -f "/etc/systemd/system/$u.new" "/etc/systemd/system/$u"
+done
+systemctl daemon-reload
+systemctl enable --now scs-server-backup.timer >/dev/null
+ok "Sao lưu DB định kỳ: ngày 1 và 16 hằng tháng (02:30), lưu ở $SERVER_DIR/data/backup — lần tới: $(systemctl show scs-server-backup.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo '?')"
 
 sleep 3
 if systemctl is-active --quiet scs-server; then

@@ -185,8 +185,31 @@ else
 	}
 fi
 version="$(git describe --tags --always)"
+# test_db_url: Postgres (compose) đang chạy thì dùng DB riêng scs_test (tạo nếu chưa có) để chạy cả test
+# cấu trúc DB / SQL trên PostgreSQL + TimescaleDB thật TRƯỚC khi cài. Test xóa và tạo lại bảng, nên chỉ bao
+# giờ trỏ vào scs_test, không phải DB đang chạy (test cũng tự từ chối DB không có chữ "test" trong tên).
+test_db_url() {
+	local user pass port
+	local dc=(docker compose -f "$COMPOSE_FILE")
+	docker info >/dev/null 2>&1 || dc=(sudo docker compose -f "$COMPOSE_FILE")
+	"${dc[@]}" ps --status running -q postgres 2>/dev/null | grep -q . || return 0
+	user="$(env_value SCS_DB_USER)"; user="${user:-scs}"
+	pass="$(env_value SCS_DB_PASSWORD)"
+	port="$(env_value SCS_DB_PORT)"; port="${port:-5432}"
+	if ! "${dc[@]}" exec -T postgres psql -U "$user" -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'scs_test'" | grep -q 1; then
+		"${dc[@]}" exec -T postgres createdb -U "$user" scs_test >&2 || return 0
+	fi
+	printf 'postgres://%s:%s@127.0.0.1:%s/scs_test?sslmode=disable' "$user" "$pass" "$port"
+}
+
 if [[ $SKIP_TESTS -eq 0 ]]; then
-	if ! (cd "$SERVER_DIR" && "$GO" test ../common/... ./... >/tmp/scs-update-test.log 2>&1); then
+	db_url="$(test_db_url || true)"
+	if [[ -n "$db_url" ]]; then
+		ok "Có PostgreSQL: chạy cả test cấu trúc DB và SQL trên DB riêng scs_test"
+	else
+		warn "Không thấy PostgreSQL của compose.dev.yml: bỏ qua test cấu trúc DB (SQL mới chưa được kiểm)"
+	fi
+	if ! (cd "$SERVER_DIR" && SCS_TEST_DATABASE_URL="$db_url" "$GO" test -p 1 ../common/... ./... >/tmp/scs-update-test.log 2>&1); then
 		tail -n 30 /tmp/scs-update-test.log >&2
 		restore
 		die "Test bản mới thất bại, KHÔNG cài; code đã trả về bản cũ" "Log đầy đủ: /tmp/scs-update-test.log"

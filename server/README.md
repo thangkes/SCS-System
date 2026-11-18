@@ -184,6 +184,25 @@ TN trong siêu thị và mỗi hostname chỉ một máy đang hoạt động, m
 
 Test cấu trúc DB chạy trên DB riêng `scs_test`: `bash scripts/setup.sh --start --test` tự tạo DB và chạy, hoặc
 `SCS_TEST_DATABASE_URL='postgres://scs:<mật khẩu>@127.0.0.1:5432/scs_test?sslmode=disable' go test ./internal/store/`.
+**Mỗi lần cập nhật** (`update.sh`, menu mục 4) cũng tự chạy các test này trên `scs_test` (PostgreSQL + TimescaleDB thật
+của compose) **trước khi cài**: migration mới hay câu SQL lỗi thì dừng, không cài, code trở về bản cũ. Test xóa và tạo
+lại bảng nên chỉ chạy trên DB có chữ "test" trong tên (tự từ chối DB khác).
+
+## Sao lưu DB
+
+- **Định kỳ**: `scs-server-backup.timer` chạy **ngày 1 và 16 hằng tháng lúc 02:30** (≈ 15 ngày một lần; máy tắt lúc đó
+  thì chạy bù khi bật lại), gọi `/opt/scs-server/backup-db.sh` bằng root. Giữ `SCS_BACKUP_KEEP` bản định kỳ mới nhất
+  (mặc định 6 ≈ 3 tháng). `install.sh` (menu mục 3, mục 4) cài và bật timer.
+- **Trước mỗi lần cập nhật có đổi cấu trúc DB** (`update.sh`) và **sao lưu tay** (menu mục 18 → 1) không bao giờ bị tự xóa.
+- File `server/data/backup/scs-<ngày-giờ>-<dinh-ky|tay|truoc-…>.sql.gz` (`pg_dump`, nén gzip), quyền 600, thư mục 700.
+  Script ghi file tạm, kiểm gzip, kiểm có dòng kết thúc của pg_dump rồi mới đổi tên; thiếu chỗ (dưới 2 lần bản trước)
+  thì không chạy. Lỗi thì `systemctl status scs-server-backup` báo failed, menu mục 18 hiện cảnh báo.
+- Bản sao lưu nằm **trên cùng ổ với DB**: hỏng ổ / mất máy là mất cả hai. Nên chép định kỳ ra máy khác (ổ ngoài,
+  NAS) — bản sao lưu chứa toàn bộ dữ liệu (thông tin siêu thị, tài khoản, nhật ký), giữ kín như DB.
+- **Khôi phục** (ghi đè toàn bộ dữ liệu; menu mục 18 → 3 in đủ lệnh): dừng `scs-server` → `dropdb` / `createdb` →
+  `CREATE EXTENSION timescaledb; SELECT timescaledb_pre_restore();` → `gzip -dc <file> | psql` →
+  `SELECT timescaledb_post_restore();` → bật lại `scs-server`. Chưa diễn tập khôi phục trên máy thật: nên thử một lần
+  trên máy / DB thử trước khi cần dùng.
 
 ## Lưu theo giai đoạn
 

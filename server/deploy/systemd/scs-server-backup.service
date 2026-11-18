@@ -1,0 +1,13 @@
+[Unit]
+Description=SCS-Server: sao lưu DB định kỳ
+Documentation=file:@SERVER_DIR@/README.md
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# Bản cài ở /opt (root sở hữu) — không chạy script trong thư mục code (user thường sửa được) bằng root.
+ExecStart=/bin/bash /opt/scs-server/backup-db.sh --server-dir @SERVER_DIR@ --reason dinh-ky
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=2h

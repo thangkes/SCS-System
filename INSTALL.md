@@ -144,10 +144,15 @@ bash server/scripts/update.sh --ref v0.2.0 # lên đúng một bản
 bash server/scripts/update.sh --rollback   # quay về binary trước lần cập nhật gần nhất
 ```
 
-Chạy bằng user thường hoặc root (tự gọi sudo khi cài). Script kéo code, chạy test, build; bản mới có đổi cấu trúc DB thì
+Chạy bằng user thường hoặc root (tự gọi sudo khi cài). Script kéo code, chạy test (kể cả test SQL trên DB riêng
+`scs_test` của PostgreSQL đang chạy — lỗi thì không cài), build; bản mới có đổi cấu trúc DB thì
 **sao lưu DB** vào `server/data/backup/` trước; cài xong kiểm `/readyz`, không lên trong 60 giây thì **tự quay về
 binary cũ**. Thư mục code có thay đổi chưa commit thì từ chối chạy. Mỗi lần cập nhật cũng build **bản agent cùng
 phiên bản** (amd64, arm64); server nhập vào kho, admin phát hành trên web (mục 2).
+
+**Sao lưu DB định kỳ**: ngày 1 và 16 hằng tháng (≈ 15 ngày), giữ 6 bản gần nhất; menu mục **18** để sao lưu ngay, xem
+các bản và cách khôi phục (chi tiết: `server/README.md`, mục "Sao lưu DB"). Nên chép thư mục `server/data/backup/`
+ra máy khác định kỳ.
 
 Khi chạy thật nên đặt `SCS_ENV=prod` trong `/etc/scs-server/server.env` (bắt buộc đủ TLS, CA, mật khẩu DB) rồi
 `sudo systemctl restart scs-server`.

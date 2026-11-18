@@ -284,6 +284,47 @@ do_status() {
 	sudo journalctl -u scs-server -n 30 --no-pager -o cat 2>/dev/null | cut -c1-220
 }
 
+do_backup() {
+	echo "  ${C_B}Sao lưu DB${C_0} — tự động ngày 1 và 16 hằng tháng (02:30), giữ 6 bản định kỳ mới nhất (SCS_BACKUP_KEEP);"
+	echo "  bản trước mỗi lần cập nhật (mục 4) và bản sao lưu tay không bị tự xóa."
+	echo
+	if systemctl is-enabled --quiet scs-server-backup.timer 2>/dev/null; then
+		echo "  Lịch: ${C_GRN}đang bật${C_0} · lần tới: $(systemctl show scs-server-backup.timer -p NextElapseUSecRealtime --value 2>/dev/null)"
+		local res
+		res="$(systemctl show scs-server-backup.service -p Result --value 2>/dev/null)"
+		[[ -n "$res" && "$res" != success ]] && echo "  ${C_RED}Lần chạy gần nhất lỗi ($res): sudo journalctl -u scs-server-backup -n 30${C_0}"
+	else
+		echo "  Lịch: ${C_YEL}chưa cài${C_0} — chạy mục 3 (cài lại dịch vụ) hoặc mục 4 (cập nhật) để cài timer."
+	fi
+	echo
+	sudo bash "$SCRIPTS/backup-db.sh" --list
+	echo
+	echo "   1) Sao lưu ngay"
+	echo "   2) Xem log các lần sao lưu định kỳ"
+	echo "   3) Cách khôi phục từ một bản sao lưu"
+	echo "   0) Quay lại"
+	ask "Chọn" 0
+	case "$REPLY" in
+		1) sudo bash "$SCRIPTS/backup-db.sh" --reason tay ;;
+		2) sudo journalctl -u scs-server-backup -n 40 --no-pager -o cat 2>/dev/null | cut -c1-200 ;;
+		3)
+			local dc="sudo docker compose -f compose.dev.yml exec -T postgres"
+			echo
+			echo "  Khôi phục GHI ĐÈ toàn bộ dữ liệu hiện tại: chỉ làm khi server hỏng / mất dữ liệu; sao lưu bản hiện tại trước."
+			echo "  Thay <file> bằng tên bản cần dùng trong $SERVER_DIR/data/backup (user / DB khác \"scs\" thì sửa theo server.env):"
+			echo "    sudo systemctl stop scs-server"
+			echo "    cd $SERVER_DIR"
+			echo "    $dc dropdb -U scs scs"
+			echo "    $dc createdb -U scs scs"
+			echo "    $dc psql -U scs -d scs -c \"CREATE EXTENSION IF NOT EXISTS timescaledb; SELECT timescaledb_pre_restore();\""
+			echo "    sudo gzip -dc data/backup/<file> | $dc psql -U scs -d scs -q"
+			echo "    $dc psql -U scs -d scs -c \"SELECT timescaledb_post_restore();\""
+			echo "    sudo systemctl start scs-server"
+			echo "  Chi tiết: server/README.md, mục \"Sao lưu DB\"."
+			;;
+	esac
+}
+
 do_uninstall() {
 	confirm "Gỡ dịch vụ scs-server? (giữ cấu hình, CA, dữ liệu; cài lại bằng mục 3)" || return 0
 	sudo bash "$SCRIPTS/install.sh" --uninstall
@@ -696,6 +737,9 @@ while true; do
   ${C_B}Tài khoản web quản trị${C_0}
   17) Gmail gửi mã đăng nhập (bật / tắt đăng nhập và đăng ký bằng email, gửi thư thử)
 
+  ${C_B}Dữ liệu${C_0}
+  18) Sao lưu DB: sao lưu ngay, xem các bản, lịch 15 ngày, cách khôi phục
+
    0) Thoát
 EOF
 	echo
@@ -719,6 +763,7 @@ EOF
 		15) do_servers ;;
 		16) do_rules ;;
 		17) do_mail ;;
+		18) do_backup ;;
 		0 | q | Q | "") exit 0 ;;
 		*) echo "  Không có mục \"$choice\"." ;;
 	esac
