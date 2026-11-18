@@ -330,13 +330,16 @@ func httpServer(role, addr string, cfg *config.Config, mode httpx.ClientAuth,
 	} else if mode != httpx.NoClientCert && cfg.TLSClientCA == "" {
 		l.Warn("chưa khai SCS_TLS_CLIENT_CA, không kiểm chứng chỉ agent (chỉ dùng khi dev)")
 	}
+	// Chép nguyên base rồi mới đặt phần riêng của cổng: liệt kê từng trường dễ sót trường mới
+	// (đã sót Downloads → cổng agent không phân lượt, không giới hạn băng thông).
+	d := base
+	d.Cfg, d.Log, d.Version, d.Auth = cfg, l, version, am
 	srv := &httpx.Server{
-		Name: role,
-		Addr: addr,
-		Handler: handler(app.Deps{Cfg: cfg, Log: l, Version: version, ReadyChecks: base.ReadyChecks,
-			Auth: am, Registry: base.Registry, CA: base.CA, ReleaseKey: base.ReleaseKey, Cluster: base.Cluster, Servers: base.Servers, Rules: base.Rules, Live: base.Live, Stats: base.Stats}),
-		TLS: tlsCfg,
-		Log: l,
+		Name:    role,
+		Addr:    addr,
+		Handler: handler(d),
+		TLS:     tlsCfg,
+		Log:     l,
 	}
 	// Cổng agent mở ra Internet: giới hạn kết nối đang mở (tổng và theo IP) và không giữ
 	// lâu kết nối nhàn rỗi (agent gọi mỗi vài phút nên giữ lâu cũng không dùng lại được).
