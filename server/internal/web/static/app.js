@@ -720,7 +720,7 @@
             <option value="rejected">Đã từ chối</option>
           </select>
           <span class="count" id="dev-count"></span>
-          <button type="button" class="btn btn-sm" id="dev-import" title="Nạp thông tin siêu thị từ file .xlsx / .csv">Nạp thông tin từ file</button>
+          <button type="button" class="btn btn-sm" id="dev-import" title="Nạp thông tin siêu thị từ file .xlsx / .csv (quyền: Duyệt và phát hành rule trở lên)">Nạp thông tin từ file</button>
           <div class="right store-legend" aria-hidden="true">
             <span class="lg lg-bad">Cần xử lý</span><span class="lg lg-warn">Đang chờ xử lý</span><span class="lg lg-ok">OK</span>
           </div>
@@ -936,31 +936,49 @@
     });
   }
 
-  // importStores: nạp thông tin siêu thị từ file .xlsx / .csv — chọn file → xem trước → Nạp.
+  // importStores: nạp thông tin siêu thị từ file .xlsx / .csv (mức 2, như nạp rule):
+  // chọn file → ghép cột (tự đoán theo tên, sửa được) → chọn Bổ sung / Ghi đè → xem trước → Nạp.
+  const IMPORT_FIELDS = [['code', 'Mã siêu thị (bắt buộc)'], ['name', 'Tên siêu thị'], ['organization', 'Tổ chức'], ['ips', 'IP'],
+    ['manager', 'Quản lý'], ['deputy', 'Phó quản lý'], ['leader', 'Trưởng nhóm'], ['deputy_department', 'Phó phòng'], ['note', 'Ghi chú']];
+
   function importStores(done) {
-    const ro = !can(LV.agentInfo);
+    const ro = !can(LV.rules);
     openDrawer('Nạp thông tin siêu thị từ file', `
       <section class="import-help">
-        <p>File <b>.xlsx</b> (Excel) hoặc <b>.csv</b> (UTF-8), tối đa 5 MB. Dòng đầu là tên cột; bắt buộc có cột <b>Mã siêu thị</b>.
-          Các cột nhận được: Mã siêu thị, Tên siêu thị, Tổ chức, IP, Quản lý, Phó quản lý, Trưởng nhóm, Phó phòng, Ghi chú
-          (tiếng Việt có dấu, không dấu hoặc tiếng Anh như Store Code, Store Name, Organization, Ip, Manager, Deputy, Leader,
-          Deputy Department, Note). Cột khác bị bỏ qua.</p>
-        <p><b>Ô trống = giữ nguyên</b> giá trị đang có. Cột IP có giá trị thì thay cả danh sách IP (nhiều IP cách nhau dấu phẩy, chấm phẩy hoặc xuống dòng).</p>
+        <p>File <b>.xlsx</b> (Excel) hoặc <b>.csv</b> (UTF-8), tối đa 5 MB. Dòng đầu là tên cột. Hệ thống tự ghép cột theo tên
+          (tiếng Việt có dấu, không dấu hoặc tiếng Anh như Store Code, Store Name, Ip, Manager…); bạn sửa lại ở bảng
+          <b>Ghép cột</b> nếu đoán sai. Bắt buộc có cột <b>Mã siêu thị</b>.</p>
         <p><a class="btn btn-sm" href="/admin/v1/stores/template.csv" download>Tải file mẫu (.csv)</a></p>
       </section>
-      ${ro ? `<p class="hint">Cần quyền: ${esc(LEVEL_NAMES[LV.agentInfo])} để nạp.</p>` : `
+      ${ro ? `<p class="hint">Cần quyền: ${esc(LEVEL_NAMES[LV.rules])} trở lên để nạp file.</p>` : `
       <label class="field"><span>Chọn file</span><input type="file" id="imp-file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+      <fieldset class="imp-mode"><legend>Khi ô trong file để trống</legend>
+        <label class="check"><input type="radio" name="imp-mode" value="merge" checked> <span><b>Bổ sung</b>: giữ giá trị đang có</span></label>
+        <label class="check"><input type="radio" name="imp-mode" value="overwrite"> <span><b>Ghi đè</b>: xóa giá trị đang có (dữ liệu giống y file, chỉ với các cột đã ghép)</span></label>
+      </fieldset>
+      <div id="imp-map"></div>
       <p class="form-error" id="imp-err" hidden></p>
       <div id="imp-preview"></div>`}`);
     if (ro) return;
-    let file = null;
+    let file = null, mapping = null; // mapping null = để server tự đoán theo tên cột
+    const mode = () => ($('input[name="imp-mode"]:checked') || {}).value || 'merge';
     const send = async (apply) => {
       const buf = await file.arrayBuffer();
-      const r = await api(`/admin/v1/stores/import?file=${encodeURIComponent(file.name)}${apply ? '&apply=1' : ''}`,
-        { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: buf });
+      const q = new URLSearchParams({ file: file.name, mode: mode() });
+      if (mapping) q.set('map', mapping);
+      if (apply) q.set('apply', '1');
+      const r = await api(`/admin/v1/stores/import?${q}`, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: buf });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(j.error || `lỗi ${r.status}`);
       return j;
+    };
+    const showMap = (headers) => {
+      $('#imp-map').innerHTML = `<div class="imp-map"><h3>Ghép cột</h3>
+        <div class="table-wrap"><table><thead><tr><th>Cột trong file</th><th>Ghép vào</th></tr></thead><tbody>
+        ${headers.map((h) => `<tr><td>${esc(h.name || `(cột ${h.index + 1} không tên)`)}</td><td>
+          <select data-col="${h.index}"><option value="">— Bỏ qua —</option>
+            ${IMPORT_FIELDS.map(([k, l]) => `<option value="${k}"${h.field === k ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></td></tr>`).join('')}
+        </tbody></table></div></div>`;
     };
     const ST = { new: ['pill-ok', 'Thêm mới'], changed: ['pill-info', 'Thay đổi'], same: ['', 'Không đổi'], error: ['pill-bad', 'Lỗi'] };
     const showPlan = (pl) => {
@@ -969,8 +987,8 @@
         <div class="import-sum">
           <span><b>${fmtNum(pl.total)}</b> dòng</span><span class="pill pill-ok no-dot">${fmtNum(pl.new)} thêm mới</span>
           <span class="pill pill-info no-dot">${fmtNum(pl.changed)} thay đổi</span><span class="pill no-dot">${fmtNum(pl.same)} không đổi</span>
-          ${pl.errors ? `<span class="pill pill-bad no-dot">${fmtNum(pl.errors)} lỗi</span>` : ''}</div>
-        <p class="hint">Cột nhận ra: ${esc(pl.columns.join(', '))}${pl.unknown.length ? ` · bỏ qua: ${esc(pl.unknown.join(', '))}` : ''}</p>
+          ${pl.errors ? `<span class="pill pill-bad no-dot">${fmtNum(pl.errors)} lỗi</span>` : ''}
+          <span class="pill ${pl.overwrite ? 'pill-warn' : ''} no-dot">${pl.overwrite ? 'Ghi đè' : 'Bổ sung'}</span></div>
         <div class="table-wrap"><table>
           <thead><tr><th class="num">Dòng</th><th>Mã</th><th>Tên</th><th>Kết quả</th></tr></thead>
           <tbody>${pl.rows.map((r) => `<tr><td class="num">${r.row}</td><td class="mono">${esc(r.code || '—')}</td><td>${esc(r.name || '')}</td>
@@ -978,11 +996,14 @@
         </table></div>
         ${pl.total > pl.rows.length ? `<p class="hint">Hiện ${fmtNum(pl.rows.length)} dòng đầu (lỗi và thay đổi trước).</p>` : ''}
         <div class="form-actions">
-          ${pl.errors ? '<span class="form-error">Sửa các dòng lỗi trong file rồi chọn lại file.</span>'
-            : `<button type="button" class="btn btn-primary" id="imp-apply"${n ? '' : ' disabled'}>${n ? `Nạp ${fmtNum(n)} siêu thị` : 'Không có gì để nạp'}</button>`}
+          ${pl.errors ? '<span class="form-error">Sửa các dòng lỗi trong file (hoặc ghép cột lại) rồi xem trước lại.</span>'
+            : `<button type="button" class="btn btn-primary" id="imp-apply"${n ? '' : ' disabled'}>${n ? `${pl.overwrite ? 'Ghi đè' : 'Nạp'} ${fmtNum(n)} siêu thị` : 'Không có gì để nạp'}</button>`}
         </div>`;
       const b = $('#imp-apply');
       if (b) b.addEventListener('click', async () => {
+        if (pl.overwrite && !(await confirmBox('Ghi đè thông tin siêu thị?',
+          `<p>Với các cột đã ghép, ô trống trong file sẽ <b>xóa</b> giá trị đang có của ${fmtNum(n)} siêu thị. Không hoàn tác được (nhật ký thao tác vẫn ghi lại).</p>`,
+          'Ghi đè', true))) return;
         b.disabled = true;
         try {
           const j = await send(true);
@@ -995,21 +1016,45 @@
         }
       });
     };
-    $('#imp-file').addEventListener('change', async (e) => {
-      file = e.target.files[0];
+    const preview = async () => {
       const errEl = $('#imp-err');
       errEl.hidden = true;
-      $('#imp-preview').innerHTML = '';
       if (!file) return;
-      if (file.size > 5 * 1024 * 1024) { errEl.hidden = false; errEl.textContent = 'File quá lớn (tối đa 5 MB).'; return; }
       $('#imp-preview').innerHTML = '<p class="hint">Đang đọc file…</p>';
       try {
-        showPlan((await send(false)).plan);
+        const j = await send(false);
+        if (j.plan && j.plan.headers) showMap(j.plan.headers);
+        if (j.ok === false) { // chưa có cột mã: cho chọn ở bảng ghép cột
+          $('#imp-preview').innerHTML = '';
+          errEl.hidden = false; errEl.textContent = j.error;
+          return;
+        }
+        showPlan(j.plan);
       } catch (err) {
         $('#imp-preview').innerHTML = '';
         errEl.hidden = false; errEl.textContent = err.message;
       }
+    };
+    $('#imp-file').addEventListener('change', (e) => {
+      file = e.target.files[0];
+      mapping = null;
+      $('#imp-map').innerHTML = '';
+      $('#imp-preview').innerHTML = '';
+      if (file && file.size > 5 * 1024 * 1024) {
+        const errEl = $('#imp-err'); errEl.hidden = false; errEl.textContent = 'File quá lớn (tối đa 5 MB).';
+        file = null;
+        return;
+      }
+      preview();
     });
+    $('#imp-map').addEventListener('change', (e) => {
+      if (!e.target.matches('select[data-col]')) return;
+      // Một trường chỉ ghép một cột: chọn trường đã dùng ở cột khác thì cột kia về "Bỏ qua".
+      $$('#imp-map select[data-col]').forEach((sel) => { if (sel !== e.target && sel.value && sel.value === e.target.value) sel.value = ''; });
+      mapping = $$('#imp-map select[data-col]').map((sel) => `${sel.dataset.col}=${sel.value}`).join(',');
+      preview();
+    });
+    $$('input[name="imp-mode"]').forEach((r) => r.addEventListener('change', preview));
   }
 
   // ruleCell: bộ rule máy báo đang cài (heartbeat gần nhất).

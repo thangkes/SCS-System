@@ -595,3 +595,9 @@ label.inline input, label.inline select { height: 32px; }
   .rp-charts { grid-template-columns: 1fr 1fr; }
   body { background: #fff; }
 }
+.imp-mode { border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px 10px; margin: 0; display: grid; gap: 6px; }
+.imp-mode legend { font-size: 13px; font-weight: 600; padding: 0 4px; }
+.imp-mode .check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; font-weight: 400; }
+.imp-mode .check input { margin-top: 3px; }
+.imp-map h3 { margin: 0 0 6px; font-size: 13px; }
+.imp-map select { height: 30px; font-size: 13px; width: 100%; max-width: 240px; }

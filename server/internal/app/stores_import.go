@@ -9,6 +9,7 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/thangkes/SCS-System/server/internal/auth"
@@ -83,7 +84,52 @@ type ImportPlan struct {
 	Same    int         `json:"same"`
 	Errors  int         `json:"errors"`
 	Rows    []ImportRow `json:"rows"` // tối đa 500 dòng, lỗi và thay đổi trước
-	save    []StoreInfo
+	// Headers: từng cột trong file và trường đang gán (rỗng = bỏ qua), để người dùng sửa mapping.
+	Headers   []ImportHeader `json:"headers"`
+	Overwrite bool           `json:"overwrite"`
+	save      []StoreInfo
+}
+
+// ImportHeader: một cột của file.
+type ImportHeader struct {
+	Index int    `json:"index"` // vị trí cột, từ 0
+	Name  string `json:"name"`  // tên cột trong file
+	Field string `json:"field"` // khóa trường (code, name, ...); rỗng = bỏ qua
+}
+
+// ImportOptions: Map = vị trí cột → khóa trường do người dùng chọn (nil = tự nhận theo tên cột); Overwrite = ô
+// trống XÓA giá trị đang có của trường được gán (mặc định: ô trống giữ nguyên).
+type ImportOptions struct {
+	Map       map[int]string
+	Overwrite bool
+}
+
+// parseMapping đọc "0=code,1=name,3=ips" (cột không có trong danh sách = bỏ qua).
+func parseMapping(s string) (map[int]string, error) {
+	if strings.TrimSpace(s) == "" {
+		return nil, nil
+	}
+	m := map[int]string{}
+	used := map[string]bool{}
+	for _, part := range strings.Split(s, ",") {
+		k, v, ok := strings.Cut(strings.TrimSpace(part), "=")
+		i, err := strconv.Atoi(k)
+		if !ok || err != nil || i < 0 || i >= tabular.MaxCols {
+			return nil, errors.New("mapping cột không hợp lệ")
+		}
+		if v == "" {
+			continue
+		}
+		if _, known := importColumns[v]; !known {
+			return nil, errors.New("trường không hợp lệ: " + v)
+		}
+		if used[v] {
+			return nil, errors.New("trường " + fieldLabel[v] + " được gán cho hai cột")
+		}
+		used[v] = true
+		m[i] = v
+	}
+	return m, nil
 }
 
 var fieldLabel = func() map[string]string {
@@ -95,7 +141,7 @@ var fieldLabel = func() map[string]string {
 }()
 
 // planImport đọc bảng và so với thông tin đang có.
-func planImport(rows [][]string, existing []StoreInfo) (*ImportPlan, error) {
+func planImport(rows [][]string, existing []StoreInfo, opt ImportOptions) (*ImportPlan, error) {
 	h := 0
 	for h < len(rows) && strings.TrimSpace(strings.Join(rows[h], "")) == "" {
 		h++
@@ -103,21 +149,30 @@ func planImport(rows [][]string, existing []StoreInfo) (*ImportPlan, error) {
 	if h == len(rows) {
 		return nil, errors.New("file không có dữ liệu")
 	}
-	plan := &ImportPlan{Columns: []string{}, Unknown: []string{}, Rows: []ImportRow{}}
-	col := map[string]int{}
+	plan := &ImportPlan{Columns: []string{}, Unknown: []string{}, Rows: []ImportRow{}, Headers: []ImportHeader{},
+		Overwrite: opt.Overwrite}
+	col := map[string]int{} // khóa trường → vị trí cột + 1 (0 = không có)
 	for i, name := range rows[h] {
-		k, ok := headerIndex[strings.TrimSpace(headerKey(name))]
-		switch {
-		case strings.TrimSpace(name) == "":
-		case !ok:
-			plan.Unknown = append(plan.Unknown, strings.TrimSpace(name))
-		case col[k] == 0:
-			col[k] = i + 1 // lưu i+1 để 0 = không có
-			plan.Columns = append(plan.Columns, fieldLabel[k])
+		name = strings.TrimSpace(name)
+		hd := ImportHeader{Index: i, Name: name}
+		if opt.Map != nil {
+			hd.Field = opt.Map[i]
+		} else if k, ok := headerIndex[strings.TrimSpace(headerKey(name))]; ok && col[k] == 0 {
+			hd.Field = k
+		}
+		if hd.Field != "" {
+			col[hd.Field] = i + 1
+			plan.Columns = append(plan.Columns, fieldLabel[hd.Field])
+		} else if name != "" {
+			plan.Unknown = append(plan.Unknown, name)
+		}
+		if name != "" || hd.Field != "" {
+			plan.Headers = append(plan.Headers, hd)
 		}
 	}
 	if col["code"] == 0 {
-		return nil, errors.New(`không thấy cột mã siêu thị (đặt tên cột là "Mã siêu thị" hoặc "Store Code")`)
+		// Vẫn trả danh sách cột để người dùng chọn cột mã siêu thị.
+		return plan, errNeedCode
 	}
 	cell := func(r []string, k string) (string, bool) {
 		i := col[k] - 1
@@ -127,6 +182,7 @@ func planImport(rows [][]string, existing []StoreInfo) (*ImportPlan, error) {
 		v := strings.TrimSpace(r[i])
 		return v, v != ""
 	}
+	mapped := func(k string) bool { return col[k] > 0 }
 	cur := map[string]StoreInfo{}
 	for _, s := range existing {
 		cur[s.Code] = s
@@ -163,11 +219,11 @@ func planImport(rows [][]string, existing []StoreInfo) (*ImportPlan, error) {
 		set := map[string]*string{"name": &next.Name, "organization": &next.Organization, "manager": &next.Manager,
 			"deputy": &next.Deputy, "leader": &next.Leader, "deputy_department": &next.DeputyDepartment, "note": &next.Note}
 		for k, p := range set {
-			if v, ok := cell(r, k); ok {
-				*p = v
+			if v, ok := cell(r, k); ok || (opt.Overwrite && mapped(k)) {
+				*p = v // ghi đè: ô trống của cột được gán thì xóa giá trị cũ
 			}
 		}
-		if v, ok := cell(r, "ips"); ok {
+		if v, ok := cell(r, "ips"); ok || (opt.Overwrite && mapped("ips")) {
 			next.IPs = slices.DeleteFunc(ipSplit.Split(v, -1), func(s string) bool { return s == "" })
 		}
 		norm, msg := normalizeStore(next)
@@ -229,7 +285,9 @@ func storeField(s *StoreInfo, k string) *string {
 	}
 }
 
-// importFile: POST /admin/v1/stores/import (mức 6).
+var errNeedCode = errors.New(`chưa có cột mã siêu thị: chọn cột nào là "Mã siêu thị" trong phần ghép cột`)
+
+// importFile: POST /admin/v1/stores/import?file=&map=0=code,1=name&mode=overwrite[&apply=1] (mức 2, như nạp rule).
 func (a storesAPI) importFile(w http.ResponseWriter, r *http.Request) {
 	sd, ok := a.dir(w)
 	if !ok {
@@ -252,7 +310,18 @@ func (a storesAPI) importFile(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
 		return
 	}
-	plan, err := planImport(rows, existing)
+	mapping, err := parseMapping(r.URL.Query().Get("map"))
+	if err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	opt := ImportOptions{Map: mapping, Overwrite: r.URL.Query().Get("mode") == "overwrite"}
+	plan, err := planImport(rows, existing, opt)
+	if errors.Is(err, errNeedCode) {
+		// Trả cả danh sách cột để web cho chọn cột mã.
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error(), "plan": plan, "applied": false})
+		return
+	}
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, err.Error())
 		return
@@ -271,7 +340,7 @@ func (a storesAPI) importFile(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
 		return
 	}
-	a.d.Log.Info("nạp thông tin siêu thị từ file", "file", name, "so_sieu_thi", len(plan.save), "by", me.Name)
+	a.d.Log.Info("nạp thông tin siêu thị từ file", "file", name, "so_sieu_thi", len(plan.save), "ghi_de", opt.Overwrite, "by", me.Name)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "plan": plan, "applied": true})
 }
 

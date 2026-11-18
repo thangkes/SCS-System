@@ -167,7 +167,7 @@ func AdminHandler(d Deps) http.Handler {
 	st := storesAPI{d}
 	mux.Handle("GET /admin/v1/stores", view(http.HandlerFunc(st.list)))
 	mux.Handle("GET /admin/v1/stores/template.csv", view(http.HandlerFunc(st.template)))
-	mux.Handle("POST /admin/v1/stores/import", agentInfo(http.HandlerFunc(st.importFile)))
+	mux.Handle("POST /admin/v1/stores/import", rules(http.HandlerFunc(st.importFile))) // nạp file: mức 2, như nạp rule
 	mux.Handle("POST /admin/v1/stores/{code}", agentInfo(http.HandlerFunc(st.save)))
 	ru := rulesAPI{d}
 	mux.Handle("GET /admin/v1/rules", view(http.HandlerFunc(ru.list)))
