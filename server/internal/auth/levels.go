@@ -66,6 +66,37 @@ type Account struct {
 	ApprovedAt time.Time `json:"approved_at,omitzero"`
 	ApprovedBy string    `json:"approved_by,omitempty"`
 	LastLogin  time.Time `json:"last_login,omitzero"`
+	// SessionHours: thời gian sống của một phiên đăng nhập (giờ, tính từ lúc đăng nhập, không gia hạn).
+	// MaxSessions: số phiên mở cùng lúc; đăng nhập thêm thì phiên cũ nhất bị cắt. Chỉ quản trị gốc đặt.
+	SessionHours int `json:"session_hours"`
+	MaxSessions  int `json:"max_sessions"`
+}
+
+// Giới hạn phiên của tài khoản (khớp CHECK trong migration 0013).
+const (
+	DefaultSessionHours = 24
+	MinSessionHours     = 1
+	MaxSessionHours     = 15 * 24
+	DefaultMaxSessions  = 4
+	MinMaxSessions      = 1
+	MaxMaxSessions      = 20
+)
+
+// ValidSessionLimits: thời gian sống (giờ) và số phiên nằm trong giới hạn cho phép.
+func ValidSessionLimits(hours, sessions int) bool {
+	return hours >= MinSessionHours && hours <= MaxSessionHours && sessions >= MinMaxSessions && sessions <= MaxMaxSessions
+}
+
+// sessionLimits: giới hạn hiệu lực của tài khoản (giá trị 0 / ngoài khoảng → mặc định).
+func (a Account) sessionLimits() (time.Duration, int) {
+	h, n := a.SessionHours, a.MaxSessions
+	if h < MinSessionHours || h > MaxSessionHours {
+		h = DefaultSessionHours
+	}
+	if n < MinMaxSessions || n > MaxMaxSessions {
+		n = DefaultMaxSessions
+	}
+	return time.Duration(h) * time.Hour, n
 }
 
 // Lỗi của kho tài khoản.
@@ -84,6 +115,8 @@ type AccountStore interface {
 	UpdateAccount(ctx context.Context, username, status string, level Level, by string) error
 	DeleteAccount(ctx context.Context, username, by string) error
 	TouchLogin(ctx context.Context, username string) error
+	// SetSessionLimits đặt thời gian sống phiên (giờ) và số phiên tối đa (by = người làm, ghi nhật ký).
+	SetSessionLimits(ctx context.Context, username string, hours, maxSessions int, by string) error
 	CountPending(ctx context.Context) (int, error)
 }
 

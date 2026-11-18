@@ -15,13 +15,15 @@ import (
 
 var _ auth.AccountStore = (*Registry)(nil)
 
-const accountCols = `id, username, email, status, COALESCE(level, 0), created_at, approved_at, COALESCE(approved_by, ''), last_login_at`
+const accountCols = `id, username, email, status, COALESCE(level, 0), created_at, approved_at, COALESCE(approved_by, ''), last_login_at,
+	session_hours, max_sessions`
 
 func scanAccount(row pgx.Row) (auth.Account, error) {
 	var a auth.Account
 	var lv int16
 	var approved, last *time.Time
-	if err := row.Scan(&a.ID, &a.Username, &a.Email, &a.Status, &lv, &a.CreatedAt, &approved, &a.ApprovedBy, &last); err != nil {
+	if err := row.Scan(&a.ID, &a.Username, &a.Email, &a.Status, &lv, &a.CreatedAt, &approved, &a.ApprovedBy, &last,
+		&a.SessionHours, &a.MaxSessions); err != nil {
 		return a, err
 	}
 	a.Level = auth.Level(lv)
@@ -127,4 +129,19 @@ func (g *Registry) CountPending(ctx context.Context) (int, error) {
 	var n int
 	err := g.pool.QueryRow(ctx, `SELECT count(*) FROM accounts WHERE status = 'pending'`).Scan(&n)
 	return n, err
+}
+
+func (g *Registry) SetSessionLimits(ctx context.Context, username string, hours, maxSessions int, by string) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE accounts SET session_hours = $2, max_sessions = $3 WHERE username = $1`,
+			username, hours, maxSessions)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return auth.ErrNoAccount
+		}
+		return audit(ctx, tx, by, "account.session_limits", 0, "", map[string]any{
+			"username": username, "session_hours": hours, "max_sessions": maxSessions})
+	})
 }

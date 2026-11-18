@@ -40,8 +40,8 @@
 
     <!-- Đăng ký tài khoản: xác minh email, chờ quản trị gốc duyệt và đặt quyền -->
     <form id="reg-form" class="login-pane" data-pane="register" autocomplete="off" hidden>
-      <label for="reg-user">Tên đăng nhập</label>
-      <input id="reg-user" maxlength="32" placeholder="vd: an.it" autocomplete="username" spellcheck="false" autocapitalize="off" required>
+      <label for="reg-user">Tên đăng nhập (chỉ chữ số 0–9)</label>
+      <input id="reg-user" maxlength="32" placeholder="vd: 12345" inputmode="numeric" pattern="[0-9]{3,32}" title="Chỉ chữ số 0–9, từ 3 tới 32 số" autocomplete="username" spellcheck="false" autocapitalize="off" required>
       <p class="hint">3–32 ký tự: chữ thường không dấu, số, dấu . _ -</p>
       <label for="reg-email">Email</label>
       <input id="reg-email" type="email" maxlength="254" autocomplete="email" spellcheck="false" required>

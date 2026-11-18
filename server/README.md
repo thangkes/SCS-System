@@ -377,13 +377,20 @@ Ngoài mã lấy qua SSH, người dùng có thể đăng ký tài khoản bằn
 
 Số nhỏ hơn là quyền cao hơn, và mức trên làm được mọi việc của các mức dưới (mức 3 cũng xác nhận được sự cố).
 
-- **Đăng ký:** tab **Đăng ký** → tên đăng nhập + email → mã xác minh gửi về email → nhập mã → tài khoản **chờ duyệt**.
+- **Đăng ký:** tab **Đăng ký** → tên đăng nhập (**chỉ chữ số 0–9**, 3–32 số; không chữ cái, không ký tự đặc biệt) + email
+  → mã xác minh gửi về email → nhập mã → tài khoản **chờ duyệt**.
   Quản trị gốc vào trang **Tài khoản**, chọn mức 1–7 rồi **Duyệt** (người đăng ký nhận mail báo).
 - **Đăng nhập:** tab **Email** → tên đăng nhập → **Gửi mã về email** → nhập mã.
 - Mã hạn **5 phút** và **chỉ nhập được một lần**: nhập sai là mã bị hủy, phải xin mã mới. Mã chỉ nằm trong RAM
   (lưu dạng băm), không ghi vào DB hay log.
 - Tài khoản không cấp quyền cho tài khoản khác được, kể cả mức 1. Đổi mức, khóa hay xóa tài khoản thì
   mọi phiên đang mở của tài khoản đó bị cắt ngay.
+- **Giới hạn phiên theo tài khoản** (chỉ quản trị gốc đặt, trang **Tài khoản**, cột "Phiên đăng nhập"; migration 0013):
+  thời gian sống mỗi phiên **1 giờ – 15 ngày** (mặc định 24 giờ, tính từ lúc đăng nhập, không gia hạn) và số phiên mở
+  cùng lúc **1 – 20** (mặc định 4); đăng nhập thêm khi đã đủ thì **phiên cũ nhất bị cắt**. Đổi giới hạn áp ngay cho phiên
+  đang mở (rút hạn, cắt phiên thừa cũ nhất) nhưng không đăng xuất phiên còn trong giới hạn — dùng cho BOT lấy dữ liệu
+  cần phiên dài. Trang **Hệ thống** hiện thời gian còn sống của từng phiên; phiên đăng nhập bằng mã SSH vẫn 24 giờ.
+  Nhật ký thao tác ghi `account.session_limits`.
 - Chống dò và chống spam mail: server luôn trả cùng một câu dù tên / email có tồn tại hay không; mỗi tài khoản
   xin tối đa 3 mã / 15 phút, mỗi IP 10 mã / 15 phút và 20 lần nhập mã / 15 phút, đăng ký 5 lần / giờ / IP;
   tối đa 50 tài khoản chờ duyệt. Mail gửi ngầm (tối đa 4 mail cùng lúc).

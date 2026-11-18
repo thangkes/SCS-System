@@ -1234,7 +1234,7 @@
       <section id="dev-timeline"><h3>Dòng thời gian</h3><p class="hint">Đang tải…</p></section>
       <section><h3>Nhận dạng</h3><dl class="kv">
         <dt>Mã khóa</dt><dd class="mono">${esc(d.key_id)}</dd>
-        ${d.cert_expires ? `<dt>Chứng chỉ máy</dt><dd>hết hạn ${esc(fmtTime(new Date(d.cert_expires)))}${(new Date(d.cert_expires) - Date.now()) < 30 * 86400e3 ? ' <span class="pill pill-warn no-dot">dưới 30 ngày</span>' : ''}</dd>` : ''}
+        ${d.cert_expires ? `<dt>Chứng chỉ máy</dt><dd>hết hạn ${esc(fmtFull(d.cert_expires))} (còn ${esc(fmtDur(new Date(d.cert_expires) - Date.now()))})${(new Date(d.cert_expires) - Date.now()) < 30 * 86400e3 ? ' <span class="pill pill-warn no-dot">dưới 30 ngày</span>' : ''}</dd>` : ''}
         <dt>Fingerprint</dt><dd class="mono">${esc(d.fingerprint)}</dd>
       </dl></section>
       <section><h3>Mạng</h3><dl class="kv">
@@ -1546,10 +1546,10 @@
           </tbody></table></div>
       </div>
       ${isAdmin() ? `<div class="card">
-        <div class="card-head"><h2>Phiên đăng nhập</h2><span class="sub">Mất khi tắt trình duyệt, tự hết sau tối đa 24 giờ</span></div>
+        <div class="card-head"><h2>Phiên đăng nhập</h2><span class="sub">Mất khi tắt trình duyệt; tự hết theo thời gian sống của tài khoản (mặc định 24 giờ; đăng nhập bằng mã SSH: 24 giờ)</span></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Người dùng</th><th>Quyền</th><th class="hide-sm">IP</th><th class="hide-sm">Đăng nhập lúc</th><th>Hoạt động cuối</th><th></th></tr></thead>
-          <tbody id="sess-rows"><tr><td colspan="6" class="empty">Đang tải…</td></tr></tbody>
+          <thead><tr><th>Người dùng</th><th>Quyền</th><th class="hide-sm">IP</th><th class="hide-sm">Đăng nhập lúc</th><th>Hoạt động cuối</th><th>Còn sống</th><th></th></tr></thead>
+          <tbody id="sess-rows"><tr><td colspan="7" class="empty">Đang tải…</td></tr></tbody>
         </table></div>
       </div>` : ''}
       <p class="hint" id="sys-updated"></p>`;
@@ -1590,7 +1590,7 @@
       if (!r.ok) throw new Error(String(r.status));
       list = (await r.json()).sessions || [];
     } catch {
-      body.innerHTML = '<tr><td colspan="6" class="empty">Không tải được danh sách phiên.</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" class="empty">Không tải được danh sách phiên.</td></tr>';
       return;
     }
     body.innerHTML = list.map((s) => `
@@ -1600,8 +1600,16 @@
         <td class="hide-sm mono">${esc(s.ip)}</td>
         <td class="hide-sm">${esc(fmtTime(new Date(s.created)))}</td>
         <td>${esc(ago(new Date(s.last_seen)))}</td>
+        <td>${esc(fmtDur(new Date(s.expires) - Date.now()))}<span class="sub">tới ${esc(fmtFull(s.expires))}</span></td>
         <td>${s.current ? '' : `<button class="btn btn-sm btn-danger" data-revoke="${esc(s.id)}" data-name="${esc(s.name)}">Thu hồi</button>`}</td>
-      </tr>`).join('') || '<tr><td colspan="6" class="empty">Không có phiên nào.</td></tr>';
+      </tr>`).join('') || '<tr><td colspan="7" class="empty">Không có phiên nào.</td></tr>';
+  }
+
+  // fmtFull: ngày giờ đầy đủ có năm (hạn phiên, hạn chứng chỉ).
+  function fmtFull(v) {
+    const d = new Date(v);
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
   }
 
   function levelPill(l) {
@@ -1636,9 +1644,25 @@
       return;
     }
     if (!soft) view.innerHTML = '<p class="hint">Đang tải…</p>';
-    let j;
-    try { j = await getJSON('/admin/v1/accounts'); } catch (err) { showLoadError(view, err); return; }
+    let j, sess = [];
+    try {
+      [j, sess] = await Promise.all([getJSON('/admin/v1/accounts'),
+        getJSON('/admin/v1/sessions').then((x) => x.sessions || []).catch(() => [])]);
+    } catch (err) { showLoadError(view, err); return; }
     const list = j.accounts || [];
+    const openOf = (u) => sess.filter((x) => x.account === u);
+    const sessCell = (a) => {
+      const h = a.session_hours || 24, n = a.max_sessions || 4, open = openOf(a.username);
+      const days = h % 24 === 0 && h >= 24;
+      const last = open.reduce((m, x) => Math.max(m, new Date(x.expires).getTime()), 0);
+      return `<div class="sess-cfg">
+          <input type="number" id="sh-${esc(a.username)}" min="1" max="${days ? 15 : 360}" value="${days ? h / 24 : h}" aria-label="Thời gian sống">
+          <select id="su-${esc(a.username)}" aria-label="Đơn vị"><option value="h"${days ? '' : ' selected'}>giờ</option><option value="d"${days ? ' selected' : ''}>ngày</option></select>
+          <span class="sub">tối đa</span>
+          <input type="number" id="sn-${esc(a.username)}" min="1" max="20" value="${n}" aria-label="Số phiên tối đa"><span class="sub">phiên</span>
+          <button class="btn btn-sm" data-acct="session" data-user="${esc(a.username)}">Lưu</button></div>
+        <span class="sub">đang mở ${open.length}/${n}${last ? ` · còn sống tới ${esc(fmtFull(last))} (${esc(fmtDur(last - Date.now()))})` : ''}</span>`;
+    };
     const pending = list.filter((a) => a.status === 'pending');
     const others = list.filter((a) => a.status !== 'pending');
     const t = (v) => (v ? esc(fmtTime(new Date(v))) : '—');
@@ -1659,19 +1683,21 @@
       <div class="card">
         <div class="card-head"><h2>Tài khoản</h2><span class="sub">Đổi quyền, khóa hay xóa đều cắt ngay các phiên đang mở của tài khoản đó</span></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Tên đăng nhập</th><th class="hide-sm">Email</th><th>Trạng thái</th><th>Mức quyền</th><th class="hide-sm">Đăng nhập cuối</th><th></th></tr></thead>
+          <thead><tr><th>Tên đăng nhập</th><th class="hide-sm">Email</th><th>Trạng thái</th><th>Mức quyền</th><th>Phiên đăng nhập</th><th class="hide-sm">Đăng nhập cuối</th><th></th></tr></thead>
           <tbody>${others.map((a) => `<tr>
             <td class="strong">${esc(a.username)}<span class="sub">duyệt bởi ${esc(a.approved_by || '—')}</span></td>
             <td class="hide-sm mono">${esc(a.email)}</td>
             <td>${a.status === 'active' ? '<span class="pill pill-ok no-dot">Hoạt động</span>' : '<span class="pill pill-bad no-dot">Đã khóa</span>'}</td>
             <td>${levelSelect(`lv-${a.username}`, a.level)} <button class="btn btn-sm" data-acct="level" data-user="${esc(a.username)}">Đổi</button></td>
+            <td>${sessCell(a)}</td>
             <td class="hide-sm">${t(a.last_login)}</td>
             <td class="actions">${a.status === 'active'
               ? `<button class="btn btn-sm" data-acct="disable" data-user="${esc(a.username)}">Khóa</button>`
               : `<button class="btn btn-sm" data-acct="enable" data-user="${esc(a.username)}">Mở khóa</button>`}
               <button class="btn btn-sm btn-danger" data-acct="delete" data-user="${esc(a.username)}">Xóa</button></td></tr>`).join('')
-              || '<tr><td colspan="6" class="empty">Chưa có tài khoản nào.</td></tr>'}</tbody>
+              || '<tr><td colspan="7" class="empty">Chưa có tài khoản nào.</td></tr>'}</tbody>
         </table></div>
+        <p class="hint">Phiên đăng nhập: mỗi phiên sống 1 giờ – 15 ngày tính từ lúc đăng nhập (mặc định 24 giờ, không gia hạn); mỗi tài khoản 1 – 20 phiên cùng lúc (mặc định 4) — đăng nhập thêm thì phiên cũ nhất bị cắt. Đổi giới hạn áp ngay cho phiên đang mở, không đăng xuất phiên còn trong giới hạn.</p>
       </div>
       <div class="card"><div class="card-head"><h2>Các mức quyền</h2><span class="sub">Số nhỏ = quyền cao; mức trên làm được mọi việc của mức dưới</span></div>
         <ol class="level-list" start="0">${LEVEL_NAMES.map((n, i) => `<li><strong>${esc(n)}</strong>${i === 0 ? ' — chỉ khi đăng nhập bằng mã SSH; duyệt tài khoản, đặt quyền, thu hồi phiên' : ''}</li>`).join('')}</ol>
@@ -1685,17 +1711,31 @@
     const user = b.dataset.user, act = b.dataset.acct;
     const sel = document.getElementById(`lv-${user}`);
     const level = sel ? Number(sel.value) : 0;
+    let limits = null;
+    if (act === 'session') {
+      const v = Number(document.getElementById(`sh-${user}`)?.value || 0);
+      const unit = document.getElementById(`su-${user}`)?.value;
+      const n = Number(document.getElementById(`sn-${user}`)?.value || 0);
+      const hours = unit === 'd' ? v * 24 : v;
+      if (!Number.isInteger(v) || !Number.isInteger(n) || hours < 1 || hours > 360 || n < 1 || n > 20) {
+        toast('Thời gian sống 1 giờ – 15 ngày (số nguyên), số phiên 1 – 20');
+        return;
+      }
+      limits = { session_hours: hours, max_sessions: n };
+    }
     const titles = {
       approve: ['Duyệt tài khoản?', `<p>Tài khoản <strong>${esc(user)}</strong> sẽ đăng nhập được với quyền <strong>${esc(level)} · ${esc(LEVEL_NAMES[level])}</strong>.</p>`, 'Duyệt', false],
       level: ['Đổi mức quyền?', `<p><strong>${esc(user)}</strong> → <strong>${esc(level)} · ${esc(LEVEL_NAMES[level])}</strong>. Phiên đang mở của tài khoản bị đăng xuất.</p>`, 'Đổi', false],
       disable: ['Khóa tài khoản?', `<p><strong>${esc(user)}</strong> bị đăng xuất ngay và không đăng nhập được tới khi mở khóa.</p>`, 'Khóa', true],
       enable: ['Mở khóa tài khoản?', `<p><strong>${esc(user)}</strong> đăng nhập lại được với mức quyền cũ.</p>`, 'Mở khóa', false],
       delete: ['Xóa tài khoản?', `<p>Xóa hẳn <strong>${esc(user)}</strong>. Muốn dùng lại thì phải đăng ký lại.</p>`, 'Xóa', true],
+      session: ['Đổi giới hạn phiên?', limits ? `<p><strong>${esc(user)}</strong>: mỗi phiên sống <strong>${esc(fmtDur(limits.session_hours * 3600e3))}</strong>, tối đa <strong>${esc(limits.max_sessions)}</strong> phiên cùng lúc.
+        Áp ngay cho phiên đang mở: phiên nào quá thời gian mới thì hết, thừa phiên thì cắt phiên cũ nhất. Phiên còn lại không bị đăng xuất.</p>` : '', 'Lưu', false],
     }[act];
     if (!titles || !(await confirmBox(...titles))) return;
     b.disabled = true;
     try {
-      await postJSON(`/admin/v1/accounts/${encodeURIComponent(user)}`, { action: act, level });
+      await postJSON(`/admin/v1/accounts/${encodeURIComponent(user)}`, { action: act, level, ...(limits || {}) });
       toast('Đã lưu.');
     } catch (err) {
       toast(`Không lưu được: ${err.message}`);
@@ -1855,7 +1895,7 @@
           <tr><td>${pill(f.certs.expired ? ['pill-bad', 'Đã hết hạn'] : ['', 'Đã hết hạn'])}</td><td class="num">${fmtNum(f.certs.expired)}</td><td class="sub">máy không gửi được tới khi gia hạn (agent bản cũ: phải cài lại)</td></tr>
           <tr><td>${pill(f.certs.soon ? ['pill-warn', 'Còn dưới 30 ngày'] : ['', 'Còn dưới 30 ngày'])}</td><td class="num">${fmtNum(f.certs.soon)}</td><td class="sub">agent bản mới đang tự gia hạn</td></tr>
           <tr><td>${pill(['', 'Không rõ hạn'])}</td><td class="num">${fmtNum(f.certs.unknown)}</td><td class="sub">chưa cấp chứng chỉ hoặc không có trong nhật ký</td></tr>
-          <tr><td>Hạn sớm nhất</td><td class="num" colspan="2">${f.certs.next ? esc(fmtTime(new Date(f.certs.next))) : '—'}</td></tr>
+          <tr><td>Hạn sớm nhất</td><td class="num" colspan="2">${f.certs.next ? `${esc(fmtFull(f.certs.next))} (còn ${esc(fmtDur(new Date(f.certs.next) - Date.now()))})` : '—'}</td></tr>
         </tbody></table></div>
       </div>`;
   }
@@ -2714,12 +2754,19 @@
   });
   $('#email-resend').addEventListener('click', () => { resetEmailForms(); loginMsg('', ''); $('#email-btn').click(); });
 
+  // Ô tên đăng ký: bỏ ngay ký tự không phải chữ số (dán vào cũng vậy).
+  $('#reg-user').addEventListener('input', (e) => {
+    const v = e.target.value.replace(/[^0-9]/g, '');
+    if (v !== e.target.value) e.target.value = v;
+  });
+
   $('#reg-form').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = $('#reg-btn');
-    const username = $('#reg-user').value.trim().toLowerCase();
+    const username = $('#reg-user').value.trim();
     const email = $('#reg-email').value.trim().toLowerCase();
     if (!username || !email) return;
+    if (!/^[0-9]{3,32}$/.test(username)) { loginMsg('Tên đăng nhập chỉ gồm chữ số 0–9, từ 3 tới 32 số.', ''); return; }
     btn.disabled = true;
     try {
       if ($('#reg-code-f').hidden) {

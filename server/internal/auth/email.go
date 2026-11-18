@@ -42,7 +42,10 @@ const (
 )
 
 var (
-	usernameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{2,31}$`)
+	// usernameRe: tên đăng nhập hợp lệ khi đăng nhập / quản trị (giữ cho tài khoản cũ). registerNameRe: đăng
+	// ký mới chỉ nhận chữ số 0–9.
+	usernameRe     = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{2,31}$`)
+	registerNameRe = regexp.MustCompile(`^[0-9]{3,32}$`)
 	emailRe    = regexp.MustCompile(`^[a-z0-9._%+-]{1,64}@[a-z0-9.-]{1,190}\.[a-z]{2,24}$`)
 )
 
@@ -223,8 +226,8 @@ func (m *Manager) registerStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	user, email := normUsername(req.Username), strings.ToLower(strings.TrimSpace(req.Email))
-	if !usernameRe.MatchString(user) {
-		httpx.WriteError(w, http.StatusBadRequest, "tên đăng nhập 3–32 ký tự: chữ thường, số, . _ -")
+	if !registerNameRe.MatchString(user) {
+		httpx.WriteError(w, http.StatusBadRequest, "tên đăng nhập chỉ gồm chữ số 0–9, từ 3 tới 32 số (không chữ cái, không ký tự đặc biệt)")
 		return
 	}
 	if !emailRe.MatchString(email) || !m.emailAllowed(email) {
@@ -383,9 +386,11 @@ func (m *Manager) emailLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = m.Accounts.TouchLogin(r.Context(), user)
-	cookie, s := m.sess.createLevel(user, user, a.Level, ip, truncate(r.UserAgent(), 160))
+	ttl, maxSess := a.sessionLimits()
+	cookie, s, evicted := m.sess.createLevel(user, user, a.Level, ip, truncate(r.UserAgent(), 160), ttl, maxSess)
 	setSessionCookie(w, r, cookie)
-	m.log.Info("đăng nhập web quản trị bằng email", "name", s.Name, "muc", int(s.Level), "ip", ip, "session", s.ID)
+	m.log.Info("đăng nhập web quản trị bằng email", "name", s.Name, "muc", int(s.Level), "ip", ip, "session", s.ID,
+		"het_han", s.Expires.Format(time.DateTime), "phien_cu_bi_cat", evicted)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "name": s.Name, "level": s.Level, "expires": s.Expires})
 }
 
@@ -418,8 +423,10 @@ func (m *Manager) changeAccount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Action string `json:"action"`
-		Level  Level  `json:"level"`
+		Action       string `json:"action"`
+		Level        Level  `json:"level"`
+		SessionHours int    `json:"session_hours"`
+		MaxSessions  int    `json:"max_sessions"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024)).Decode(&req); err != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "dữ liệu không hợp lệ")
@@ -461,6 +468,24 @@ func (m *Manager) changeAccount(w http.ResponseWriter, r *http.Request) {
 		err = m.Accounts.UpdateAccount(r.Context(), user, AccountActive, a.Level, me.Name)
 	case "delete":
 		err = m.Accounts.DeleteAccount(r.Context(), user, me.Name)
+	case "session":
+		// Thời gian sống phiên và số phiên: áp ngay cho phiên đang mở (rút hạn, cắt phiên cũ nhất nếu thừa),
+		// không cắt hết như đổi quyền.
+		if !ValidSessionLimits(req.SessionHours, req.MaxSessions) {
+			httpx.WriteError(w, http.StatusBadRequest, fmt.Sprintf("thời gian sống phiên %d giờ – %d ngày, số phiên %d – %d",
+				MinSessionHours, MaxSessionHours/24, MinMaxSessions, MaxMaxSessions))
+			return
+		}
+		if err := m.Accounts.SetSessionLimits(r.Context(), user, req.SessionHours, req.MaxSessions, me.Name); err != nil {
+			m.log.Error("đổi giới hạn phiên thất bại", "err", err)
+			httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
+			return
+		}
+		n := m.sess.applyLimits(user, time.Duration(req.SessionHours)*time.Hour, req.MaxSessions)
+		m.log.Warn("quản trị gốc đổi giới hạn phiên", "user", user, "gio", req.SessionHours, "so_phien", req.MaxSessions,
+			"by", me.Name, "phien_bi_cat", n)
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "sessions_cut": n})
+		return
 	default:
 		httpx.WriteError(w, http.StatusBadRequest, "thao tác không hợp lệ")
 		return

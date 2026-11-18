@@ -44,7 +44,7 @@ func (s *memAccounts) CreateAccount(ctx context.Context, a Account) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	a.Status, a.CreatedAt = AccountPending, time.Now()
+	a.Status, a.CreatedAt, a.SessionHours, a.MaxSessions = AccountPending, time.Now(), DefaultSessionHours, DefaultMaxSessions
 	s.m[a.Username] = a
 	return nil
 }
@@ -75,6 +75,17 @@ func (s *memAccounts) DeleteAccount(_ context.Context, u, _ string) error {
 	return nil
 }
 func (s *memAccounts) TouchLogin(context.Context, string) error { return nil }
+func (s *memAccounts) SetSessionLimits(_ context.Context, u string, h, n int, _ string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	a, ok := s.m[u]
+	if !ok {
+		return ErrNoAccount
+	}
+	a.SessionHours, a.MaxSessions = h, n
+	s.m[u] = a
+	return nil
+}
 func (s *memAccounts) CountPending(context.Context) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -159,17 +170,17 @@ func TestEmailRegisterApproveLogin(t *testing.T) {
 	m, h, st, mail := emailSetup(t)
 
 	// Đăng ký: chỉ nhận tên miền cho phép.
-	if code, _, _ := post(h, "/auth/register", accountReq{Username: "an.it", Email: "an@yahoo.com"}); code != 400 {
+	if code, _, _ := post(h, "/auth/register", accountReq{Username: "10123", Email: "an@yahoo.com"}); code != 400 {
 		t.Fatalf("email ngoài tên miền phải bị từ chối: %d", code)
 	}
 	if code, _, _ := post(h, "/auth/register", accountReq{Username: "A", Email: "an@gmail.com"}); code != 400 {
 		t.Fatalf("tên đăng nhập sai phải bị từ chối: %d", code)
 	}
-	if code, _, _ := post(h, "/auth/register", accountReq{Username: "An.IT", Email: "An@Gmail.com"}); code != 200 {
+	if code, _, _ := post(h, "/auth/register", accountReq{Username: "10123", Email: "An@Gmail.com"}); code != 200 {
 		t.Fatalf("đăng ký: %d", code)
 	}
 	reg := mail.next(t)
-	if reg.to != "an@gmail.com" || !strings.Contains(reg.body, "an.it") {
+	if reg.to != "an@gmail.com" || !strings.Contains(reg.body, "10123") {
 		t.Fatalf("mail xác minh sai: %+v", reg)
 	}
 	// Mã sai: mã bị hủy luôn, mã đúng nhập sau cũng không còn dùng được (chỉ nhập một lần).
@@ -177,29 +188,29 @@ func TestEmailRegisterApproveLogin(t *testing.T) {
 	if codeOf(reg) == wrong {
 		wrong = "111111"
 	}
-	if code, _, _ := post(h, "/auth/register/verify", accountReq{Username: "an.it", Code: wrong}); code != 401 {
+	if code, _, _ := post(h, "/auth/register/verify", accountReq{Username: "10123", Code: wrong}); code != 401 {
 		t.Fatalf("mã sai: %d", code)
 	}
-	if code, _, _ := post(h, "/auth/register/verify", accountReq{Username: "an.it", Code: codeOf(reg)}); code != 401 {
+	if code, _, _ := post(h, "/auth/register/verify", accountReq{Username: "10123", Code: codeOf(reg)}); code != 401 {
 		t.Fatalf("mã đã bị hủy sau một lần nhập sai vẫn dùng được: %d", code)
 	}
 	// Đăng ký lại, nhập đúng → chờ duyệt.
-	post(h, "/auth/register", accountReq{Username: "an.it", Email: "an@gmail.com"})
+	post(h, "/auth/register", accountReq{Username: "10123", Email: "an@gmail.com"})
 	reg = mail.next(t)
-	if code, j, _ := post(h, "/auth/register/verify", accountReq{Username: "an.it", Code: codeOf(reg)}); code != 200 {
+	if code, j, _ := post(h, "/auth/register/verify", accountReq{Username: "10123", Code: codeOf(reg)}); code != 200 {
 		t.Fatalf("xác minh: %d %v", code, j)
 	}
-	if a, _ := st.AccountByName(context.Background(), "an.it"); a.Status != AccountPending {
+	if a, _ := st.AccountByName(context.Background(), "10123"); a.Status != AccountPending {
 		t.Fatalf("tài khoản phải chờ duyệt: %+v", a)
 	}
 	// Đăng ký trùng tên / email: trả cùng câu, không gửi mail.
-	if code, _, _ := post(h, "/auth/register", accountReq{Username: "khac", Email: "an@gmail.com"}); code != 200 {
+	if code, _, _ := post(h, "/auth/register", accountReq{Username: "10456", Email: "an@gmail.com"}); code != 200 {
 		t.Fatalf("trùng email phải trả câu chung: %d", code)
 	}
 	mail.none(t)
 
 	// Chưa duyệt: xin mã đăng nhập không gửi mail (câu trả lời giống hệt).
-	_, j1, _ := post(h, "/auth/email/code", accountReq{Username: "an.it"})
+	_, j1, _ := post(h, "/auth/email/code", accountReq{Username: "10123"})
 	_, j2, _ := post(h, "/auth/email/code", accountReq{Username: "khong-co"})
 	if j1["message"] != j2["message"] {
 		t.Fatalf("câu trả lời phải giống nhau để không dò được tài khoản: %v / %v", j1, j2)
@@ -208,10 +219,10 @@ func TestEmailRegisterApproveLogin(t *testing.T) {
 
 	// Quản trị gốc duyệt với mức 5.
 	root := rootCookie(t, m, h)
-	if code, _, _ := post(h, "/admin/v1/accounts/an.it", map[string]any{"action": "approve", "level": 0}, root); code != 400 {
+	if code, _, _ := post(h, "/admin/v1/accounts/10123", map[string]any{"action": "approve", "level": 0}, root); code != 400 {
 		t.Fatalf("không được gán mức 0 cho tài khoản: %d", code)
 	}
-	if code, j, _ := post(h, "/admin/v1/accounts/an.it", map[string]any{"action": "approve", "level": 5}, root); code != 200 {
+	if code, j, _ := post(h, "/admin/v1/accounts/10123", map[string]any{"action": "approve", "level": 5}, root); code != 200 {
 		t.Fatalf("duyệt: %d %v", code, j)
 	}
 	if n := mail.next(t); !strings.Contains(n.body, LevelNames[LevelIncidents]) {
@@ -219,42 +230,42 @@ func TestEmailRegisterApproveLogin(t *testing.T) {
 	}
 
 	// Đăng nhập bằng mã email.
-	post(h, "/auth/email/code", accountReq{Username: "an.it"})
+	post(h, "/auth/email/code", accountReq{Username: "10123"})
 	lm := mail.next(t)
-	code, j, cs := post(h, "/auth/email/login", accountReq{Username: "an.it", Code: codeOf(lm)})
+	code, j, cs := post(h, "/auth/email/login", accountReq{Username: "10123", Code: codeOf(lm)})
 	user := sessionCookie(cs)
 	if code != 200 || user == nil || j["level"] != float64(5) {
 		t.Fatalf("đăng nhập email: %d %v", code, j)
 	}
 	// Mã đã dùng không dùng lại được.
-	if code, _, _ := post(h, "/auth/email/login", accountReq{Username: "an.it", Code: codeOf(lm)}); code != 401 {
+	if code, _, _ := post(h, "/auth/email/login", accountReq{Username: "10123", Code: codeOf(lm)}); code != 401 {
 		t.Fatalf("mã dùng lần hai: %d", code)
 	}
 	// Mức 5 không vào được trang tài khoản / phiên (chỉ quản trị gốc), không tự nâng quyền được.
 	if w := req(h, "GET", "/admin/v1/accounts", "", nil, user); w.Code != 403 {
 		t.Fatalf("mức 5 xem tài khoản: %d", w.Code)
 	}
-	if code, _, _ := post(h, "/admin/v1/accounts/an.it", map[string]any{"action": "level", "level": 1}, user); code != 403 {
+	if code, _, _ := post(h, "/admin/v1/accounts/10123", map[string]any{"action": "level", "level": 1}, user); code != 403 {
 		t.Fatalf("tự nâng quyền: %d", code)
 	}
 	if w := req(h, "GET", "/admin/v1/sessions", "", nil, user); w.Code != 403 {
 		t.Fatalf("mức 5 xem phiên: %d", w.Code)
 	}
 	w := req(h, "GET", "/auth/me", "", nil, user)
-	if !strings.Contains(w.Body.String(), `"level":5`) || !strings.Contains(w.Body.String(), `"account":"an.it"`) {
+	if !strings.Contains(w.Body.String(), `"level":5`) || !strings.Contains(w.Body.String(), `"account":"10123"`) {
 		t.Fatalf("/auth/me: %s", w.Body)
 	}
 
 	// Đổi quyền → phiên cũ bị cắt.
-	if code, _, _ := post(h, "/admin/v1/accounts/an.it", map[string]any{"action": "level", "level": 7}, root); code != 200 {
+	if code, _, _ := post(h, "/admin/v1/accounts/10123", map[string]any{"action": "level", "level": 7}, root); code != 200 {
 		t.Fatal("đổi quyền thất bại")
 	}
 	if w := req(h, "GET", "/auth/me", "", nil, user); w.Code != 401 {
 		t.Fatalf("phiên cũ phải bị cắt sau khi đổi quyền: %d", w.Code)
 	}
 	// Khóa → không xin được mã nữa.
-	post(h, "/admin/v1/accounts/an.it", map[string]any{"action": "disable"}, root)
-	post(h, "/auth/email/code", accountReq{Username: "an.it"})
+	post(h, "/admin/v1/accounts/10123", map[string]any{"action": "disable"}, root)
+	post(h, "/auth/email/code", accountReq{Username: "10123"})
 	mail.none(t)
 }
 
@@ -315,7 +326,7 @@ func TestLevels(t *testing.T) {
 	mux.Handle("POST /need/3", m.RequireLevel(LevelAgents)(ok))
 	_ = h
 	for lv, want := range map[Level]int{LevelRoot: 200, LevelCluster: 200, LevelAgents: 200, LevelServers: 403, LevelView: 403} {
-		cookie, _ := m.sess.createLevel("u", "u", lv, "1.2.3.4", "")
+		cookie, _, _ := m.sess.createLevel("u", "u", lv, "1.2.3.4", "", time.Hour, 4)
 		if w := req(mux, "POST", "/need/3", "{}", origin, &http.Cookie{Name: CookieName, Value: cookie}); w.Code != want {
 			t.Errorf("mức %d làm việc cần mức 3: %d, muốn %d", lv, w.Code, want)
 		}
