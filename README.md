@@ -83,6 +83,15 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 Chưa chạy trên Ubuntu thật: migration 0003–0004 và 0007–0009 (nhãn máy, lưu theo giai đoạn, tài khoản, thông tin siêu
 thị, lịch sử thông số server), gửi mail qua Gmail, kho rule, cụm, menu mục 12–17.
 
+## Định hướng tương lai (chưa triển khai)
+
+**Agent cho Windows**: ưu tiên Windows 10/11 IoT Enterprise LTSC (máy POS, kiosk) và Windows 10/11 64-bit; Windows Server
+2016+ nếu có; không hỗ trợ Windows 7/8.1. Dùng lại phần lõi (giao thức, đăng ký, chứng chỉ, bộ máy rule, hàng đợi);
+phải làm mới: đọc Windows Event Log (rule khớp theo kênh + Event ID + provider, không theo câu chữ), bật Audit Policy,
+chạy dạng Windows Service, tự cập nhật kiểu Windows, trạng thái máy qua WMI, bộ cài MSI, ký mã Authenticode, quy ước
+hostname trong giới hạn 15 ký tự của NetBIOS. Bắt đầu bằng kiểm kê máy Windows tại siêu thị (vai trò, phiên bản, số
+lượng, có vào domain / Intune không).
+
 ## Cụm nhiều server (đang làm)
 
 Nhiều SCS-Server chạy ngang hàng, server nào cũng là gốc. Thiết kế đầy đủ:
