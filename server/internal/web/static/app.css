@@ -543,3 +543,9 @@ td.reasons-cell .reason + .reason { margin-top: 6px; }
 .store-form textarea { width: 100%; resize: vertical; font: inherit; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--text); }
 .ip-row { display: flex; gap: 6px; margin-bottom: 6px; }
 .ip-row input { flex: 1; min-width: 0; }
+
+/* ---------- Nạp thông tin siêu thị từ file ---------- */
+.import-help p { margin: 0 0 8px; font-size: 13px; color: var(--muted); }
+.import-help b { color: var(--text); }
+.import-sum { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 6px; }
+#imp-preview { display: grid; gap: 8px; }

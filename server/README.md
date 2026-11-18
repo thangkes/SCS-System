@@ -195,6 +195,13 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
   siêu thị khác. Đầu nhóm hiện "mã - tên" và quản lý; ô tìm kiếm tìm cả tên, tổ chức, người phụ trách, IP; trang Cảnh báo
   hiện tên siêu thị. API `GET /admin/v1/stores` (Chỉ xem), `POST /admin/v1/stores/{mã}` (mức 6); mỗi lần sửa ghi `audit`
   (`store.update`). Migration 0008.
+- **Nạp thông tin siêu thị từ file** (trang Máy → **Nạp thông tin từ file**, mức 6): file `.xlsx` hoặc `.csv` UTF-8
+  (dấu `,` `;` hoặc tab), tối đa 5 MB / 20.000 dòng. Dòng đầu là tên cột, bắt buộc có cột mã siêu thị; nhận tên cột tiếng
+  Việt có dấu / không dấu hoặc tiếng Anh (Store Code, Store Name, Organization, Ip, Manager, Deputy, Leader, Deputy
+  Department, Note); cột khác bỏ qua. **Ô trống = giữ nguyên**; cột IP có giá trị thì thay cả danh sách. Server đọc file
+  bằng thư viện chuẩn (`internal/tabular`, có giới hạn chống file nén độc), cho **xem trước** (thêm mới / thay đổi / không
+  đổi / lỗi theo dòng) rồi mới ghi trong một transaction, một dòng audit `store.import`. Còn dòng lỗi thì không cho nạp.
+  File mẫu: `GET /admin/v1/stores/template.csv`. File `.xls` cũ chưa hỗ trợ (lưu lại thành `.xlsx`).
 - **Trang Máy** gom máy theo mã siêu thị (hostname `<mã>-TN…`; máy chưa có mã nằm cuối). Viền trái tô theo máy tệ
   nhất trong siêu thị, tính từ cảnh báo đang mở: **đỏ** = cảnh báo nghiêm trọng (critical, phải có người đóng) hoặc
   mất liên lạc; **vàng** = cảnh báo khác đang mở (mức cao tự đóng sau 24 giờ, mức thấp, IP lạ, hostname sai...) hoặc

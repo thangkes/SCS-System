@@ -34,6 +34,8 @@ type StoreInfo struct {
 type StoreDirectory interface {
 	ListStores(ctx context.Context) ([]StoreInfo, error)
 	SaveStore(ctx context.Context, s StoreInfo, by string) error
+	// SaveStores ghi nhiều siêu thị trong một transaction (nạp từ file), một dòng audit.
+	SaveStores(ctx context.Context, list []StoreInfo, by, file string) error
 }
 
 const maxStoreIPs = 9

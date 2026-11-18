@@ -52,25 +52,48 @@ func (g *Registry) ListStores(ctx context.Context) ([]app.StoreInfo, error) {
 	return out, rows.Err()
 }
 
-func (g *Registry) SaveStore(ctx context.Context, s app.StoreInfo, by string) error {
-	var wan any
-	extra := []string{}
-	if len(s.IPs) > 0 {
-		wan, extra = s.IPs[0], s.IPs[1:]
-	}
-	return g.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `
+const upsertStore = `
 			INSERT INTO stores (code, name, organization, wan_ip, extra_ips, manager, deputy, leader, deputy_department,
 			                    note, info_updated_by)
 			VALUES ($1, $2, $3, $4::inet, $5::inet[], $6, $7, $8, $9, $10, $11)
 			ON CONFLICT (code) DO UPDATE SET name = $2, organization = $3, wan_ip = $4::inet, extra_ips = $5::inet[],
 			  manager = $6, deputy = $7, leader = $8, deputy_department = $9, note = $10, info_updated_by = $11,
-			  updated_at = now()`,
-			s.Code, nullText(s.Name), nullText(s.Organization), wan, extra, nullText(s.Manager), nullText(s.Deputy),
-			nullText(s.Leader), nullText(s.DeputyDepartment), nullText(s.Note), by); err != nil {
+			  updated_at = now()`
+
+func upsert(ctx context.Context, tx pgx.Tx, s app.StoreInfo, by string) error {
+	var wan any
+	extra := []string{}
+	if len(s.IPs) > 0 {
+		wan, extra = s.IPs[0], s.IPs[1:]
+	}
+	_, err := tx.Exec(ctx, upsertStore,
+		s.Code, nullText(s.Name), nullText(s.Organization), wan, extra, nullText(s.Manager), nullText(s.Deputy),
+		nullText(s.Leader), nullText(s.DeputyDepartment), nullText(s.Note), by)
+	return err
+}
+
+func (g *Registry) SaveStore(ctx context.Context, s app.StoreInfo, by string) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		if err := upsert(ctx, tx, s, by); err != nil {
 			return err
 		}
 		return audit(ctx, tx, by, "store.update", 0, s.Code, map[string]any{
 			"name": s.Name, "ips": s.IPs, "manager": s.Manager})
+	})
+}
+
+func (g *Registry) SaveStores(ctx context.Context, list []app.StoreInfo, by, file string) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		codes := make([]string, 0, len(list))
+		for _, s := range list {
+			if err := upsert(ctx, tx, s, by); err != nil {
+				return err
+			}
+			codes = append(codes, s.Code)
+		}
+		if len(codes) > 200 { // audit giới hạn 8 KB: ghi 200 mã đầu và tổng số
+			codes = codes[:200]
+		}
+		return audit(ctx, tx, by, "store.import", 0, "", map[string]any{"file": file, "count": len(list), "codes": codes})
 	})
 }

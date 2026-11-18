@@ -562,6 +562,7 @@
             <option value="rejected">Đã từ chối</option>
           </select>
           <span class="count" id="dev-count"></span>
+          <button type="button" class="btn btn-sm" id="dev-import" title="Nạp thông tin siêu thị từ file .xlsx / .csv">Nạp thông tin từ file</button>
           <div class="right store-legend" aria-hidden="true">
             <span class="lg lg-bad">Cần xử lý</span><span class="lg lg-warn">Đang chờ xử lý</span><span class="lg lg-ok">OK</span>
           </div>
@@ -677,6 +678,7 @@
       if (page === view) render();
     };
 
+    $('#dev-import').addEventListener('click', () => importStores(() => { state.sig = ''; load(); }));
     $('#dev-q').addEventListener('input', (e) => { state.q = e.target.value; state.page = 0; render(); });
     $('#dev-status').addEventListener('change', (e) => { state.status = e.target.value; state.page = 0; state.open.clear(); load(); });
     $('#dev-prev').addEventListener('click', () => { state.page--; render(); });
@@ -772,6 +774,82 @@
       } catch (err) {
         const el = $('#sf-err'); el.hidden = false; el.textContent = err.message;
         btn.disabled = false;
+      }
+    });
+  }
+
+  // importStores: nạp thông tin siêu thị từ file .xlsx / .csv — chọn file → xem trước → Nạp.
+  function importStores(done) {
+    const ro = !can(LV.agentInfo);
+    openDrawer('Nạp thông tin siêu thị từ file', `
+      <section class="import-help">
+        <p>File <b>.xlsx</b> (Excel) hoặc <b>.csv</b> (UTF-8), tối đa 5 MB. Dòng đầu là tên cột; bắt buộc có cột <b>Mã siêu thị</b>.
+          Các cột nhận được: Mã siêu thị, Tên siêu thị, Tổ chức, IP, Quản lý, Phó quản lý, Trưởng nhóm, Phó phòng, Ghi chú
+          (tiếng Việt có dấu, không dấu hoặc tiếng Anh như Store Code, Store Name, Organization, Ip, Manager, Deputy, Leader,
+          Deputy Department, Note). Cột khác bị bỏ qua.</p>
+        <p><b>Ô trống = giữ nguyên</b> giá trị đang có. Cột IP có giá trị thì thay cả danh sách IP (nhiều IP cách nhau dấu phẩy, chấm phẩy hoặc xuống dòng).</p>
+        <p><a class="btn btn-sm" href="/admin/v1/stores/template.csv" download>Tải file mẫu (.csv)</a></p>
+      </section>
+      ${ro ? `<p class="hint">Cần quyền: ${esc(LEVEL_NAMES[LV.agentInfo])} để nạp.</p>` : `
+      <label class="field"><span>Chọn file</span><input type="file" id="imp-file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"></label>
+      <p class="form-error" id="imp-err" hidden></p>
+      <div id="imp-preview"></div>`}`);
+    if (ro) return;
+    let file = null;
+    const send = async (apply) => {
+      const buf = await file.arrayBuffer();
+      const r = await api(`/admin/v1/stores/import?file=${encodeURIComponent(file.name)}${apply ? '&apply=1' : ''}`,
+        { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: buf });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || `lỗi ${r.status}`);
+      return j;
+    };
+    const ST = { new: ['pill-ok', 'Thêm mới'], changed: ['pill-info', 'Thay đổi'], same: ['', 'Không đổi'], error: ['pill-bad', 'Lỗi'] };
+    const showPlan = (pl) => {
+      const n = pl.new + pl.changed;
+      $('#imp-preview').innerHTML = `
+        <div class="import-sum">
+          <span><b>${fmtNum(pl.total)}</b> dòng</span><span class="pill pill-ok no-dot">${fmtNum(pl.new)} thêm mới</span>
+          <span class="pill pill-info no-dot">${fmtNum(pl.changed)} thay đổi</span><span class="pill no-dot">${fmtNum(pl.same)} không đổi</span>
+          ${pl.errors ? `<span class="pill pill-bad no-dot">${fmtNum(pl.errors)} lỗi</span>` : ''}</div>
+        <p class="hint">Cột nhận ra: ${esc(pl.columns.join(', '))}${pl.unknown.length ? ` · bỏ qua: ${esc(pl.unknown.join(', '))}` : ''}</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th class="num">Dòng</th><th>Mã</th><th>Tên</th><th>Kết quả</th></tr></thead>
+          <tbody>${pl.rows.map((r) => `<tr><td class="num">${r.row}</td><td class="mono">${esc(r.code || '—')}</td><td>${esc(r.name || '')}</td>
+            <td>${pill(ST[r.status])} ${r.error ? `<span class="sub">${esc(r.error)}</span>` : r.changes && r.changes.length ? `<span class="sub">${esc(r.changes.join(', '))}</span>` : ''}</td></tr>`).join('')}</tbody>
+        </table></div>
+        ${pl.total > pl.rows.length ? `<p class="hint">Hiện ${fmtNum(pl.rows.length)} dòng đầu (lỗi và thay đổi trước).</p>` : ''}
+        <div class="form-actions">
+          ${pl.errors ? '<span class="form-error">Sửa các dòng lỗi trong file rồi chọn lại file.</span>'
+            : `<button type="button" class="btn btn-primary" id="imp-apply"${n ? '' : ' disabled'}>${n ? `Nạp ${fmtNum(n)} siêu thị` : 'Không có gì để nạp'}</button>`}
+        </div>`;
+      const b = $('#imp-apply');
+      if (b) b.addEventListener('click', async () => {
+        b.disabled = true;
+        try {
+          const j = await send(true);
+          toast(`Đã nạp ${fmtNum(j.plan.new + j.plan.changed)} siêu thị`);
+          closeDrawer();
+          done();
+        } catch (err) {
+          b.disabled = false;
+          const e = $('#imp-err'); e.hidden = false; e.textContent = err.message;
+        }
+      });
+    };
+    $('#imp-file').addEventListener('change', async (e) => {
+      file = e.target.files[0];
+      const errEl = $('#imp-err');
+      errEl.hidden = true;
+      $('#imp-preview').innerHTML = '';
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) { errEl.hidden = false; errEl.textContent = 'File quá lớn (tối đa 5 MB).'; return; }
+      $('#imp-preview').innerHTML = '<p class="hint">Đang đọc file…</p>';
+      try {
+        showPlan((await send(false)).plan);
+      } catch (err) {
+        $('#imp-preview').innerHTML = '';
+        errEl.hidden = false; errEl.textContent = err.message;
       }
     });
   }
