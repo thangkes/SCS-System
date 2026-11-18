@@ -57,7 +57,9 @@ RestrictNamespaces=yes
 RestrictRealtime=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# AF_NETLINK: chỉ để đọc địa chỉ IP của card mạng cho khung Server ở trang Tổng quan (Go đọc qua netlink).
+# User scs không có CAP_NET_ADMIN nên chỉ đọc được, không sửa được cấu hình mạng.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 SystemCallArchitectures=native
 # Cổng 6222/7222 > 1024 nên không cần capability nào.
 CapabilityBoundingSet=

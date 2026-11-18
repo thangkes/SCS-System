@@ -330,7 +330,17 @@ func (g *Registry) ListAlerts(ctx context.Context, includeAcked bool) ([]app.Ale
 	rows, err := g.pool.Query(ctx, `
 		SELECT a.id, coalesce(a.device_id, 0), coalesce(d.hostname, ''), coalesce(a.store_code, d.store_code, ''),
 		       a.kind, a.severity, a.created_at, a.last_at, a.occurrences, a.detail, a.acked_at, coalesce(a.acked_by, ''),
-		       coalesce(a.period_id, 0)
+		       coalesce(a.period_id, 0),
+		       CASE WHEN a.period_id IS NULL THEN NULL ELSE (
+		         SELECT jsonb_agg(x) FROM (
+		           SELECT r.key AS rule, r.value->>'severity' AS severity,
+		                  coalesce((r.value->>'count')::int, 0) AS count, r.value->'last' AS last,
+		                  left(coalesce(r.value->>'sample', ''), 400) AS sample
+		           FROM device_periods p, jsonb_each(p.rules) r
+		           WHERE p.id = a.period_id
+		           ORDER BY CASE r.value->>'severity' WHEN 'critical' THEN 5 WHEN 'high' THEN 4 WHEN 'medium' THEN 3
+		                    WHEN 'low' THEN 2 ELSE 1 END DESC, 3 DESC
+		           LIMIT 3) x) END
 		FROM alerts a LEFT JOIN devices d ON d.id = a.device_id
 		WHERE $1 OR a.acked_at IS NULL
 		ORDER BY a.last_at DESC
@@ -343,10 +353,13 @@ func (g *Registry) ListAlerts(ctx context.Context, includeAcked bool) ([]app.Ale
 	for rows.Next() {
 		var a app.Alert
 		var acked *time.Time
-		var detail []byte
+		var detail, reasons []byte
 		if err := rows.Scan(&a.ID, &a.DeviceID, &a.Hostname, &a.StoreCode, &a.Kind, &a.Severity, &a.CreatedAt,
-			&a.LastAt, &a.Occurrences, &detail, &acked, &a.AckedBy, &a.PeriodID); err != nil {
+			&a.LastAt, &a.Occurrences, &detail, &acked, &a.AckedBy, &a.PeriodID, &reasons); err != nil {
 			return nil, err
+		}
+		if len(reasons) > 0 {
+			_ = json.Unmarshal(reasons, &a.Reasons) // lỗi định dạng thì bỏ phần lý do, vẫn hiện cảnh báo
 		}
 		a.Detail = detail
 		if acked != nil {

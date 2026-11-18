@@ -102,6 +102,46 @@ type Store struct {
 	Dir string
 	Pub ed25519.PublicKey
 	mu  sync.Mutex
+
+	tmu      sync.Mutex
+	titles   map[string]string
+	titlesAt time.Time
+}
+
+// titlesTTL: tra tiêu đề rule (trang Cảnh báo gọi thường xuyên) đọc lại kho tối đa mỗi phút một lần.
+const titlesTTL = time.Minute
+
+// Titles: mã rule → tiêu đề, gom từ mọi bộ trong kho (bộ đọc sau ghi đè bộ trước). Lỗi đọc thì bỏ qua bộ đó.
+func (s *Store) Titles() map[string]string {
+	s.tmu.Lock()
+	defer s.tmu.Unlock()
+	if s.titles != nil && time.Since(s.titlesAt) < titlesTTL {
+		return s.titles
+	}
+	out := map[string]string{}
+	s.mu.Lock()
+	des, _ := os.ReadDir(filepath.Join(s.Dir, srcDir))
+	for i, de := range des {
+		if i >= MaxSources || !fileRe.MatchString(de.Name()) {
+			continue
+		}
+		data, _, err := readRegular(s.src(de.Name()), rulefile.MaxFile)
+		if err != nil {
+			continue
+		}
+		set, err := rulefile.Parse(data)
+		if err != nil {
+			continue
+		}
+		for _, r := range set.Rules {
+			if r.Title != "" {
+				out[r.ID] = r.Title
+			}
+		}
+	}
+	s.mu.Unlock()
+	s.titles, s.titlesAt = out, time.Now()
+	return out
 }
 
 // Open tạo thư mục kho nếu chưa có (quyền 750).

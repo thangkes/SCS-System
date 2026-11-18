@@ -183,6 +183,9 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
 - Agent gửi sự kiện qua `POST /v1/logs` (lô đã ký, tối đa 500 sự kiện; high / critical sau vài giây, còn lại mỗi phút). Tiến trình `worker`
   (hoặc `all`) kiểm mỗi phút.
 - API web: `GET /admin/v1/devices/{id}/periods`, `POST /admin/v1/periods/{id}/resolve`.
+- Cảnh báo sự cố hiện luôn **lý do** (Tổng quan → "Cảnh báo mới" và trang Cảnh báo): tối đa 3 rule nặng nhất của giai
+  đoạn, mỗi rule có tiêu đề (tra trong kho rule, đọc lại tối đa mỗi phút), mã rule, số lần, lần cuối và dòng log mẫu
+  (tối đa 400 ký tự). Bấm vào cảnh báo mở chi tiết máy (tình trạng, dòng thời gian, thao tác).
 
 ## Trang Máy và khung Server
 

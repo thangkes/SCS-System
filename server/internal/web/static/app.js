@@ -164,9 +164,43 @@
       case 'enroll_request': return [d.ip && `Gửi từ IP ${d.ip}`, d.key_id && `mã khóa ${d.key_id}`].filter(Boolean).join(', ');
       case 'hostname_invalid': return d.error || '';
       case 'wan_ip_mismatch': return d.got ? `Gửi từ ${d.got}, IP WAN của siêu thị là ${d.expected}` : '';
-      case 'event': return (d.rules || []).slice(0, 4).map((r) => `${r.rule} ×${r.count}`).join(', ');
+      case 'event':
+        if (a.reasons && a.reasons.length) {
+          const r = a.reasons[0];
+          return `${r.title || r.rule} ×${r.count}${r.sample ? ` — ${r.sample}` : ''}${a.reasons.length > 1 ? ` (+${a.reasons.length - 1} rule khác)` : ''}`;
+        }
+        return (d.rules || []).slice(0, 4).map((r) => `${r.rule} ×${r.count}`).join(', ');
       case 'offline': return 'Không nghe máy gửi gì; tự đóng khi máy gửi lại';
       default: return Object.entries(d).map(([k, v]) => `${k}: ${v}`).join(', ');
+    }
+  }
+
+  // reasonsHTML: lý do sự cố hiện ngay trong danh sách (tiêu đề rule, mã rule, số lần, dòng log mẫu),
+  // không phải mở máy mới xem được. Cảnh báo không phải sự cố thì một dòng diễn giải.
+  function reasonsHTML(a, max) {
+    const rs = (a.reasons || []).slice(0, max);
+    if (!rs.length) {
+      const t = alertText(a);
+      return t ? `<div class="reason-line">${esc(t)}</div>` : '';
+    }
+    return rs.map((r) => `<div class="reason">
+        <div class="reason-head">${pill(SEV[r.severity] || SEV.low)}<span class="strong">${esc(r.title || r.rule)}</span>
+          ${r.title ? `<span class="mono sub-inline">${esc(r.rule)}</span>` : ''}<span class="sub-inline">×${fmtNum(r.count)}${r.last ? ` · lần cuối ${esc(ago(new Date(r.last)))}` : ''}</span></div>
+        ${r.sample ? `<code class="reason-sample" title="${esc(r.sample)}">${esc(r.sample)}</code>` : ''}
+      </div>`).join('') + ((a.reasons || []).length > max ? `<div class="sub-inline">+${(a.reasons || []).length - max} rule khác</div>` : '');
+  }
+
+  // openDeviceById: bấm vào cảnh báo → mở chi tiết máy (tình trạng, dòng thời gian, nút xử lý).
+  async function openDeviceById(id, reload) {
+    if (!id) return;
+    try {
+      for (const st of ['approved', 'pending', 'revoked']) {
+        const d = (await getJSON(`/admin/v1/devices?status=${st}`)).devices.find((x) => String(x.id) === String(id));
+        if (d) { showDevice(d, reload); return; }
+      }
+      toast('Không tìm thấy máy này (có thể đã bị xóa).');
+    } catch (err) {
+      toast(`Không mở được máy: ${err.message}`);
     }
   }
 
@@ -379,6 +413,11 @@
       </div>`;
     overviewDevices = approved;
     sizeMeters(page);
+    const reloadOverview = () => pageOverview(true);
+    $$('li[data-dev]', page).forEach((li) => {
+      li.addEventListener('click', () => openDeviceById(li.dataset.dev, reloadOverview));
+      li.addEventListener('keydown', (e) => { if (e.key === 'Enter') openDeviceById(li.dataset.dev, reloadOverview); });
+    });
     clearInterval(refreshTimer);
     refreshStats();
     refreshTimer = setInterval(refreshStats, 10000);
@@ -465,7 +504,7 @@
         <section class="srv-sec">
           <h3>Mạng</h3>
           ${ifaces}
-          <div class="srv-row">${stat('Kết nối agent đang mở', c.ingest_here ? fmtNum(n.ingest_conns) : '—', 'cổng 6222')}</div>
+          <div class="srv-row">${stat('Kết nối agent đang mở', c.ingest_here ? fmtNum(n.ingest_conns) : '—', 'cổng 6222 · mỗi agent chỉ mở vài giây khi gọi về, hay là 0')}</div>
         </section>
         <section class="srv-sec">
           <h3>Tài nguyên máy</h3>
@@ -493,7 +532,8 @@
   }
 
   function alertItem(a) {
-    return `<li>${pill(SEV[a.severity] || SEV.low)}<div class="grow"><div class="title">${esc(KIND[a.kind] || a.kind)} · <span class="mono">${esc(a.hostname || a.store_code || '—')}</span></div><div class="desc">${esc(alertText(a))}</div></div><span class="time">${esc(ago(new Date(a.last_at)))}</span></li>`;
+    const click = a.device_id ? ` class="clickable" data-dev="${esc(a.device_id)}" tabindex="0" title="Bấm để xem tình trạng máy"` : '';
+    return `<li${click}>${pill(SEV[a.severity] || SEV.low)}<div class="grow"><div class="title">${esc(KIND[a.kind] || a.kind)} · <span class="mono">${esc(a.hostname || a.store_code || '—')}</span></div><div class="reasons">${reasonsHTML(a, 2)}</div></div><span class="time">${esc(ago(new Date(a.last_at)))}</span></li>`;
   }
 
   // ---------------------------------------------------------------- trang: Máy
@@ -880,8 +920,8 @@
           <span class="count" id="al-count"></span>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Mức</th><th>Loại</th><th>Máy</th><th class="hide-sm">Chi tiết</th><th class="num hide-sm">Số lần</th><th>Lần cuối</th><th></th></tr></thead>
-          <tbody id="al-rows"><tr><td colspan="7" class="empty">Đang tải…</td></tr></tbody></table></div>
+          <thead><tr><th>Mức</th><th>Máy</th><th>Lý do</th><th class="num hide-sm">Số lần</th><th>Lần cuối</th><th></th></tr></thead>
+          <tbody id="al-rows"><tr><td colspan="6" class="empty">Đang tải…</td></tr></tbody></table></div>
         <div class="pager"><span id="al-range"></span><div class="btns">
           <button class="btn btn-sm" id="al-prev">Trước</button><button class="btn btn-sm" id="al-next">Sau</button></div></div>
       </div>`;
@@ -896,18 +936,17 @@
       $('#al-prev').disabled = state.page === 0;
       $('#al-next').disabled = state.page >= pages - 1;
       $('#al-rows').innerHTML = rows.map((a) => `
-        <tr>
+        <tr${a.device_id ? ` class="clickable" data-dev="${esc(a.device_id)}" title="Bấm để xem tình trạng máy"` : ''}>
           <td>${pill(SEV[a.severity] || SEV.low)}</td>
-          <td>${esc(KIND[a.kind] || a.kind)}</td>
           <td><span class="strong mono">${esc(a.hostname || '—')}</span>${a.store_code ? `<span class="sub">Siêu thị ${esc(a.store_code)}</span>` : ''}</td>
-          <td class="hide-sm">${esc(alertText(a))}</td>
+          <td class="reasons-cell"><div class="reason-kind">${esc(KIND[a.kind] || a.kind)}</div>${reasonsHTML(a, 3)}</td>
           <td class="num hide-sm">${a.occurrences}</td>
           <td>${esc(ago(new Date(a.last_at)))}</td>
           <td>${a.acked_at
             ? `<span class="sub">${a.kind === 'event' ? 'Đã đóng' : 'Đã xác nhận'} · ${esc(a.acked_by)}</span>`
             : `<button class="btn btn-sm${a.kind === 'event' ? ' btn-primary' : ''}" data-ack="${a.id}" data-kind="${esc(a.kind)}"${adminOnly(LV.incidents)}>${a.kind === 'event' ? 'Đã xử lý' : 'Xác nhận'}</button>
                ${a.kind === 'event' ? `<span class="sub">${a.severity === 'critical' ? 'Chỉ admin đóng' : `Tự đóng khi yên ${esc(fmtDur(state.policy.autoclose_min * 60000))}`}</span>` : ''}`}</td>
-        </tr>`).join('') || `<tr><td colspan="7" class="empty">Không có cảnh báo${state.all ? '' : ' đang mở'}.</td></tr>`;
+        </tr>`).join('') || `<tr><td colspan="6" class="empty">Không có cảnh báo${state.all ? '' : ' đang mở'}.</td></tr>`;
     };
 
     const load = async () => {
@@ -938,7 +977,13 @@
     $('#al-prev').addEventListener('click', () => { state.page--; render(); });
     $('#al-next').addEventListener('click', () => { state.page++; render(); });
     $('#al-rows').addEventListener('click', async (e) => {
-      const b = e.target.closest('[data-ack]'); if (!b || b.disabled) return;
+      const b = e.target.closest('[data-ack]');
+      if (!b) { // bấm vào dòng (không phải nút): mở tình trạng máy
+        const tr = e.target.closest('tr[data-dev]');
+        if (tr && !getSelection().toString()) openDeviceById(tr.dataset.dev, load);
+        return;
+      }
+      if (b.disabled) return;
       if (b.dataset.kind === 'event' && !(await confirmBox('Đã xử lý sự cố này?',
         '<p>Đóng giai đoạn cảnh báo của máy và bắt đầu giai đoạn OK mới. Sự cố quay lại thì sẽ mở cảnh báo mới.</p>',
         'Đã xử lý'))) return;

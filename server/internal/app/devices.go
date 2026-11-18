@@ -163,6 +163,14 @@ func (a deviceAPI) alerts(w http.ResponseWriter, r *http.Request) {
 	if list == nil {
 		list = []Alert{}
 	}
+	if a.d.Rules != nil {
+		titles := a.d.Rules.Titles()
+		for i := range list {
+			for j := range list[i].Reasons {
+				list[i].Reasons[j].Title = titles[list[i].Reasons[j].Rule]
+			}
+		}
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "alerts": list, "policy": a.policy()})
 }
 

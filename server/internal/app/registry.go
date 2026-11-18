@@ -167,6 +167,18 @@ type Alert struct {
 	AckedBy     string          `json:"acked_by,omitempty"`
 	// PeriodID: cảnh báo của một giai đoạn alert (xác nhận = "Đã xử lý", đóng giai đoạn).
 	PeriodID int64 `json:"period_id,omitempty"`
+	// Reasons: lý do của cảnh báo sự cố (tối đa 3 rule nặng nhất của giai đoạn, kèm dòng log mẫu).
+	Reasons []AlertReason `json:"reasons,omitempty"`
+}
+
+// AlertReason: một rule đã báo trong giai đoạn cảnh báo.
+type AlertReason struct {
+	Rule     string    `json:"rule"`
+	Title    string    `json:"title,omitempty"` // tiêu đề rule tra trong kho rule (rỗng = không tìm thấy)
+	Severity string    `json:"severity"`
+	Count    int       `json:"count"`
+	Last     time.Time `json:"last,omitzero"`
+	Sample   string    `json:"sample,omitempty"` // dòng log mẫu gần nhất (tối đa 400 ký tự)
 }
 
 // Trạng thái máy trong kho.
