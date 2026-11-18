@@ -105,6 +105,22 @@ func enrollHandler(d Deps) http.Handler {
 				"device", res.DeviceID, "ma_khoa", KeyID(pub), "hostname_dung", req.HostnameOK)
 		}
 
+		// Duyệt tự động (công tắc trên trang Chờ duyệt): kiểm mỗi lần máy đang chờ hỏi lại.
+		// Lỗi khi kiểm không chặn đăng ký: máy vẫn chờ người duyệt như cũ.
+		if res.Status == DevicePending {
+			ar, err := d.Registry.AutoApprove(r.Context(), res.DeviceID, ip)
+			switch {
+			case err != nil:
+				d.Log.Warn("kiểm duyệt tự động thất bại, máy vẫn chờ duyệt", "err", err, "device", res.DeviceID)
+			case ar.Approved:
+				res.Status = DeviceApproved
+				d.Log.Info("đã duyệt tự động máy", "device", res.DeviceID, "hostname", body.Hostname,
+					"sieu_thi", ar.Store, "ip", ip.String())
+			case res.New && !ar.Off:
+				d.Log.Info("chưa duyệt tự động được, chờ người duyệt", "device", res.DeviceID, "ly_do", ar.Reason)
+			}
+		}
+
 		resp := protocol.EnrollResponse{Status: protocol.EnrollPending}
 		switch res.Status {
 		case DeviceApproved:

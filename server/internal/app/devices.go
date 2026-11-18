@@ -74,6 +74,42 @@ func (a deviceAPI) approve(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "device": dev})
 }
 
+// autoApprove: GET /admin/v1/auto-approve — công tắc duyệt tự động và các điều kiện.
+func (a deviceAPI) autoApprove(w http.ResponseWriter, r *http.Request) {
+	if !a.ready(w) {
+		return
+	}
+	st, err := a.d.Registry.AutoApproveSetting(r.Context())
+	if err != nil {
+		a.d.Log.Error("đọc công tắc duyệt tự động thất bại", "err", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "setting": st, "rules": AutoApproveRules})
+}
+
+// setAutoApprove: POST /admin/v1/auto-approve {"on": true|false} (mức Agent, như duyệt tay).
+func (a deviceAPI) setAutoApprove(w http.ResponseWriter, r *http.Request) {
+	if !a.ready(w) {
+		return
+	}
+	var body struct {
+		On *bool `json:"on"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256)).Decode(&body); err != nil || body.On == nil {
+		httpx.WriteError(w, http.StatusBadRequest, "dữ liệu không hợp lệ")
+		return
+	}
+	by := actor(r)
+	if err := a.d.Registry.SetAutoApprove(r.Context(), *body.On, by); err != nil {
+		a.d.Log.Error("đổi công tắc duyệt tự động thất bại", "err", err)
+		httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
+		return
+	}
+	a.d.Log.Warn("đổi công tắc duyệt tự động", "by", by, "bat", *body.On)
+	a.autoApprove(w, r)
+}
+
 // reject: POST /admin/v1/devices/{id}/reject (máy đang chờ duyệt).
 func (a deviceAPI) reject(w http.ResponseWriter, r *http.Request) {
 	a.decide(w, r, "từ chối máy", a.d.Registry.Reject)

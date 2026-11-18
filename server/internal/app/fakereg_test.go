@@ -26,6 +26,7 @@ type fakeRegistry struct {
 	periods []*periods.Period
 	status  map[int64]fakeStatus
 	changes map[int64][]StatusChange
+	auto    fakeAuto // duyệt tự động (fakeauto_test.go)
 }
 
 type fakeDevice struct {

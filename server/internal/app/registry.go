@@ -24,6 +24,12 @@ type Registry interface {
 	ListDevices(ctx context.Context, status string) ([]Device, error)
 	Approve(ctx context.Context, deviceID int64, by, storeCode string) (Device, error)
 	Reject(ctx context.Context, deviceID int64, by string) error
+	// AutoApprove: máy đang chờ duyệt vừa hỏi lại từ IP ip. Công tắc duyệt tự động bật và máy đủ điều
+	// kiện (AutoApproveRules) thì duyệt luôn (người duyệt = AutoApprover); chưa đủ thì ghi lý do vào máy.
+	AutoApprove(ctx context.Context, deviceID int64, ip netip.Addr) (AutoApproveResult, error)
+	// AutoApproveSetting / SetAutoApprove: đọc, bật / tắt công tắc duyệt tự động (mặc định tắt).
+	AutoApproveSetting(ctx context.Context) (AutoApproveSetting, error)
+	SetAutoApprove(ctx context.Context, on bool, by string) error
 	Revoke(ctx context.Context, deviceID int64, by string) error
 
 	// ListAlerts: cảnh báo đang mở (includeAcked = false) hoặc cả đã xác nhận, mới nhất trước.
@@ -199,6 +205,32 @@ var (
 	ErrInvalidStore   = errors.New("mã siêu thị chỉ gồm 1–10 chữ số")
 )
 
+// AutoApprover: tên người duyệt ghi vào máy được duyệt tự động (decided_by, nhật ký thao tác).
+const AutoApprover = "duyệt tự động"
+
+// AutoApproveRules: điều kiện duyệt tự động, hiện trên trang Chờ duyệt (đúng thứ tự kiểm trong kho).
+var AutoApproveRules = []string{
+	"Hostname đúng quy ước (đọc được mã siêu thị và vị trí TN)",
+	"Siêu thị đã có thông tin trong dữ liệu đã nạp (form hoặc file)",
+	"Máy gửi từ một IP WAN có trong thông tin siêu thị",
+	"Không trùng hostname hoặc vị trí TN với máy đang hoạt động",
+}
+
+// AutoApproveResult: kết quả kiểm duyệt tự động một máy.
+type AutoApproveResult struct {
+	Approved bool
+	Off      bool   // công tắc đang tắt (không kiểm gì)
+	Reason   string // chưa duyệt: lý do (đã ghi vào máy, hiện ở trang Chờ duyệt)
+	Store    string
+}
+
+// AutoApproveSetting: trạng thái công tắc duyệt tự động.
+type AutoApproveSetting struct {
+	On        bool      `json:"on"`
+	UpdatedBy string    `json:"updated_by,omitempty"`
+	UpdatedAt time.Time `json:"updated_at,omitzero"`
+}
+
 // MaxPendingRequests: số yêu cầu chờ duyệt tối đa, chặn việc tạo hàng loạt yêu cầu giả làm phình DB.
 const MaxPendingRequests = 5000
 
@@ -247,6 +279,8 @@ type Device struct {
 	LastSeen      time.Time `json:"last_seen,omitzero"`
 	LastIP        string    `json:"last_ip,omitempty"`
 	TestRing      bool      `json:"test_ring"` // thuộc nhóm thử: nhận bản agent mới trước
+	// AutoNote: máy đang chờ duyệt chưa được duyệt tự động vì sao (rỗng = chưa kiểm / công tắc tắt).
+	AutoNote string `json:"auto_note,omitempty"`
 	// Rules: bộ rule máy báo đang cài (heartbeat gần nhất); nil = chưa có heartbeat / agent bản cũ.
 	Rules *protocol.RuleSetReport `json:"rules,omitempty"`
 }

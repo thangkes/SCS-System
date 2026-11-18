@@ -1402,11 +1402,14 @@
     soft = soft === true; // route() truyền tham số URL: không phải tải lại mềm
     if (!soft) page.innerHTML = '<p class="hint">Đang tải…</p>';
     let list = [];
+    let auto = null; // công tắc duyệt tự động (null = không đọc được, server bản cũ)
     try {
-      const r = await api('/admin/v1/devices?status=pending');
+      const [r, a] = await Promise.all([api('/admin/v1/devices?status=pending'),
+        api('/admin/v1/auto-approve').then((x) => (x.ok ? x.json() : null)).catch(() => null)]);
       const j = await r.json();
       if (!r.ok) throw new Error(j.error || r.status);
       list = j.devices;
+      auto = a;
       setPendingCount(list.length);
     } catch (err) {
       if (page !== view) return;
@@ -1414,7 +1417,7 @@
       return;
     }
     if (page !== view) return; // đã chuyển sang trang khác trong lúc tải
-    const sig = JSON.stringify(list);
+    const sig = JSON.stringify([list, auto]);
     if (soft && sig === softSig.pending) return;
     softSig.pending = sig;
     if (soft) page = swapView();
@@ -1428,9 +1431,20 @@
         : check('warn', `IP ${d.enroll_ip} khác IP WAN của siêu thị (${d.store_wan_ip})`);
     };
     const position = (d) => (d.tn ? `TN${d.tn}${d.role ? ' · ' + d.role : ''}` : '—');
+    const autoOn = !!(auto && auto.setting && auto.setting.on);
+    const autoCard = auto ? `<div class="card auto-card">
+        <div class="card-head"><h2>Duyệt tự động</h2>
+          <span class="pill ${autoOn ? 'pill-ok' : ''}">${autoOn ? 'Đang bật' : 'Đang tắt'}</span>
+          <button type="button" class="btn btn-sm ${autoOn ? '' : 'btn-primary'}" id="auto-toggle"${adminOnly(LV.agents)}>${autoOn ? 'Tắt' : 'Bật duyệt tự động'}</button></div>
+        <div class="card-body">
+          <p>${autoOn ? 'Máy' : 'Khi bật, máy'} đủ <b>tất cả</b> điều kiện dưới đây được duyệt ngay lúc gửi đăng ký, hoặc ở lần hỏi lại kế tiếp
+            (agent hỏi lại khoảng 5 phút một lần) — ví dụ máy xin trước rồi mới nạp thông tin siêu thị. Thiếu điều kiện nào thì máy chờ người duyệt, kèm lý do.</p>
+          <ul class="checks">${auto.rules.map((t) => check('ok', t)).join('')}</ul>
+          ${auto.setting.updated_by ? `<p class="sub">Đổi lần cuối: ${esc(auto.setting.updated_by)} · ${esc(ago(new Date(auto.setting.updated_at)))}</p>` : ''}
+        </div></div>` : '';
 
-    page.innerHTML = `
-      <p class="hint">Mọi máy kết nối lần đầu đều phải được admin duyệt mới được gửi dữ liệu. Đối chiếu <strong>mã khóa</strong> với kết quả lệnh <span class="mono">scs-agent fingerprint</span> trên máy. Hostname đúng mẫu <span class="mono">mã-TN1-PRI</span>, <span class="mono">mã-TN2-SEC</span>, <span class="mono">mã-TN3</span>…</p>
+    page.innerHTML = `${autoCard}
+      <p class="hint">Mọi máy kết nối lần đầu đều phải được duyệt (bởi admin${autoOn ? ' hoặc duyệt tự động' : ''}) mới được gửi dữ liệu. Đối chiếu <strong>mã khóa</strong> với kết quả lệnh <span class="mono">scs-agent fingerprint</span> trên máy. Hostname đúng mẫu <span class="mono">mã-TN1-PRI</span>, <span class="mono">mã-TN2-SEC</span>, <span class="mono">mã-TN3</span>…</p>
       ${list.length ? `<div class="cards">${list.map((d) => {
         const ipOk = d.store_code && (!d.store_wan_ip || d.store_wan_ip === d.enroll_ip);
         return `<div class="card req">
@@ -1447,6 +1461,7 @@
           <ul class="checks">
             ${d.hostname_ok ? check('ok', 'Hostname đúng quy ước') : check('warn', d.hostname_error || 'Hostname sai quy ước')}
             ${ipCheck(d)}
+            ${autoOn && d.auto_note ? check('warn', `Chưa duyệt tự động: ${d.auto_note}`) : ''}
           </ul>
           ${d.hostname_ok ? '' : `<label class="store-field">Mã siêu thị (bắt buộc khi hostname sai)
             <input class="store-input" id="store-${d.id}" data-store-for="${d.id}" inputmode="numeric" maxlength="10" placeholder="12345" autocomplete="off"${adminOnly(LV.agents)}></label>`}
@@ -1455,6 +1470,29 @@
             <button class="btn btn-primary" data-req="approve" data-id="${d.id}"${adminOnly(LV.agents)}>Duyệt</button>
           </div></div>`;
       }).join('')}</div>` : `<div class="card soon">${ICON.check}<h2>Không có yêu cầu nào</h2><p>Không có máy nào đang chờ duyệt.</p></div>`}`;
+
+    const tg = $('#auto-toggle', page);
+    if (tg) tg.addEventListener('click', async () => {
+      const on = !autoOn;
+      const ok = await confirmBox(on ? 'Bật duyệt tự động?' : 'Tắt duyệt tự động?', on
+        ? `<p>Máy có hostname đúng quy ước, thuộc siêu thị đã có thông tin và gửi từ IP WAN của siêu thị đó sẽ được <b>cấp chứng chỉ không cần người duyệt</b>.
+           Nên kiểm IP WAN trong dữ liệu siêu thị đã đúng trước khi bật. Mọi lần duyệt tự động đều ghi nhật ký thao tác.</p>`
+        : '<p>Máy mới sẽ chờ người duyệt như trước. Máy đã được duyệt tự động vẫn hoạt động bình thường.</p>',
+        on ? 'Bật' : 'Tắt', !on);
+      if (!ok) return;
+      tg.disabled = true;
+      try {
+        const r = await api('/admin/v1/auto-approve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on }) });
+        const j = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(j.error || `lỗi ${r.status}`);
+        toast(on ? 'Đã bật duyệt tự động' : 'Đã tắt duyệt tự động');
+        delete softSig.pending;
+        pagePending(true);
+      } catch (err) {
+        tg.disabled = false;
+        toast(`Không đổi được: ${err.message}`);
+      }
+    });
 
     page.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-req]'); if (!b || b.disabled) return;

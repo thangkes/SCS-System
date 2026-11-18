@@ -136,6 +136,8 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/devices/{id}/approve", agents(http.HandlerFunc(dev.approve)))
 	mux.Handle("POST /admin/v1/devices/{id}/reject", agents(http.HandlerFunc(dev.reject)))
 	mux.Handle("POST /admin/v1/devices/{id}/revoke", agents(http.HandlerFunc(dev.revoke)))
+	mux.Handle("GET /admin/v1/auto-approve", view(http.HandlerFunc(dev.autoApprove)))
+	mux.Handle("POST /admin/v1/auto-approve", agents(http.HandlerFunc(dev.setAutoApprove)))
 	mux.Handle("GET /admin/v1/alerts", view(http.HandlerFunc(dev.alerts)))
 	mux.Handle("POST /admin/v1/alerts/{id}/ack", incidents(http.HandlerFunc(dev.ackAlert)))
 	ag := agentAPI{d}

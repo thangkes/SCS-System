@@ -184,7 +184,7 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		       coalesce(d.tn_no, 0), coalesce(d.tn_role, ''), d.status, d.public_key, d.fingerprint,
 		       d.os_version, d.agent_version, host(d.enroll_ip), coalesce(host(s.wan_ip), ''),
 		       d.requested_at, d.decided_at, coalesce(d.decided_by, ''), d.last_seen, coalesce(host(d.last_ip), ''), d.test_ring,
-		       st.rules
+		       st.rules, coalesce(d.auto_note, '')
 		FROM devices d LEFT JOIN stores s ON s.code = d.store_code
 		LEFT JOIN device_status st ON st.device_id = d.id
 		WHERE d.status = $1
@@ -202,7 +202,7 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		var rules []byte
 		if err := rows.Scan(&dv.ID, &dv.Hostname, &dv.HostnameOK, &dv.HostnameError, &dv.StoreCode, &dv.TN, &dv.Role,
 			&dv.Status, &pub, &dv.Fingerprint, &dv.OSVersion, &dv.AgentVersion, &dv.EnrollIP, &dv.StoreWANIP,
-			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing, &rules); err != nil {
+			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing, &rules, &dv.AutoNote); err != nil {
 			return nil, err
 		}
 		if len(rules) > 0 {
@@ -225,7 +225,32 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 
 func (g *Registry) Approve(ctx context.Context, id int64, by, storeOverride string) (dev app.Device, err error) {
 	err = g.tx(ctx, func(tx pgx.Tx) error {
-		var status, store, enrollIP string
+		_, err := approveTx(ctx, tx, id, by, storeOverride, nil)
+		return err
+	})
+	if err != nil {
+		return app.Device{}, err
+	}
+	return g.approvedDevice(ctx, id)
+}
+
+func (g *Registry) approvedDevice(ctx context.Context, id int64) (app.Device, error) {
+	list, err := g.ListDevices(ctx, app.DeviceApproved)
+	if err != nil {
+		return app.Device{}, err
+	}
+	for _, d := range list {
+		if d.ID == id {
+			return d, nil
+		}
+	}
+	return app.Device{}, app.ErrNotFound
+}
+
+// approveTx: duyệt một máy đang chờ trong transaction tx (người duyệt hoặc duyệt tự động). Trả mã siêu thị.
+func approveTx(ctx context.Context, tx pgx.Tx, id int64, by, storeOverride string, detail map[string]any) (string, error) {
+	var status, store, enrollIP string
+	err := func() error {
 		e := tx.QueryRow(ctx, `SELECT status, coalesce(store_code, ''), host(enroll_ip) FROM devices WHERE id = $1 FOR UPDATE`, id).
 			Scan(&status, &store, &enrollIP)
 		switch {
@@ -251,7 +276,8 @@ func (g *Registry) Approve(ctx context.Context, id int64, by, storeOverride stri
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
-			UPDATE devices SET status = 'approved', store_code = $2, decided_at = now(), decided_by = $3 WHERE id = $1`,
+			UPDATE devices SET status = 'approved', store_code = $2, decided_at = now(), decided_by = $3, auto_note = NULL
+			WHERE id = $1`,
 			id, store, by); err != nil {
 			var pe *pgconn.PgError
 			if errors.As(err, &pe) && pe.Code == "23505" { // unique_violation: trùng hostname / vị trí TN
@@ -264,21 +290,9 @@ func (g *Registry) Approve(ctx context.Context, id int64, by, storeOverride stri
 			WHERE device_id = $1 AND kind = 'enroll_request' AND acked_at IS NULL`, id, by); err != nil {
 			return err
 		}
-		return audit(ctx, tx, by, "device.approve", id, store, nil)
-	})
-	if err != nil {
-		return app.Device{}, err
-	}
-	list, err := g.ListDevices(ctx, app.DeviceApproved)
-	if err != nil {
-		return app.Device{}, err
-	}
-	for _, d := range list {
-		if d.ID == id {
-			return d, nil
-		}
-	}
-	return app.Device{}, app.ErrNotFound
+		return audit(ctx, tx, by, "device.approve", id, store, detail)
+	}()
+	return store, err
 }
 
 func (g *Registry) setStatus(ctx context.Context, id int64, by, from, to, action string) error {
