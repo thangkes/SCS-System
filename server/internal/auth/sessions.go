@@ -21,8 +21,8 @@ type Session struct {
 	Role     Role      `json:"role"`
 	Level    Level     `json:"level"`             // 0 = quản trị gốc … 7 = chỉ xem
 	Account  string    `json:"account,omitempty"` // tài khoản email (rỗng = đăng nhập bằng mã SSH / token)
-	IP       string    `json:"ip"`
-	Agent    string    `json:"agent"`
+	IP       string    `json:"ip"`                // IP lúc đăng nhập: phiên chỉ dùng được từ đúng IP này
+	Agent    string    `json:"agent"`             // trình duyệt lúc đăng nhập: phiên chỉ dùng được từ đúng trình duyệt này
 	Created  time.Time `json:"created"`
 	LastSeen time.Time `json:"last_seen"`
 	Expires  time.Time `json:"expires"`
@@ -136,24 +136,33 @@ func (s *sessions) sweep(now time.Time) {
 }
 
 // get trả phiên còn hạn ứng với cookie, cập nhật lần cuối hoạt động.
-func (s *sessions) get(cookie, ip string) (Session, bool) {
+//
+// Phiên gắn với IP và trình duyệt (User-Agent) lúc đăng nhập: cookie bị đánh cắp đem dùng từ máy / trình
+// duyệt khác thì bị từ chối và phiên bị THU HỒI luôn (người dùng thật phải đăng nhập lại — dấu hiệu bị
+// lộ phiên); stolen trả phiên bị thu hồi để ghi log.
+func (s *sessions) get(cookie, ip, agent string) (sess Session, ok bool, stolen *Session) {
 	if cookie == "" {
-		return Session{}, false
+		return Session{}, false, nil
 	}
 	key := hashKey(cookie)
 	now := s.now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	ss, ok := s.m[key]
-	if !ok {
-		return Session{}, false
+	ss, found := s.m[key]
+	if !found {
+		return Session{}, false, nil
 	}
 	if !now.Before(ss.Expires) {
 		delete(s.m, key)
-		return Session{}, false
+		return Session{}, false, nil
 	}
-	ss.LastSeen, ss.IP = now, ip
-	return *ss, true
+	if ss.IP != ip || ss.Agent != truncate(agent, 160) {
+		delete(s.m, key)
+		cp := *ss
+		return Session{}, false, &cp
+	}
+	ss.LastSeen = now
+	return *ss, true, nil
 }
 
 func (s *sessions) deleteCookie(cookie string) (Session, bool) {

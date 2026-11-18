@@ -319,21 +319,21 @@ func TestSessions(t *testing.T) {
 	if strings.Contains(sess.ID, cookie) || len(cookie) < 40 {
 		t.Fatal("ID công khai không được là cookie")
 	}
-	if _, ok := s.get(cookie, "1.1.1.1"); !ok {
+	if _, ok, _ := s.get(cookie, "1.1.1.1", "ua"); !ok {
 		t.Fatal("phiên vừa tạo phải dùng được")
 	}
-	if _, ok := s.get(sess.ID, "1.1.1.1"); ok {
+	if _, ok, _ := s.get(sess.ID, "1.1.1.1", "ua"); ok {
 		t.Fatal("dùng ID công khai làm cookie không được")
 	}
 	ck.add(sessionMaxAge)
-	if _, ok := s.get(cookie, "1.1.1.1"); ok {
+	if _, ok, _ := s.get(cookie, "1.1.1.1", "ua"); ok {
 		t.Fatal("quá 24 giờ phải hết phiên")
 	}
 	cookie2, sess2 := s.create("B", RoleViewer, "", "")
 	if _, ok := s.revoke(sess2.ID); !ok {
 		t.Fatal("thu hồi theo ID")
 	}
-	if _, ok := s.get(cookie2, ""); ok {
+	if _, ok, _ := s.get(cookie2, "", ""); ok {
 		t.Fatal("phiên đã thu hồi không dùng được")
 	}
 }

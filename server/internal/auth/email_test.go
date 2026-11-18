@@ -326,7 +326,7 @@ func TestLevels(t *testing.T) {
 	mux.Handle("POST /need/3", m.RequireLevel(LevelAgents)(ok))
 	_ = h
 	for lv, want := range map[Level]int{LevelRoot: 200, LevelCluster: 200, LevelAgents: 200, LevelServers: 403, LevelView: 403} {
-		cookie, _, _ := m.sess.createLevel("u", "u", lv, "1.2.3.4", "", time.Hour, 4)
+		cookie, _, _ := m.sess.createLevel("u", "u", lv, "100.64.0.10", "", time.Hour, 4)
 		if w := req(mux, "POST", "/need/3", "{}", origin, &http.Cookie{Name: CookieName, Value: cookie}); w.Code != want {
 			t.Errorf("mức %d làm việc cần mức 3: %d, muốn %d", lv, w.Code, want)
 		}

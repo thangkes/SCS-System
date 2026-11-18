@@ -79,7 +79,14 @@ func (m *Manager) Identify(r *http.Request) (Session, bool) {
 	if err != nil {
 		return Session{}, false
 	}
-	return m.sess.get(c.Value, clientIP(r))
+	ip := clientIP(r)
+	s, ok, stolen := m.sess.get(c.Value, ip, r.UserAgent())
+	if stolen != nil {
+		m.log.Warn("phiên đăng nhập bị dùng từ máy / trình duyệt khác lúc đăng nhập: đã thu hồi (có thể bị lộ cookie)",
+			"name", stolen.Name, "session", stolen.ID, "ip_dang_nhap", stolen.IP, "ip_moi", ip,
+			"trinh_duyet_khac", stolen.Agent != truncate(r.UserAgent(), 160))
+	}
+	return s, ok
 }
 
 // Require (cũ): RoleViewer = mọi người đã đăng nhập, RoleAdmin = quản trị gốc.

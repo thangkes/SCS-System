@@ -391,6 +391,10 @@ Số nhỏ hơn là quyền cao hơn, và mức trên làm được mọi việc
   đang mở (rút hạn, cắt phiên thừa cũ nhất) nhưng không đăng xuất phiên còn trong giới hạn — dùng cho BOT lấy dữ liệu
   cần phiên dài. Trang **Hệ thống** hiện thời gian còn sống của từng phiên; phiên đăng nhập bằng mã SSH vẫn 24 giờ.
   Nhật ký thao tác ghi `account.session_limits`.
+- **Phiên gắn với máy và trình duyệt lúc đăng nhập** (IP + User-Agent): cookie bị đánh cắp đem dùng từ IP hay trình
+  duyệt khác bị từ chối, phiên bị **thu hồi luôn** (người dùng thật phải đăng nhập lại) và server ghi log cảnh báo
+  "phiên đăng nhập bị dùng từ máy / trình duyệt khác". Đổi IP giữa chừng (đổi mạng, VPN cấp IP khác) cũng phải đăng nhập lại.
+  BOT lấy dữ liệu nên chạy từ IP cố định, giữ nguyên User-Agent.
 - Chống dò và chống spam mail: server luôn trả cùng một câu dù tên / email có tồn tại hay không; mỗi tài khoản
   xin tối đa 3 mã / 15 phút, mỗi IP 10 mã / 15 phút và 20 lần nhập mã / 15 phút, đăng ký 5 lần / giờ / IP;
   tối đa 50 tài khoản chờ duyệt. Mail gửi ngầm (tối đa 4 mail cùng lúc).

@@ -23,10 +23,10 @@ func TestSessionTTLAndCap(t *testing.T) {
 		cookies = append(cookies, c)
 		now = now.Add(time.Minute)
 	}
-	if _, ok := s.get(cookies[0], ""); ok {
+	if _, ok, _ := s.get(cookies[0], "1.2.3.4", ""); ok {
 		t.Fatal("phiên cũ nhất phải bị cắt khi vượt 2 phiên")
 	}
-	if _, ok := s.get(cookies[2], ""); !ok {
+	if _, ok, _ := s.get(cookies[2], "1.2.3.4", ""); !ok {
 		t.Fatal("phiên mới phải còn")
 	}
 	// Phiên tài khoản khác không bị ảnh hưởng.
@@ -35,15 +35,15 @@ func TestSessionTTLAndCap(t *testing.T) {
 	if n := s.applyLimits("10123", time.Hour, 1); n != 1 {
 		t.Fatalf("áp giới hạn: cắt %d", n)
 	}
-	ss, ok := s.get(cookies[2], "")
+	ss, ok, _ := s.get(cookies[2], "1.2.3.4", "")
 	if !ok || !ss.Expires.Equal(ss.Created.Add(time.Hour)) {
 		t.Fatalf("phiên còn lại phải rút hạn: %+v %v", ss, ok)
 	}
-	if _, ok := s.get(other, ""); !ok {
+	if _, ok, _ := s.get(other, "", ""); !ok {
 		t.Fatal("không được đụng phiên tài khoản khác")
 	}
 	now = now.Add(2 * time.Hour)
-	if _, ok := s.get(cookies[2], ""); ok {
+	if _, ok, _ := s.get(cookies[2], "1.2.3.4", ""); ok {
 		t.Fatal("quá hạn phải hết phiên")
 	}
 }
@@ -69,7 +69,7 @@ func TestSessionLimitsAPIAndDigitsOnly(t *testing.T) {
 	st.m["10123"] = Account{Username: "10123", Email: "a@gmail.com", Status: AccountActive, Level: LevelAgents,
 		SessionHours: 24, MaxSessions: 4}
 	root := rootCookie(t, m, h)
-	cookie, _, _ := m.sess.createLevel("10123", "10123", LevelAgents, "", "", 24*time.Hour, 4)
+	cookie, _, _ := m.sess.createLevel("10123", "10123", LevelAgents, "100.64.0.10", "", 24*time.Hour, 4)
 	user := &http.Cookie{Name: CookieName, Value: cookie}
 
 	body := map[string]any{"action": "session", "session_hours": 2, "max_sessions": 1}
@@ -92,7 +92,7 @@ func TestSessionLimitsAPIAndDigitsOnly(t *testing.T) {
 	if a := st.m["10123"]; a.SessionHours != 360 || a.MaxSessions != 2 {
 		t.Fatalf("phải lưu: %+v", a)
 	}
-	if _, ok := m.sess.get(cookie, ""); !ok {
+	if _, ok, _ := m.sess.get(cookie, "100.64.0.10", ""); !ok {
 		t.Fatal("đổi giới hạn phiên không cắt phiên đang mở (còn trong giới hạn)")
 	}
 
