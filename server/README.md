@@ -185,7 +185,10 @@ TN trong siêu thị và mỗi hostname chỉ một máy đang hoạt động, m
 Test cấu trúc DB chạy trên DB riêng `scs_test`: `bash scripts/setup.sh --start --test` tự tạo DB và chạy, hoặc
 `SCS_TEST_DATABASE_URL='postgres://scs:<mật khẩu>@127.0.0.1:5432/scs_test?sslmode=disable' go test ./internal/store/`.
 **Mỗi lần cập nhật** (`update.sh`, menu mục 4) cũng tự chạy các test này trên `scs_test` (PostgreSQL + TimescaleDB thật
-của compose) **trước khi cài**: migration mới hay câu SQL lỗi thì dừng, không cài, code trở về bản cũ. Test xóa và tạo
+của compose) **trước khi cài**: migration mới hay câu SQL lỗi thì dừng, không cài, code trở về bản cũ (log:
+`/tmp/scs-update-test.log`). Migration gặp deadlock / xung đột tuần tự (ví dụ xóa hypertable đúng lúc tác vụ nền
+TimescaleDB chạy) thì tự chạy lại file đó, tối đa 5 lần. Ràng buộc DB viết sao cho NULL không lọt qua (CHECK coi NULL
+là đạt — migration 0014 sửa `devices_name_parts`). Test xóa và tạo
 lại bảng nên chỉ chạy trên DB có chữ "test" trong tên (tự từ chối DB khác).
 
 ## Sao lưu DB
