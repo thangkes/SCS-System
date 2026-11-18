@@ -18,8 +18,9 @@ type Registry interface {
 	// Enroll ghi nhận gói đăng ký: máy mới thì tạo yêu cầu chờ duyệt (kèm cảnh báo trên web),
 	// máy đã có (cùng khóa công khai) thì cập nhật lần cuối thấy và trả trạng thái hiện tại.
 	Enroll(ctx context.Context, r EnrollRequest) (EnrollResult, error)
-	// SetCertSerial lưu serial chứng chỉ vừa cấp; chỉ serial mới nhất còn được nhận.
-	SetCertSerial(ctx context.Context, deviceID int64, serial string) error
+	// SetCertSerial lưu serial và hạn chứng chỉ vừa cấp (cấp lần đầu hoặc gia hạn); chỉ serial mới nhất
+	// còn được nhận.
+	SetCertSerial(ctx context.Context, deviceID int64, serial string, notAfter time.Time) error
 
 	ListDevices(ctx context.Context, status string) ([]Device, error)
 	Approve(ctx context.Context, deviceID int64, by, storeCode string) (Device, error)
@@ -281,6 +282,8 @@ type Device struct {
 	TestRing      bool      `json:"test_ring"` // thuộc nhóm thử: nhận bản agent mới trước
 	// AutoNote: máy đang chờ duyệt chưa được duyệt tự động vì sao (rỗng = chưa kiểm / công tắc tắt).
 	AutoNote string `json:"auto_note,omitempty"`
+	// CertExpires: hạn chứng chỉ máy hiện hành (zero = chưa cấp / không rõ). Agent tự gia hạn khi còn dưới 30 ngày.
+	CertExpires time.Time `json:"cert_expires,omitzero"`
 	// Rules: bộ rule máy báo đang cài (heartbeat gần nhất); nil = chưa có heartbeat / agent bản cũ.
 	Rules *protocol.RuleSetReport `json:"rules,omitempty"`
 }

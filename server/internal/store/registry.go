@@ -165,16 +165,18 @@ func audit(ctx context.Context, tx pgx.Tx, actor, action string, deviceID int64,
 	return err
 }
 
-func (g *Registry) SetCertSerial(ctx context.Context, id int64, serial string) error {
+func (g *Registry) SetCertSerial(ctx context.Context, id int64, serial string, notAfter time.Time) error {
 	return g.tx(ctx, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(ctx, `UPDATE devices SET cert_serial = $2 WHERE id = $1 AND status = 'approved'`, id, serial)
+		tag, err := tx.Exec(ctx, `UPDATE devices SET cert_serial = $2, cert_expires = $3 WHERE id = $1 AND status = 'approved'`,
+			id, serial, notAfter)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 0 {
 			return app.ErrWrongState
 		}
-		return audit(ctx, tx, "system", "device.cert_issued", id, "", map[string]any{"serial": serial})
+		return audit(ctx, tx, "system", "device.cert_issued", id, "", map[string]any{"serial": serial,
+			"het_han": notAfter.UTC().Format(time.RFC3339)})
 	})
 }
 
@@ -184,7 +186,7 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		       coalesce(d.tn_no, 0), coalesce(d.tn_role, ''), d.status, d.public_key, d.fingerprint,
 		       d.os_version, d.agent_version, host(d.enroll_ip), coalesce(host(s.wan_ip), ''),
 		       d.requested_at, d.decided_at, coalesce(d.decided_by, ''), d.last_seen, coalesce(host(d.last_ip), ''), d.test_ring,
-		       st.rules, coalesce(d.auto_note, '')
+		       st.rules, coalesce(d.auto_note, ''), d.cert_expires
 		FROM devices d LEFT JOIN stores s ON s.code = d.store_code
 		LEFT JOIN device_status st ON st.device_id = d.id
 		WHERE d.status = $1
@@ -200,9 +202,10 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		var pub []byte
 		var decided, seen *time.Time
 		var rules []byte
+		var certExp *time.Time
 		if err := rows.Scan(&dv.ID, &dv.Hostname, &dv.HostnameOK, &dv.HostnameError, &dv.StoreCode, &dv.TN, &dv.Role,
 			&dv.Status, &pub, &dv.Fingerprint, &dv.OSVersion, &dv.AgentVersion, &dv.EnrollIP, &dv.StoreWANIP,
-			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing, &rules, &dv.AutoNote); err != nil {
+			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing, &rules, &dv.AutoNote, &certExp); err != nil {
 			return nil, err
 		}
 		if len(rules) > 0 {
@@ -212,6 +215,9 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 			}
 		}
 		dv.KeyID = app.KeyID(pub)
+		if certExp != nil {
+			dv.CertExpires = *certExp
+		}
 		if decided != nil {
 			dv.DecidedAt = *decided
 		}

@@ -404,7 +404,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
     <tr><td>Nhận cấu hình, địa chỉ server, bản agent</td><td>Theo phản hồi heartbeat</td><td>Không gọi riêng</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Quét log</td><td>Liên tục (đọc nối đuôi)</td><td>Lưu vị trí đã đọc để khởi động lại không quét trùng hoặc bỏ sót</td><td><span class="st st-todo">Chưa làm</span></td></tr>
     <tr><td>Gửi lô sự kiện</td><td>2 phút hoặc đủ 200 sự kiện</td><td>Mức <code>critical</code> gửi ngay</td><td><span class="st st-todo">Chưa làm</span></td></tr>
-    <tr><td>Gia hạn chứng chỉ máy</td><td>Khi còn dưới 30 ngày</td><td>Chứng chỉ hạn 90 ngày; route gia hạn chưa làm (xem mục 20)</td><td><span class="st st-todo">Chưa làm</span></td></tr>
+    <tr><td>Gia hạn chứng chỉ máy</td><td>Khi còn dưới 30 ngày (thử lại mỗi giờ)</td><td>Chứng chỉ hạn 90 ngày; gửi lại gói đăng ký bằng khóa máy, qua lượt tải; cần agent bản mới</td><td><span class="st st-done">Đã làm</span></td></tr>
   </table></div>
   <div class="warn"><strong>Jitter là bắt buộc.</strong> Mọi chu kỳ cộng trừ ngẫu nhiên 20%, để khi cả vùng có điện lại hoặc các cửa hàng mở cửa cùng giờ, hàng nghìn máy không gọi về cùng một giây.</div>
 </section>
@@ -538,7 +538,7 @@ rules:
   <div class="tbl"><table>
     <tr><th>Mốc</th><th>Nội dung</th><th>Trạng thái</th></tr>
     <tr><td>M0 · M1</td><td>Khung server (vai trò, cấu hình, health, TLS, giới hạn kết nối); thư viện giao thức dùng chung</td><td><span class="st st-done">Đã làm</span></td></tr>
-    <tr><td>M2 · M3</td><td>CA nội bộ, đăng ký, duyệt / từ chối / thu hồi máy, cấp chứng chỉ</td><td><span class="st st-done">Đã làm</span> (gia hạn chứng chỉ: chưa)</td></tr>
+    <tr><td>M2 · M3</td><td>CA nội bộ, đăng ký, duyệt / từ chối / thu hồi máy, cấp chứng chỉ</td><td><span class="st st-done">Đã làm</span> (gia hạn chứng chỉ: đã làm 18/11/2026)</td></tr>
     <tr><td>M4</td><td>Heartbeat (xác thực, lần cuối thấy, gửi cấu hình / bản agent / địa chỉ), lưu trạng thái máy theo giai đoạn, nhận lô sự kiện <code>POST /v1/logs</code></td><td><span class="st st-done">Đã làm</span> (chưa chạy trên PostgreSQL thật)</td></tr>
     <tr><td>M5</td><td>Worker kiểm mỗi phút: mất liên lạc, tự đóng cảnh báo high <span class="st st-done">Đã làm</span>; cảnh báo đổi fingerprint, hàng đợi NATS <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>M6</td><td>Web quản trị: tổng quan, máy, cảnh báo, chờ duyệt, hệ thống, agent (phát hành + cấu hình), rule quét log, địa chỉ server, cụm, dòng thời gian từng máy, "Đã xử lý" sự cố, trang Máy gom theo mã siêu thị (viền đỏ / vàng / xanh), khung Server chỉ xem ở Tổng quan (mạng, CPU, RAM, ổ đĩa, heartbeat / phút), tài khoản Gmail 8 mức quyền, cảnh báo hiện lý do sự cố, thông tin siêu thị (form + nạp file .xlsx / .csv có ghép cột, ghi đè), báo cáo server (lịch sử mỗi phút, biểu đồ, xuất Excel / CSV, in PDF) <span class="st st-done">Đã làm</span>; chi tiết trạng thái máy theo thời gian <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
@@ -560,7 +560,7 @@ rules:
 <section id="cau-hoi">
   <h2>20. Câu hỏi còn mở</h2>
   <ol>
-    <li><strong>Gia hạn chứng chỉ máy</strong> (hạn 90 ngày): làm route gia hạn trước khi chứng chỉ đầu tiên hết hạn, hoặc kéo dài hạn chứng chỉ trong lúc pilot.</li>
+    <li><strong>Gia hạn chứng chỉ máy</strong> (hạn 90 ngày): <span class="st st-done">Đã làm</span> — phải phát hành bản agent có tính năng này cho mọi máy trước khi chứng chỉ đầu tiên hết hạn (agent bản cũ không tự gia hạn).</li>
     <li>Danh sách log cần quét ở giai đoạn 1 (SSH, USB, dịch vụ bán hàng, RAID, đăng nhập desktop...).</li>
     <li>Có proxy giải mã TLS trên đường từ cửa hàng về trung tâm không? Quyết định việc thêm lớp mã hóa payload.</li>
     <li>Khi nào chuyển khóa phát hành sang ký offline (trước pilot hay trước mở rộng)?</li>

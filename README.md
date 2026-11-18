@@ -72,7 +72,8 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 | Agent gửi trạng thái máy (RAM, ổ đĩa, dịch vụ…) trong heartbeat | Chưa có (A2) |
 | **Agent quét log liên tục** theo bộ rule (file trong /var/log nhớ vị trí, nhận ra xoay vòng; journald qua `journalctl`), hàng đợi trên đĩa khi mất mạng, gửi sự kiện: high / critical sau vài giây, còn lại mỗi phút | Đã có (A3), chưa chạy thật trên Ubuntu |
 | **Server phát bộ rule**: gán bộ đã ký cho tất cả máy / siêu thị / máy trên trang Rule; agent nhận qua heartbeat, tự tải, kiểm chữ ký, cài rồi quét theo bộ mới | Đã có (M7), chưa chạy thật trên Ubuntu |
-| Gia hạn chứng chỉ máy (90 ngày), kiểm nonce chống gửi lại gói | Chưa có |
+| **Gia hạn chứng chỉ máy** (hạn 90 ngày): agent tự gia hạn khi còn dưới 30 ngày bằng cách gửi lại gói đăng ký với chính khóa máy (chứng chỉ đã hết hạn vẫn gia hạn được); qua lượt tải; web hiện số máy sắp / đã hết hạn và hạn từng máy. **Cần phát hành bản agent mới cho mọi máy trước khi chứng chỉ đầu tiên hết hạn** — agent bản cũ không tự gia hạn | Đã có, chưa chạy thật trên Ubuntu |
+| Kiểm nonce chống gửi lại gói | Chưa có |
 | Tăng cứng thêm web quản trị khi mở ra Internet: mã SSH vẫn khóa chung toàn hệ thống khi bị dò (chưa khóa riêng từng IP), chứng chỉ tự ký | Chưa có |
 
 Chưa chạy trên Ubuntu thật: migration 0003–0004 và 0007–0009 (nhãn máy, lưu theo giai đoạn, tài khoản, thông tin siêu

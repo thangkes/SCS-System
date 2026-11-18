@@ -190,8 +190,13 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		scanCtx, stopScan := context.WithCancel(ctx)
 		scanDone := make(chan struct{})
 		go func() { defer close(scanDone); sc.Run(scanCtx) }()
+		deviceID := st.DeviceID
+		renew := func(ctx context.Context) (bool, error) {
+			return enroll.Renew(ctx, enroll.Deps{Log: log, Client: c, Key: key, KeyDir: cfg.KeyDir,
+				StateDir: cfg.StateDir, CAFile: cfg.ServerCA}, deviceID)
+		}
 		err := heartbeat.Run(ctx, heartbeat.Deps{Log: log, Client: c, StateDir: cfg.StateDir, State: st,
-			Version: version, ReleasePub: cfg.ReleasePub, Scanner: sc})
+			Version: version, ReleasePub: cfg.ReleasePub, Scanner: sc, KeyDir: cfg.KeyDir, Renew: renew})
 		stopScan()
 		<-scanDone
 		if errors.Is(err, heartbeat.ErrRestart) {

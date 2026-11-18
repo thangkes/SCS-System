@@ -13,7 +13,8 @@ func (f *fakeRegistry) FleetRows(context.Context) ([]FleetRow, error) {
 	defer f.mu.Unlock()
 	var out []FleetRow
 	for _, d := range f.devices {
-		r := FleetRow{ID: d.ID, Status: d.Status, TestRing: d.TestRing, Version: d.AgentVersion, LastSeen: d.LastSeen}
+		r := FleetRow{ID: d.ID, Status: d.Status, TestRing: d.TestRing, Version: d.AgentVersion, LastSeen: d.LastSeen,
+			CertExpires: d.CertExpires}
 		if rs := f.status[d.ID].Rules; rs != nil {
 			r.RulesReported, r.RulesInstalled, r.Scanning = true, rs.Installed, rs.Scanning
 		}

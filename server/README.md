@@ -124,8 +124,12 @@ Test: `go test ./common/cluster/ ./server/internal/cluster/` (cụm 3, 4, 5 serv
 
 Mỗi lệnh đều có `/healthz` (tiến trình còn sống) và `/readyz` (kiểm PostgreSQL bằng `SELECT 1`;
 DB chưa lên thì trả `503`, chi tiết lỗi nằm trong log). Server vẫn khởi động khi DB chưa lên.
-Route còn trả `501` kèm mốc sẽ làm: `POST /v1/cert/renew` (M3, gia hạn chứng chỉ),
-`GET /admin/v1/devices/{id}` (M6). `/readyz` chưa kiểm NATS.
+Route còn trả `501` kèm mốc sẽ làm: `GET /admin/v1/devices/{id}` (M6). `POST /v1/cert/renew` không dùng: gia hạn
+chứng chỉ máy đi qua `POST /v1/enroll` — máy đã duyệt gửi lại gói đăng ký bằng chính khóa máy thì được cấp chứng chỉ
+mới 90 ngày (serial cũ hết hiệu lực, hạn lưu ở `devices.cert_expires`, migration 0012, nhật ký `device.cert_issued`).
+Agent bản mới tự làm khi chứng chỉ còn dưới 30 ngày (thử lại mỗi giờ; đã hết hạn thì thử mỗi lần gọi, không gửi
+chứng chỉ hết hạn lúc bắt tay TLS); lần cấp phải giữ lượt tải. Trang Agent có thẻ **Chứng chỉ máy** (đã hết hạn / còn
+dưới 30 ngày / không rõ, hạn sớm nhất); chi tiết máy hiện hạn chứng chỉ. `/readyz` chưa kiểm NATS.
 `/readyz` dùng lại kết quả kiểm trong 2 giây (gọi dồn dập không làm cạn pool DB). `/healthz` trên cổng
 agent (công khai) không trả phiên bản.
 

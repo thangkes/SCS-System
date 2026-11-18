@@ -16,7 +16,7 @@ func (g *Registry) FleetRows(ctx context.Context) ([]app.FleetRow, error) {
 		       greatest(d.last_seen, st.received_at),
 		       st.rules IS NOT NULL,
 		       coalesce((st.rules->>'installed')::boolean, false),
-		       coalesce((st.rules->>'scanning')::boolean, false)
+		       coalesce((st.rules->>'scanning')::boolean, false), d.cert_expires
 		FROM devices d LEFT JOIN device_status st ON st.device_id = d.id`)
 	if err != nil {
 		return nil, err
@@ -25,13 +25,16 @@ func (g *Registry) FleetRows(ctx context.Context) ([]app.FleetRow, error) {
 	var out []app.FleetRow
 	for rows.Next() {
 		var r app.FleetRow
-		var seen *time.Time
+		var seen, certExp *time.Time
 		if err := rows.Scan(&r.ID, &r.Status, &r.TestRing, &r.Version, &seen, &r.RulesReported,
-			&r.RulesInstalled, &r.Scanning); err != nil {
+			&r.RulesInstalled, &r.Scanning, &certExp); err != nil {
 			return nil, err
 		}
 		if seen != nil {
 			r.LastSeen = *seen
+		}
+		if certExp != nil {
+			r.CertExpires = *certExp
 		}
 		out = append(out, r)
 	}

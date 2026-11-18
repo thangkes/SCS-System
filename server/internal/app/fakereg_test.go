@@ -76,10 +76,13 @@ func (f *fakeRegistry) Enroll(_ context.Context, r EnrollRequest) (EnrollResult,
 	return EnrollResult{DeviceID: d.ID, Status: DevicePending, New: true}, nil
 }
 
-func (f *fakeRegistry) SetCertSerial(_ context.Context, id int64, serial string) error {
+func (f *fakeRegistry) SetCertSerial(_ context.Context, id int64, serial string, notAfter time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.serials[id] = serial
+	if d := f.find(id); d != nil {
+		d.CertExpires = notAfter
+	}
 	return nil
 }
 

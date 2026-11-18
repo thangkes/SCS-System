@@ -70,6 +70,10 @@ hạn thời gian chờ; lỗi mạng giãn 30 giây → 30 phút). Được duy
 máy, đúng mã máy) rồi mới lưu `cert.pem`. Bị từ chối thì dừng gửi. Lỗi mạng / server bận thì giãn từ 30 giây
 tới 30 phút. Đồng hồ máy lệch thì agent tự bù theo giờ server (header Date).
 
+**Gia hạn chứng chỉ** (hạn 90 ngày): còn dưới 30 ngày thì agent gửi lại gói đăng ký bằng chính khóa máy, nhận chứng
+chỉ mới (kiểm như lúc đăng ký, phải đúng mã máy) rồi dùng ngay; chưa được (server hết lượt, lỗi) thì 1 giờ sau thử
+lại. Chứng chỉ đã hết hạn thì agent không gửi nó lúc bắt tay TLS (vẫn kết nối được) và thử gia hạn mỗi lần gọi.
+
 Agent chỉ tin CA trong `server-ca.pem`: server khác (kể cả chứng chỉ hợp lệ nơi khác) không nói chuyện được.
 
 ## Heartbeat gửi gì

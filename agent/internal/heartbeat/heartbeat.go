@@ -41,6 +41,10 @@ var (
 	// RetryUpdate: tải / kiểm bản agent mới lỗi thì bấy lâu sau mới thử lại (không thử mỗi heartbeat,
 	// nhưng cũng không bỏ hẳn tới khi tiến trình khởi động lại).
 	RetryUpdate = 1 * time.Hour
+	// RenewBefore: chứng chỉ máy (hạn 90 ngày) còn dưới bấy lâu thì gia hạn; RenewRetry: chưa gia hạn
+	// được (server hết lượt, lỗi) thì bấy lâu sau thử lại. Đã hết hạn thì thử mỗi lần gọi.
+	RenewBefore = 30 * 24 * time.Hour
+	RenewRetry  = 1 * time.Hour
 )
 
 // ErrRestart: đã tải bản agent mới, cần khởi động lại để chạy bản đó (systemd tự bật lại).
@@ -54,6 +58,9 @@ type Deps struct {
 	State      identity.State
 	Version    string // phiên bản agent đang chạy
 	ReleasePub string // khóa công khai phát hành (kiểm bản cập nhật)
+	// KeyDir + Renew: gia hạn chứng chỉ máy trước khi hết hạn (Renew = enroll.Renew; nil = không gia hạn).
+	KeyDir string
+	Renew  func(context.Context) (bool, error)
 	// Scanner: phần quét log (nil = không quét). Active: SHA bộ đang quét; Reload: nạp lại ngay.
 	Scanner RuleScanner
 }
@@ -75,8 +82,29 @@ func Run(ctx context.Context, d Deps) error {
 	marked := false
 	failedUpdate, failedAt := "", time.Time{}     // bản tải / kiểm lỗi lần trước và lúc lỗi
 	failedMsg := ""                               // lỗi đó (báo lên server, hiện trên web)
+	var renewAt time.Time                         // lần thử gia hạn chứng chỉ gần nhất
 	failedRules, failedRulesAt := "", time.Time{} // bộ rule tải / kiểm lỗi lần trước
 	for {
+		expired := false
+		if d.Renew != nil {
+			if na, err := identity.CertNotAfter(d.KeyDir); err == nil {
+				left := na.Sub(d.Client.Now())
+				expired = left <= 0
+				if needRenew(left, renewAt, time.Now()) {
+					renewAt = time.Now()
+					switch ok, err := d.Renew(ctx); {
+					case err != nil:
+						d.Log.Warn("chưa gia hạn được chứng chỉ máy, sẽ thử lại", "het_han", na.Format(time.DateOnly), "err", err)
+					case ok:
+						na2, _ := identity.CertNotAfter(d.KeyDir)
+						d.Log.Info("đã gia hạn chứng chỉ máy", "het_han_cu", na.Format(time.DateOnly), "het_han_moi", na2.Format(time.DateOnly))
+						expired = false
+					default:
+						d.Log.Info("server chưa cấp chứng chỉ mới (đang hết lượt), thử lại sau", "het_han", na.Format(time.DateOnly))
+					}
+				}
+			}
+		}
 		comps, _ := sysinfo.Components()
 		body := protocol.HeartbeatBody{UptimeS: int64(time.Since(start) / time.Second), RuleSetVersion: st.RuleSetVersion,
 			Arch: runtime.GOARCH, ConfigVersion: st.ConfigVersion,
@@ -96,6 +124,10 @@ func Run(ctx context.Context, d Deps) error {
 		switch {
 		case ctx.Err() != nil:
 			return ctx.Err()
+		case errors.As(err, &he) && he.Status == http.StatusUnauthorized && expired:
+			// Chứng chỉ đã hết hạn và chưa gia hạn được (server hết lượt): thử lại sớm, không giãn tối đa.
+			d.Log.Warn("chứng chỉ máy đã hết hạn, đang chờ server cấp chứng chỉ mới")
+			wait, backoff = Every, BackoffMin
 		case errors.As(err, &he) && (he.Status == http.StatusForbidden || he.Status == http.StatusUnauthorized):
 			d.Log.Error("server từ chối heartbeat (máy bị thu hồi hoặc chứng chỉ không còn hiệu lực)", "err", err)
 			wait, backoff = BackoffMax, BackoffMin
@@ -291,4 +323,10 @@ func shorten(s string, n int) string {
 func serverBusy(err error) bool {
 	var he *client.HTTPError
 	return errors.As(err, &he) && he.Status == http.StatusServiceUnavailable
+}
+
+// needRenew: chứng chỉ còn left nữa hết hạn, lần thử gia hạn trước lúc last. Còn dưới RenewBefore thì
+// gia hạn, chưa được thì RenewRetry sau thử lại; đã hết hạn thì thử mỗi lần gọi.
+func needRenew(left time.Duration, last, now time.Time) bool {
+	return left < RenewBefore && (left <= 0 || now.Sub(last) >= RenewRetry)
 }

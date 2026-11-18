@@ -21,6 +21,7 @@ type FleetRow struct {
 	LastSeen time.Time // zero = chưa từng gọi về
 	// Rules: agent có báo bộ rule không (agent bản cũ: không), đã cài, đang quét.
 	RulesReported, RulesInstalled, Scanning bool
+	CertExpires                             time.Time // zero = chưa cấp / không rõ
 }
 
 // ProgressPoint: một mốc tiến độ phát hành.
@@ -63,6 +64,14 @@ type FleetStats struct {
 		NotReported  int `json:"not_reported"` // agent bản cũ không báo
 		OfflineAfter int `json:"offline_min"`  // ngưỡng mất liên lạc (phút), để web ghi chú
 	} `json:"rules"`
+	// Certs: chứng chỉ máy đã duyệt — còn dưới 30 ngày (agent bản mới tự gia hạn), đã hết hạn (máy không
+	// gửi được nữa), không rõ hạn; Next: hạn sớm nhất còn hiệu lực.
+	Certs struct {
+		Soon    int       `json:"soon"`
+		Expired int       `json:"expired"`
+		Unknown int       `json:"unknown"`
+		Next    time.Time `json:"next,omitzero"`
+	} `json:"certs"`
 	Downloads *DownloadStats  `json:"downloads,omitempty"` // nil: cổng agent chạy tiến trình khác
 	Progress  []ProgressPoint `json:"progress"`            // tiến độ bản đang phát hành cho mọi máy
 }
@@ -123,6 +132,19 @@ func buildFleet(rows []FleetRow, ro Rollout, now time.Time, offlineAfter time.Du
 			continue
 		}
 		vers[r.Version]++
+		switch e := r.CertExpires; {
+		case e.IsZero():
+			st.Certs.Unknown++
+		case !now.Before(e):
+			st.Certs.Expired++
+		default:
+			if e.Sub(now) < 30*24*time.Hour {
+				st.Certs.Soon++
+			}
+			if st.Certs.Next.IsZero() || e.Before(st.Certs.Next) {
+				st.Certs.Next = e
+			}
+		}
 		switch {
 		case !r.RulesReported:
 			st.Rules.NotReported++

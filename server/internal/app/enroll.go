@@ -138,7 +138,7 @@ func enrollHandler(d Deps) http.Handler {
 			id := strconv.FormatInt(res.DeviceID, 10)
 			iss, err := d.CA.IssueClient(pub, id)
 			if err == nil {
-				err = d.Registry.SetCertSerial(r.Context(), res.DeviceID, iss.Serial)
+				err = d.Registry.SetCertSerial(r.Context(), res.DeviceID, iss.Serial, iss.NotAfter)
 			}
 			if err != nil {
 				d.Log.Error("cấp chứng chỉ thất bại", "err", err, "device", res.DeviceID)

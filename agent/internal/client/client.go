@@ -153,10 +153,14 @@ func (c *Client) Current() string {
 	return c.bases[c.cur]
 }
 
-// clientCert gửi chứng chỉ máy khi đã có (sau khi được duyệt); chưa có thì không gửi gì.
+// clientCert gửi chứng chỉ máy khi đã có (sau khi được duyệt); chưa có, hỏng hoặc đã hết hạn thì không
+// gửi gì — để bắt tay TLS vẫn thành công và máy gia hạn được qua /v1/enroll (không cần chứng chỉ).
 func (c *Client) clientCert(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
 	cert, err := tls.LoadX509KeyPair(identity.CertPath(c.keyDir), identity.KeyPath(c.keyDir))
-	if err != nil {
+	if err != nil || len(cert.Certificate) == 0 {
+		return &tls.Certificate{}, nil
+	}
+	if leaf, err := x509.ParseCertificate(cert.Certificate[0]); err != nil || !c.Now().Before(leaf.NotAfter) {
 		return &tls.Certificate{}, nil
 	}
 	return &cert, nil

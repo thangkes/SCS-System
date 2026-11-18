@@ -1234,6 +1234,7 @@
       <section id="dev-timeline"><h3>Dòng thời gian</h3><p class="hint">Đang tải…</p></section>
       <section><h3>Nhận dạng</h3><dl class="kv">
         <dt>Mã khóa</dt><dd class="mono">${esc(d.key_id)}</dd>
+        ${d.cert_expires ? `<dt>Chứng chỉ máy</dt><dd>hết hạn ${esc(fmtTime(new Date(d.cert_expires)))}${(new Date(d.cert_expires) - Date.now()) < 30 * 86400e3 ? ' <span class="pill pill-warn no-dot">dưới 30 ngày</span>' : ''}</dd>` : ''}
         <dt>Fingerprint</dt><dd class="mono">${esc(d.fingerprint)}</dd>
       </dl></section>
       <section><h3>Mạng</h3><dl class="kv">
@@ -1847,6 +1848,15 @@
             : `<tr><td>${pill(GROUP[g.key])}</td>${row(g)}</tr>`)).join('')}
           </tbody></table></div>
         <p class="hint">Máy chờ duyệt chưa gửi heartbeat nên chưa biết bộ rule; phiên bản là bản lúc đăng ký. Số lỗi tải tính từ lúc server khởi động.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Chứng chỉ máy</h2><span class="sub">hạn 90 ngày; agent bản mới tự gia hạn khi còn dưới 30 ngày (qua lượt tải)</span></div>
+        <div class="table-wrap"><table><tbody>
+          <tr><td>${pill(f.certs.expired ? ['pill-bad', 'Đã hết hạn'] : ['', 'Đã hết hạn'])}</td><td class="num">${fmtNum(f.certs.expired)}</td><td class="sub">máy không gửi được tới khi gia hạn (agent bản cũ: phải cài lại)</td></tr>
+          <tr><td>${pill(f.certs.soon ? ['pill-warn', 'Còn dưới 30 ngày'] : ['', 'Còn dưới 30 ngày'])}</td><td class="num">${fmtNum(f.certs.soon)}</td><td class="sub">agent bản mới đang tự gia hạn</td></tr>
+          <tr><td>${pill(['', 'Không rõ hạn'])}</td><td class="num">${fmtNum(f.certs.unknown)}</td><td class="sub">chưa cấp chứng chỉ hoặc không có trong nhật ký</td></tr>
+          <tr><td>Hạn sớm nhất</td><td class="num" colspan="2">${f.certs.next ? esc(fmtTime(new Date(f.certs.next))) : '—'}</td></tr>
+        </tbody></table></div>
       </div>`;
   }
 

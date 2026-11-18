@@ -163,3 +163,43 @@ func jitter(d time.Duration) time.Duration {
 	}
 	return d + time.Duration((rand.Float64()*0.4-0.2)*float64(d))
 }
+
+// ErrRejected: server báo máy đã bị từ chối / thu hồi khi gia hạn.
+var ErrRejected = errors.New("máy đã bị từ chối hoặc thu hồi")
+
+// Renew gia hạn chứng chỉ máy: gửi lại gói enroll một lần bằng chính khóa máy (không cần chứng chỉ cũ,
+// nên chứng chỉ đã hết hạn vẫn gia hạn được). Máy đã duyệt thì server cấp chứng chỉ mới (serial cũ hết
+// hiệu lực). Trả true khi đã lưu chứng chỉ mới; false, nil khi server chưa cấp lần này (đang hết lượt
+// tải) — thử lại sau.
+func Renew(ctx context.Context, d Deps, deviceID string) (bool, error) {
+	comps, _ := sysinfo.Components()
+	body := protocol.EnrollBody{
+		PublicKey: protocol.EncodePublicKey(d.Key.Public), Components: comps,
+		Hostname: sysinfo.Hostname(), OSVersion: sysinfo.OSVersion(),
+	}
+	var resp protocol.EnrollResponse
+	if err := d.Client.Send(ctx, "/v1/enroll", protocol.TypeEnroll, "", comps.Hash(), body, &resp); err != nil {
+		return false, err
+	}
+	switch resp.Status {
+	case protocol.EnrollApproved:
+	case protocol.EnrollRejected:
+		return false, ErrRejected
+	default:
+		return false, nil
+	}
+	if err := checkCert(resp, d); err != nil {
+		return false, fmt.Errorf("chứng chỉ server cấp không hợp lệ, không lưu: %w", err)
+	}
+	if resp.DeviceID != deviceID {
+		return false, fmt.Errorf("server cấp chứng chỉ cho mã máy %q, máy này là %q; không lưu", resp.DeviceID, deviceID)
+	}
+	if err := identity.SaveCert(d.KeyDir, []byte(resp.CertificatePEM)); err != nil {
+		return false, err
+	}
+	d.Client.ResetSessions() // phiên TLS cũ mang chứng chỉ cũ
+	if list := protocol.CleanServers(resp.Servers); len(list) > 0 {
+		d.Client.SetServers(list)
+	}
+	return true, nil
+}

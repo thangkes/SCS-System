@@ -215,3 +215,20 @@ func SaveCert(dir string, certPEM []byte) error {
 	}
 	return writeFileAtomic(CertPath(dir), certPEM)
 }
+
+// CertNotAfter: hạn của chứng chỉ máy đang lưu (zero + lỗi = chưa có / hỏng).
+func CertNotAfter(dir string) (time.Time, error) {
+	b, err := os.ReadFile(CertPath(dir))
+	if err != nil {
+		return time.Time{}, err
+	}
+	blk, _ := pem.Decode(b)
+	if blk == nil || blk.Type != "CERTIFICATE" {
+		return time.Time{}, errors.New("chứng chỉ máy không phải PEM")
+	}
+	c, err := x509.ParseCertificate(blk.Bytes)
+	if err != nil {
+		return time.Time{}, err
+	}
+	return c.NotAfter, nil
+}

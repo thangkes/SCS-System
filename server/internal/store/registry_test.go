@@ -8,6 +8,7 @@ import (
 	"net/netip"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/thangkes/SCS-System/common/fleet"
 	"github.com/thangkes/SCS-System/server/internal/app"
@@ -78,8 +79,12 @@ func TestRegistryOnPostgres(t *testing.T) {
 	if _, err := g.Approve(ctx, res.DeviceID, "Quản trị", ""); !errors.Is(err, app.ErrWrongState) {
 		t.Fatalf("duyệt lần hai: %v", err)
 	}
-	if err := g.SetCertSerial(ctx, res.DeviceID, "0abc"); err != nil {
+	exp := time.Now().Add(90 * 24 * time.Hour).Truncate(time.Second)
+	if err := g.SetCertSerial(ctx, res.DeviceID, "0abc", exp); err != nil {
 		t.Fatal(err)
+	}
+	if list, _ := g.ListDevices(ctx, app.DeviceApproved); len(list) != 1 || !list[0].CertExpires.Equal(exp) {
+		t.Fatalf("phải lưu hạn chứng chỉ: %+v", list)
 	}
 
 	// Máy khác xưng cùng vị trí TN1 từ IP lạ: cảnh báo IP; duyệt bị chặn vì trùng.
@@ -104,7 +109,7 @@ func TestRegistryOnPostgres(t *testing.T) {
 	if err := g.Revoke(ctx, res.DeviceID, "Quản trị"); err != nil {
 		t.Fatal(err)
 	}
-	if err := g.SetCertSerial(ctx, res.DeviceID, "0def"); !errors.Is(err, app.ErrWrongState) {
+	if err := g.SetCertSerial(ctx, res.DeviceID, "0def", time.Now().Add(90*24*time.Hour)); !errors.Is(err, app.ErrWrongState) {
 		t.Fatalf("máy đã thu hồi không được cấp chứng chỉ: %v", err)
 	}
 	if r, _ := g.Enroll(ctx, tn1); r.Status != app.DeviceRevoked {
