@@ -126,8 +126,20 @@ func TestRegistryOnPostgres(t *testing.T) {
 	if err := g.AckAlert(ctx, open[0].ID, "Quản trị"); !errors.Is(err, app.ErrWrongState) {
 		t.Fatalf("xác nhận lần hai: %v", err)
 	}
-	if all, _ := g.ListAlerts(ctx, true); len(all) != len(open) {
-		t.Fatalf("state=all phải gồm cả cảnh báo đã xác nhận: %d/%d", len(all), len(open))
+	// "Tất cả" = đang mở + đã xác nhận (kể cả cảnh báo tự đóng ở các bước trước, ví dụ máy chờ duyệt khi
+	// duyệt): phải có cảnh báo vừa xác nhận, kèm người xác nhận, và không ít hơn số đang mở.
+	all, _ := g.ListAlerts(ctx, true)
+	found := false
+	for _, a := range all {
+		if a.ID == open[0].ID && !a.AckedAt.IsZero() && a.AckedBy == "Quản trị" {
+			found = true
+		}
+	}
+	if !found || len(all) < len(open) {
+		t.Fatalf("state=all phải gồm cả cảnh báo đã xác nhận: %d/%d, có cảnh báo vừa xác nhận: %v", len(all), len(open), found)
+	}
+	if again, _ := g.ListAlerts(ctx, false); len(again) != len(open)-1 {
+		t.Fatalf("đang mở sau khi xác nhận một cảnh báo: %d, muốn %d", len(again), len(open)-1)
 	}
 	if _, err := g.Approve(ctx, 999999, "Quản trị", ""); !errors.Is(err, app.ErrNotFound) {
 		t.Fatalf("máy không có: %v", err)
