@@ -139,8 +139,13 @@ func Run(ctx context.Context, d Deps) error {
 			if v := resp.RuleSetVersion; v != "" && v != installedRules(d) &&
 				(v != failedRules || time.Since(failedRulesAt) >= RetryUpdate) {
 				if err := fetchRules(ctx, d, v); err != nil {
-					failedRules, failedRulesAt = v, time.Now()
-					d.Log.Error("không cài được bộ rule server gán", "bo", v, "err", err)
+					if serverBusy(err) {
+						// Hết lượt tải: không tính là lỗi, xin lại ở heartbeat sau.
+						d.Log.Info("server đang hết lượt tải, tải bộ rule ở heartbeat sau", "bo", v)
+					} else {
+						failedRules, failedRulesAt = v, time.Now()
+						d.Log.Error("không cài được bộ rule server gán", "bo", v, "err", err)
+					}
 				} else {
 					d.Log.Info("đã tải, kiểm chữ ký và cài bộ rule server gán", "bo", v)
 					if d.Scanner != nil {
@@ -152,8 +157,7 @@ func Run(ctx context.Context, d Deps) error {
 				(u.Version != failedUpdate || time.Since(failedAt) >= RetryUpdate) {
 				d.Log.Info("server yêu cầu chạy bản agent khác, đang tải", "tu", d.Version, "sang", u.Version)
 				if err := update.Apply(ctx, d.Client, *u, d.StateDir, d.ReleasePub); err != nil {
-					var busy *client.HTTPError
-					if errors.As(err, &busy) && busy.Status == http.StatusServiceUnavailable {
+					if serverBusy(err) {
 						// Server hết lượt tải: không tính là lỗi, xin lại ở heartbeat sau (5–30 phút).
 						d.Log.Info("server đang hết lượt tải bản agent, thử lại ở heartbeat sau", "version", u.Version)
 					} else {
@@ -281,4 +285,10 @@ func shorten(s string, n int) string {
 		n--
 	}
 	return s[:n]
+}
+
+// serverBusy: server trả 503 (hết lượt tải / đang bận) — chờ heartbeat sau, không phạt 1 giờ.
+func serverBusy(err error) bool {
+	var he *client.HTTPError
+	return errors.As(err, &he) && he.Status == http.StatusServiceUnavailable
 }

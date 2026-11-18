@@ -91,6 +91,16 @@ func (g *Downloads) Release(dev int64, complete bool) {
 	g.mu.Unlock()
 }
 
+// Free trả lượt mà không tính vào số lượt tải (máy mới nhận chứng chỉ lúc hòa mạng).
+func (g *Downloads) Free(dev int64) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	delete(g.holders, dev)
+	g.mu.Unlock()
+}
+
 // Report: heartbeat báo lỗi cài bản agent (nil = không lỗi, xóa lỗi cũ của máy).
 func (g *Downloads) Report(dev int64, f *UpdateFailure) {
 	if g == nil {

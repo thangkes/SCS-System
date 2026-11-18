@@ -152,19 +152,31 @@ func heartbeatHandler(d Deps) http.Handler {
 		if plan, err := d.Registry.AgentPlan(r.Context(), id, arch); err != nil {
 			d.Log.Error("đọc bản agent / cấu hình cho máy thất bại", "err", err, "device", id)
 		} else {
-			// Bản agent mới: chỉ báo cho máy giữ được lượt tải (Downloads); hết lượt thì máy chạy bản
-			// đang có và xin lại ở heartbeat sau.
-			// Máy đang báo lỗi với chính bản này thì không giữ lượt (agent tự thử lại sau 1 giờ, lúc tải
-			// mới xin lượt ở cổng tải).
-			failing := body.UpdateError != nil && plan.Release != nil && body.UpdateError.Version == plan.Release.Version
-			if rel := plan.Release; rel != nil && rel.Version != env.AgentVersion && (failing || d.Downloads.Acquire(id)) {
+			// Mọi lần tải (bản agent, bộ rule; máy cũ lẫn máy mới hòa mạng) phải giữ một trong các lượt
+			// tải (Downloads, mặc định 4): chỉ báo bản / bộ mới cho máy giữ được lượt; hết lượt thì máy chạy
+			// tiếp cái đang có và xin lại ở heartbeat sau. Một lượt dùng cho cả bộ rule và bản agent.
+			rel := plan.Release
+			needUpdate := rel != nil && rel.Version != env.AgentVersion
+			// Máy đang báo lỗi với chính bản này thì không giữ lượt ở heartbeat (agent tự thử lại sau 1 giờ;
+			// lúc tải vẫn phải xin lượt ở cổng tải).
+			failing := needUpdate && body.UpdateError != nil && body.UpdateError.Version == rel.Version
+			ruleV := ""
+			if v := plan.RuleSet; v != "" && d.Rules != nil && hasCap(body.Capabilities, protocol.CapRulesPrefix) {
+				if _, err := ruleBundleFor(d, v); err == nil {
+					ruleV = v
+				}
+			}
+			needRules := ruleV != "" && !hasRuleSet(body, ruleV)
+			slot := false
+			if (needUpdate && !failing) || needRules {
+				slot = d.Downloads.Acquire(id)
+			}
+			if needUpdate && (failing || slot) {
 				resp.Update = &protocol.UpdateInfo{Version: rel.Version, Arch: rel.Arch, SHA256: rel.SHA256,
 					Size: rel.Size, Sig: rel.Sig}
 			}
-			if v := plan.RuleSet; v != "" && d.Rules != nil && hasCap(body.Capabilities, protocol.CapRulesPrefix) {
-				if _, err := ruleBundleFor(d, v); err == nil {
-					resp.RuleSetVersion = v
-				}
+			if ruleV != "" && (!needRules || slot) {
+				resp.RuleSetVersion = ruleV
 			}
 			// Chưa đặt cấu hình ở cấp nào thì không gửi: agent giữ cấu hình đang có.
 			if plan.WatchServices != nil || plan.Labels != nil {
@@ -175,4 +187,13 @@ func heartbeatHandler(d Deps) http.Handler {
 		}
 		httpx.WriteJSON(w, http.StatusOK, resp)
 	})
+}
+
+// hasRuleSet: máy đã cài đúng bộ rule v (không cần tải). Agent mới báo trong Rules; agent cũ chỉ có
+// RuleSetVersion.
+func hasRuleSet(body protocol.HeartbeatBody, v string) bool {
+	if r := body.Rules; r != nil {
+		return r.Installed && r.Name+"@"+r.Version == v
+	}
+	return body.RuleSetVersion == v
 }

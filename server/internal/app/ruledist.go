@@ -87,10 +87,17 @@ func rulesHandler(d Deps) http.Handler {
 			httpx.WriteError(w, http.StatusNotFound, "chưa có bản ký hợp lệ của bộ rule này")
 			return
 		}
+		// Tải bộ rule cũng phải giữ lượt (như bản agent): hết lượt thì 503, agent xin lại ở heartbeat sau.
+		if !d.Downloads.Acquire(id) {
+			w.Header().Set("Retry-After", "600")
+			httpx.WriteError(w, http.StatusServiceUnavailable, "đang hết lượt tải, thử lại ở heartbeat sau")
+			return
+		}
 		d.Log.Info("máy tải bộ rule", "device", id, "bo", v)
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = d.Downloads.throttle(w, r).Write(b)
+		n, err := d.Downloads.throttle(w, r).Write(b)
+		d.Downloads.Release(id, err == nil && n == len(b))
 	})
 }
 

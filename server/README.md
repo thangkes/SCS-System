@@ -229,10 +229,12 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
 
 ## Phát hành bản agent: lượt tải, băng thông, thống kê
 
-- **Lượt tải** (`SCS_DOWNLOAD_SLOTS`, mặc định 4): heartbeat chỉ báo "có bản mới" cho máy giữ được lượt; máy khác chạy
-  bản đang có, không báo lỗi, xin lại ở heartbeat sau (5–30 phút). Lượt trả khi tải xong, hoặc tự thu lại sau 15 phút
-  nếu máy không tải. Tải thẳng khi hết lượt (agent cũ, tải tay) bị trả 503; agent mới coi 503 là "chờ lượt", không phạt
-  1 giờ. Chạy được với agent bản cũ vì server quyết định.
+- **Lượt tải** (`SCS_DOWNLOAD_SLOTS`, mặc định 4) áp cho **mọi lần tải**: bản agent, bộ rule, và chứng chỉ của **máy mới
+  hòa mạng**. Heartbeat chỉ báo "có bản / bộ mới" cho máy giữ được lượt; máy khác chạy cái đang có, không báo lỗi, xin lại
+  ở heartbeat sau (5–30 phút). Máy mới đã được duyệt mà hết lượt thì vẫn nhận "chờ duyệt", hỏi lại sau ~5 phút (chấp
+  nhận hòa mạng chậm hơn). Máy đã cài đúng bộ rule đang gán thì không cần lượt. Lượt trả khi tải xong, hoặc tự thu lại sau 15 phút
+  nếu máy không tải. Tải thẳng bản agent / bộ rule khi hết lượt bị trả 503; agent mới coi 503 là "chờ lượt", không
+  phạt 1 giờ (agent cũ chờ 1 giờ). Chạy được với agent bản cũ vì server quyết định.
 - **Băng thông** (`SCS_DOWNLOAD_MBPS`, mặc định 20 Mbit/s): tổng phần thân file tải (bản agent, bộ rule) của server;
   heartbeat, log, web không bị giới hạn. Ví dụ bản agent ~7,6 MB: 5.000 máy cần khoảng 4,2 giờ ở 20 Mbit/s.
 - **Thống kê** (trang Agent, mức Chỉ xem; API `GET /admin/v1/agent/fleet`): số máy và % đã lên bản đang phát hành,

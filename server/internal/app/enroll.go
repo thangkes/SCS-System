@@ -122,8 +122,15 @@ func enrollHandler(d Deps) http.Handler {
 		}
 
 		resp := protocol.EnrollResponse{Status: protocol.EnrollPending}
+		// Máy mới hòa mạng cũng phải chờ lượt tải (như bản agent, bộ rule): hết lượt thì vẫn trả "chờ duyệt",
+		// agent hỏi lại sau ~5 phút. Chấp nhận hòa mạng chậm hơn để tải của server luôn trong giới hạn.
+		if res.Status == DeviceApproved && !d.Downloads.Acquire(res.DeviceID) {
+			httpx.WriteJSON(w, http.StatusOK, resp)
+			return
+		}
 		switch res.Status {
 		case DeviceApproved:
+			defer d.Downloads.Free(res.DeviceID)
 			if d.CA == nil {
 				httpx.WriteError(w, http.StatusServiceUnavailable, "server chưa cấu hình CA để cấp chứng chỉ")
 				return

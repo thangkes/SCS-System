@@ -1814,7 +1814,7 @@
           ${dl ? `<div class="fl-slots-wrap"><div class="fl-slots" title="lượt tải đang dùng">${slots}</div><span class="sub">${dl.in_use}/${dl.slots} lượt tải</span></div>` : ''}</div>
         ${chart ? `<div class="fl-chart-wrap">${chart}</div>
           <p class="hint">Trục trái: số máy · trục phải: % máy đã duyệt.${tEnd ? ' Đường chấm: dự kiến theo tốc độ 2 giờ gần nhất.' : ''}
-            Tối đa ${dl ? dl.slots : '—'} máy tải cùng lúc, tổng ≤ ${dl ? fmtNum(dl.limit_mbps) : '—'} Mbit/s; máy chưa tới lượt vẫn chạy bản cũ và xin lại ở heartbeat sau (5–30 phút).</p>`
+            Tối đa ${dl ? dl.slots : '—'} máy tải cùng lúc (bản agent, bộ rule, chứng chỉ máy mới), tổng ≤ ${dl ? fmtNum(dl.limit_mbps) : '—'} Mbit/s; máy chưa tới lượt vẫn chạy cái đang có và xin lại ở lần gọi sau.</p>`
           : `<p class="hint">${ro.all ? 'Đang gom số liệu: biểu đồ hiện sau 2 mốc (khoảng 10 phút).' : 'Phát hành một bản cho "Tất cả máy" để theo dõi tiến độ.'}</p>`}
       </div>
       <div class="grid-2 fl-two">
