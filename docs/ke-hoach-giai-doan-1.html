@@ -81,7 +81,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
   <span class="badge">Giai đoạn 1 · Giám sát</span>
   <h1>SCS-System (Spider Control Scanning): giám sát máy Ubuntu tại nhiều điểm bán</h1>
   <p>Thiết kế và hiện trạng của giai đoạn 1: đăng ký và duyệt máy, truyền dữ liệu mã hóa, agent khung tự cập nhật từ server, cấu hình đặt trên web, quét log theo rule, ước tính tải.</p>
-  <p>Các con số tính tải dùng <strong>quy mô tham chiếu 20.000 máy</strong>; thay bằng quy mô thực tế khi triển khai. Cập nhật theo code ngày 31/10/2026 (bản nháp đầu: 27/10/2026).</p>
+  <p>Các con số tính tải dùng <strong>quy mô tham chiếu 20.000 máy</strong>; thay bằng quy mô thực tế khi triển khai. Cập nhật theo code ngày 31/10/2026 (bản nháp đầu: 27/10/2026); mục 5, 6, 12 cập nhật 18/11/2026.</p>
   <p>Nhãn trạng thái: <span class="st st-done">Đã làm</span> <span class="st st-part">Làm một phần</span> <span class="st st-todo">Chưa làm</span></p>
 </header>
 
@@ -235,6 +235,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
     <li><span class="who">Kỹ thuật viên</span><br>Đặt hostname đúng quy ước (<code>12345-TN1-PRI</code>, <code>12345-TN2-SEC</code>, <code>12345-TN3</code>…), giải nén gói, chạy <code>sudo bash scs-agent/scripts/install.sh</code>. Script kiểm hostname, đồng hồ NTP, kết nối và chứng chỉ server, cài dịch vụ, in <strong>mã khóa máy</strong>.</li>
     <li><span class="who">Agent → Server</span><br>Gửi gói <code>enroll</code> qua TLS: khóa công khai, fingerprint và từng thành phần, hostname, phiên bản Ubuntu; gói ký bằng khóa riêng vừa sinh.</li>
     <li><span class="who">Server</span><br>Kiểm giờ (lệch tối đa 5 phút), chữ ký bằng chính khóa trong gói, fingerprint khớp các thành phần, đọc hostname theo quy ước, so IP với IP cố định của siêu thị. Mọi máy vào hàng chờ; hostname sai hoặc IP lạ thì gắn cảnh báo.</li>
+    <li><span class="who">Duyệt tự động (tùy chọn)</span><br>Công tắc ở trang <strong>Chờ duyệt</strong> (mặc định tắt, mức Agent). Bật thì mỗi lần máy hỏi, server duyệt ngay nếu đủ: hostname đúng quy ước; siêu thị đã có thông tin trong dữ liệu đã nạp; máy gửi từ một IP WAN của siêu thị; không trùng hostname / vị trí TN với máy đang hoạt động. Thiếu thì chờ người duyệt, lý do hiện trên thẻ máy. Người duyệt ghi "duyệt tự động", nhật ký ghi kèm IP.</li>
     <li><span class="who">Admin duyệt</span><br>Trang <strong>Chờ duyệt</strong>: đối chiếu mã khóa, bấm Duyệt (hostname sai quy ước thì nhập mã siêu thị). Server cấp chứng chỉ client làm từ chính khóa của máy (không cần CSR), CN = mã máy, hạn 90 ngày; DB chỉ nhận serial chứng chỉ mới nhất.</li>
     <li><span class="who">Agent</span><br>Hỏi lại 5 phút một lần (±20%), nhận và kiểm chứng chỉ, lưu vào <code>/etc/scs-agent/</code>, chuyển sang gửi heartbeat; từ đây nhận cấu hình và bản agent từ server.</li>
   </ol>
@@ -247,6 +248,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
   <ol class="steps">
     <li><span class="who">Server</span><br>Mỗi lần cập nhật server (menu mục 4) build kèm <strong>bản agent cùng phiên bản</strong> (linux amd64, arm64). Server nhập vào kho, ký bằng <strong>khóa phát hành</strong> Ed25519 (tách khỏi khóa CA), lưu vào DB.</li>
     <li><span class="who">Admin</span><br>Trang <strong>Agent</strong> trên web: bấm <em>Phát hành nhóm thử</em> (các máy đánh dấu "nhóm thử" trong chi tiết máy), theo dõi số máy đang chạy từng bản, ổn rồi bấm <em>Phát hành tất cả</em>. Dừng phát hành thì máy giữ bản đang chạy; phát hành lại bản cũ là quay về.</li>
+    <li><span class="who">Server phân lượt</span><br>Chỉ báo <code>update</code> cho máy giữ được lượt tải: tối đa 4 máy cùng lúc (<code>SCS_DOWNLOAD_SLOTS</code>), tổng ≤ 20 Mbit/s (<code>SCS_DOWNLOAD_MBPS</code>); lượt hết hạn sau 15 phút. Máy chưa tới lượt chạy bản cũ, xin lại ở heartbeat sau. Trang Agent có biểu đồ tiến độ và thống kê phiên bản, bộ rule, trạng thái máy.</li>
     <li><span class="who">Agent</span><br>Heartbeat nhận <code>update</code> (phiên bản, kiến trúc, SHA-256, kích thước, chữ ký). Agent tải qua kết nối có chứng chỉ máy, kiểm SHA-256 và chữ ký bằng khóa công khai phát hành (<code>/opt/scs-agent/release.pub</code>, root sở hữu, đóng trong gói cài), lưu vào thư mục trạng thái, rồi tự thoát để systemd khởi động lại.</li>
     <li><span class="who">Bản khung</span><br>Lúc khởi động, kiểm chữ ký <strong>lần nữa</strong> rồi chuyển sang chạy bản đã tải (exec). Bản mới gửi được heartbeat thì được ghi nhận là chạy tốt.</li>
     <li><span class="who">Tự quay về</span><br>Bản mới chết 3 lần (trong cùng một lần bật máy) mà chưa gửi được heartbeat: bản khung đánh dấu bản đó hỏng, chạy tiếp chính nó, 24 giờ sau mới thử lại. Máy tắt / khởi động lại (đổi boot_id) hay mất mạng không bị tính là lỗi.</li>
@@ -398,7 +400,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
   <div class="tbl"><table>
     <tr><th>Việc</th><th>Chu kỳ</th><th>Ghi chú</th><th>Trạng thái</th></tr>
     <tr><td>Hỏi trạng thái duyệt</td><td>5 phút ±20%</td><td>Lỗi mạng: giãn 30 giây → 30 phút</td><td><span class="st st-done">Đã làm</span></td></tr>
-    <tr><td>Heartbeat</td><td>5 phút ±20%</td><td>Server đổi được bằng <code>next_poll_s</code> (1 phút – 1 giờ)</td><td><span class="st st-done">Đã làm</span></td></tr>
+    <tr><td>Heartbeat</td><td>Ngẫu nhiên 5–30 phút (theo giây)</td><td>Server đặt khoảng bằng <code>next_poll_s</code> / <code>next_poll_max_s</code> (1 phút – 1 giờ); mất liên lạc sau 60 phút</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Nhận cấu hình, địa chỉ server, bản agent</td><td>Theo phản hồi heartbeat</td><td>Không gọi riêng</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Quét log</td><td>Liên tục (đọc nối đuôi)</td><td>Lưu vị trí đã đọc để khởi động lại không quét trùng hoặc bỏ sót</td><td><span class="st st-todo">Chưa làm</span></td></tr>
     <tr><td>Gửi lô sự kiện</td><td>2 phút hoặc đủ 200 sự kiện</td><td>Mức <code>critical</code> gửi ngay</td><td><span class="st st-todo">Chưa làm</span></td></tr>

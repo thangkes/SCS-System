@@ -31,7 +31,9 @@ Code comments and docs are in Vietnamese.*
 - **Agent chỉ chủ động gọi lên server**; server không gửi lệnh xuống. Rule và bản cập nhật agent tự kéo về, kiểm chữ ký.
 - **Web quản trị phân 8 mức quyền** (0 quản trị gốc … 7 chỉ xem): quản trị gốc chỉ có khi lấy mã bằng SSH trên máy
   server; người khác đăng ký tài khoản bằng Gmail, đăng nhập bằng mã gửi về mail, được quản trị gốc duyệt và đặt mức.
-- **Mọi máy phải được admin duyệt** trước khi gửi được dữ liệu. Không có bí mật dùng chung trong source agent.
+- **Mọi máy phải được duyệt** trước khi gửi được dữ liệu: admin duyệt tay, hoặc **duyệt tự động** (công tắc, mặc định
+  tắt) chỉ khi máy đúng hostname, thuộc siêu thị đã có thông tin và gửi từ IP WAN của siêu thị đó. Không có bí mật dùng
+  chung trong source agent.
 - Mỗi máy có **khóa Ed25519 riêng** (không rời máy): ký mọi gói tin và dùng làm chứng chỉ mTLS do CA nội bộ của server cấp.
 - Gói tin có giờ và nonce (chống gửi lại), giao tiếp qua TLS 1.3, agent chỉ tin CA của server.
 - Dữ liệu lưu trong **PostgreSQL + TimescaleDB**, ràng buộc nằm trong DB. Sự kiện và trạng thái máy lưu **theo giai đoạn**
@@ -63,7 +65,10 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 | **Tài khoản web quản trị bằng Gmail và 8 mức quyền**: đăng ký → mã xác minh về mail → quản trị gốc (mã SSH) duyệt và đặt mức 1–7 (cụm server, rule, agent + bản cập nhật, địa chỉ server, xác nhận sự cố, thông tin agent, chỉ xem); đăng nhập bằng mã gửi về mail (5 phút, nhập một lần); trang **Tài khoản**. Cần Gmail gửi mã (`SCS_SMTP_*`) | Đã có, chưa chạy thật trên Ubuntu |
 | **Trang Máy gom theo mã siêu thị**, viền màu theo máy tệ nhất: đỏ = cần xử lý (cảnh báo nghiêm trọng, mất liên lạc), vàng = đang chờ xử lý (cảnh báo khác đang mở, máy chờ duyệt), xanh = OK; bấm mã siêu thị để xổ danh sách máy. **Tổng quan có khung Server** (chỉ xem): tốc độ / lưu lượng mạng, CPU, RAM, ổ đĩa, heartbeat và sự kiện mỗi phút, kết nối agent, dung lượng DB | Đã có |
 | **Thông tin siêu thị** trên web: tên, tổ chức, nhiều IP WAN, quản lý / phó quản lý / trưởng nhóm / phó phòng, ghi chú; tìm kiếm theo các trường này. **Cảnh báo hiện lý do** (rule, dòng log), bấm mở tình trạng máy | Đã có, chưa chạy thật trên Ubuntu |
-| **Báo cáo server**: lưu thông số mỗi phút (CPU, RAM, ổ đĩa, băng thông, heartbeat, DB) 90 ngày; trang báo cáo có biểu đồ, xuất Excel / CSV, in PDF. **Nạp thông tin siêu thị từ file .xlsx / .csv** có xem trước | Đã có, chưa chạy thật trên Ubuntu |
+| **Báo cáo server**: lưu thông số mỗi phút (CPU, RAM, ổ đĩa, băng thông, heartbeat, DB) 90 ngày; trang báo cáo có biểu đồ, bảng 20 dòng mới nhất (đủ số liệu trong file xuất), xuất Excel / CSV, in PDF. **Nạp thông tin siêu thị từ file .xlsx / .csv** có xem trước | Đã có, chưa chạy thật trên Ubuntu |
+| **Duyệt tự động** máy mới (công tắc ở trang Chờ duyệt, mặc định tắt, mức Agent): đủ 4 điều kiện (hostname đúng quy ước, siêu thị có trong dữ liệu đã nạp, gửi từ IP WAN của siêu thị, không trùng máy đang hoạt động) thì duyệt ngay; thiếu thì chờ người duyệt, lý do hiện trên thẻ máy; nạp thông tin xong thì lần hỏi lại kế tiếp được duyệt | Đã có, chưa chạy thật trên Ubuntu |
+| **Giảm tải server**: agent gọi heartbeat ngẫu nhiên 5–30 phút (theo giây, server đặt khoảng bằng `next_poll_max_s`); mất liên lạc sau 60 phút (`SCS_OFFLINE_AFTER`, cập nhật server tự đổi 30m cũ sang 60m). Agent bản cũ vẫn 5–10 phút tới khi cập nhật | Đã có, chưa chạy thật trên Ubuntu |
+| **Phát hành bản agent có phân lượt**: tối đa 4 máy tải cùng lúc (`SCS_DOWNLOAD_SLOTS`), tổng ≤ 20 Mbit/s cho bản agent + bộ rule (`SCS_DOWNLOAD_MBPS`); máy chưa tới lượt chạy bản cũ, xin lại ở heartbeat sau. **Trang Agent có thống kê**: số máy / % đã lên bản mới, biểu đồ tiến độ kèm dự kiến xong, lượt tải đang dùng, máy báo lỗi tải, phân bố phiên bản, tình trạng bộ rule, bảng theo trạng thái máy | Đã có, chưa chạy thật trên Ubuntu |
 | Agent gửi trạng thái máy (RAM, ổ đĩa, dịch vụ…) trong heartbeat | Chưa có (A2) |
 | **Agent quét log liên tục** theo bộ rule (file trong /var/log nhớ vị trí, nhận ra xoay vòng; journald qua `journalctl`), hàng đợi trên đĩa khi mất mạng, gửi sự kiện: high / critical sau vài giây, còn lại mỗi phút | Đã có (A3), chưa chạy thật trên Ubuntu |
 | **Server phát bộ rule**: gán bộ đã ký cho tất cả máy / siêu thị / máy trên trang Rule; agent nhận qua heartbeat, tự tải, kiểm chữ ký, cài rồi quét theo bộ mới | Đã có (M7), chưa chạy thật trên Ubuntu |

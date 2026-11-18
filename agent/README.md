@@ -65,7 +65,8 @@ SCS_WATCH_SERVICES=pos.service             # dịch vụ cần báo trạng thá
 ## Đăng ký
 
 Lần chạy đầu agent sinh khóa Ed25519 (`/etc/scs-agent/key.pem`, quyền 600), gửi gói đăng ký ký bằng khóa đó,
-rồi chờ admin duyệt (hỏi lại mỗi 5 phút ±20%). Được duyệt thì kiểm chứng chỉ (do CA server ký, mang đúng khóa
+rồi chờ duyệt — admin duyệt tay hoặc server duyệt tự động khi máy đủ điều kiện (hỏi lại mỗi 5 phút ±20%, không giới
+hạn thời gian chờ; lỗi mạng giãn 30 giây → 30 phút). Được duyệt thì kiểm chứng chỉ (do CA server ký, mang đúng khóa
 máy, đúng mã máy) rồi mới lưu `cert.pem`. Bị từ chối thì dừng gửi. Lỗi mạng / server bận thì giãn từ 30 giây
 tới 30 phút. Đồng hồ máy lệch thì agent tự bù theo giờ server (header Date).
 

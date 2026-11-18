@@ -157,7 +157,9 @@ Khi chạy thật nên đặt `SCS_ENV=prod` trong `/etc/scs-server/server.env` 
 ## 2. SCS-Agent (mỗi máy tại điểm bán)
 
 **Cách hoạt động:** máy tại điểm bán chỉ cài một lần **bản agent khung** (đóng gói trên server). Bản khung đăng ký
-với server và chờ admin duyệt. Duyệt xong, agent nhận qua heartbeat (ngẫu nhiên 5–30 phút một lần):
+với server và chờ duyệt (admin duyệt tay, hoặc duyệt tự động nếu đã bật ở trang **Chờ duyệt** và máy đủ điều kiện:
+hostname đúng, siêu thị đã có thông tin + IP WAN trong dữ liệu đã nạp, máy gửi từ IP đó). Duyệt xong, agent nhận qua
+heartbeat (ngẫu nhiên 5–30 phút một lần):
 
 - **cấu hình** đặt trên web, trang **Agent** (dịch vụ cần theo dõi: chung, theo siêu thị, theo máy);
 - **bản agent cần chạy**: mỗi lần cập nhật server (menu mục 4) có thêm bản agent cùng phiên bản; admin bấm
