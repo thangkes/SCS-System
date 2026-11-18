@@ -96,10 +96,16 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	// luôn extension TimescaleDB, mà tạo lại extension trong cùng phiên dễ lỗi).
 	// Xóa hypertable thì Timescale tự bỏ các job nén / xóa theo hạn gắn với nó.
 	pool.Exec(ctx, "SELECT delete_job(job_id) FROM timescaledb_information.jobs WHERE proc_name = 'scs_cleanup'")
+	// TimescaleDB không cho xóa hypertable chung một lệnh với bảng khác: xóa từng bảng (lần test trước có
+	// thể dừng giữa chừng, còn sót hypertable của 0001).
+	for _, tbl := range []string{"heartbeats", "events", "device_days", "device_status", "device_status_changes",
+		"device_periods", "agent_config", "agent_rollout", "agent_releases", "seen_nonces", "alerts",
+		"audit", "devices", "stores", "accounts", "server_metrics", "settings", "rollout_progress", "schema_migrations"} {
+		if _, err := pool.Exec(ctx, "DROP TABLE IF EXISTS "+tbl+" CASCADE"); err != nil {
+			t.Fatalf("xóa bảng %s: %v", tbl, err)
+		}
+	}
 	if _, err := pool.Exec(ctx, `
-		DROP TABLE IF EXISTS heartbeats, events, device_days, device_status, device_status_changes,
-			device_periods, agent_config, agent_rollout, agent_releases, seen_nonces, alerts,
-			audit, devices, stores, accounts, server_metrics, settings, rollout_progress, schema_migrations CASCADE;
 		DROP PROCEDURE IF EXISTS scs_cleanup(integer, jsonb);
 		DROP FUNCTION IF EXISTS audit_append_only()`); err != nil {
 		t.Fatal(err)

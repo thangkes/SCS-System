@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/thangkes/SCS-System/server/internal/httpx"
@@ -181,25 +182,54 @@ func (m *Migrator) migrate(ctx context.Context) (applied []string, err error) {
 		if done[mg.Version] {
 			continue
 		}
-		tx, err := conn.Begin(cctx)
+		// Deadlock / xung đột tuần tự (ví dụ xóa hypertable đúng lúc tác vụ nền của TimescaleDB đang chạy
+		// trên nó): cả transaction đã hủy, thử lại vài lần là qua.
+		var err error
+		for attempt := 1; ; attempt++ {
+			err = m.applyOne(cctx, conn, mg)
+			if err == nil || !retryable(err) || attempt >= migrateRetries {
+				break
+			}
+			m.log.Warn("migration gặp deadlock, thử lại", "migration", fmt.Sprintf("%04d_%s", mg.Version, mg.Name), "lan", attempt)
+			select {
+			case <-cctx.Done():
+				return applied, cctx.Err()
+			case <-time.After(time.Duration(attempt) * 300 * time.Millisecond):
+			}
+		}
 		if err != nil {
-			return applied, err
-		}
-		// Exec không tham số dùng simple protocol: chạy được cả file nhiều câu lệnh.
-		if _, err := tx.Exec(cctx, mg.SQL); err != nil {
-			tx.Rollback(context.Background())
-			return applied, &sqlError{name: fmt.Sprintf("%04d_%s", mg.Version, mg.Name), err: err}
-		}
-		if _, err := tx.Exec(cctx, "INSERT INTO schema_migrations (version, name) VALUES ($1, $2)", mg.Version, mg.Name); err != nil {
-			tx.Rollback(context.Background())
-			return applied, err
-		}
-		if err := tx.Commit(cctx); err != nil {
 			return applied, err
 		}
 		applied = append(applied, fmt.Sprintf("%04d_%s", mg.Version, mg.Name))
 	}
 	return applied, nil
+}
+
+// migrateRetries: số lần chạy một migration khi gặp deadlock / xung đột tuần tự.
+const migrateRetries = 5
+
+// applyOne chạy một file migration và ghi vào schema_migrations trong cùng transaction.
+func (m *Migrator) applyOne(ctx context.Context, conn *pgxpool.Conn, mg Migration) error {
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	// Exec không tham số dùng simple protocol: chạy được cả file nhiều câu lệnh.
+	if _, err := tx.Exec(ctx, mg.SQL); err != nil {
+		tx.Rollback(context.Background())
+		return &sqlError{name: fmt.Sprintf("%04d_%s", mg.Version, mg.Name), err: err}
+	}
+	if _, err := tx.Exec(ctx, "INSERT INTO schema_migrations (version, name) VALUES ($1, $2)", mg.Version, mg.Name); err != nil {
+		tx.Rollback(context.Background())
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// retryable: deadlock (40P01) hoặc xung đột tuần tự (40001) — chạy lại transaction là được.
+func retryable(err error) bool {
+	var pe *pgconn.PgError
+	return errors.As(err, &pe) && (pe.Code == "40P01" || pe.Code == "40001")
 }
 
 // sqlError: migration chạy lỗi (SQL sai, thiếu extension...). Thử lại không tự khỏi.
