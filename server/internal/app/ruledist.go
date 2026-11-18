@@ -90,7 +90,7 @@ func rulesHandler(d Deps) http.Handler {
 		d.Log.Info("máy tải bộ rule", "device", id, "bo", v)
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(b)
+		_, _ = d.Downloads.throttle(w, r).Write(b)
 	})
 }
 

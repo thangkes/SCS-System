@@ -42,6 +42,8 @@ type Deps struct {
 	Live *Live
 	// Stats: số liệu máy server và hoạt động cho trang Tổng quan (nil = không có).
 	Stats *sysstat.Sampler
+	// Downloads: phân lượt tải bản agent và giới hạn băng thông tải (nil = không giới hạn).
+	Downloads *Downloads
 }
 
 // activity: bộ đếm hoạt động của cổng agent (nil an toàn).
@@ -142,6 +144,7 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/alerts/{id}/ack", incidents(http.HandlerFunc(dev.ackAlert)))
 	ag := agentAPI{d}
 	mux.Handle("GET /admin/v1/agent/releases", view(http.HandlerFunc(ag.releases)))
+	mux.Handle("GET /admin/v1/agent/fleet", view(http.HandlerFunc(ag.fleet)))
 	mux.Handle("POST /admin/v1/agent/rollout", agents(http.HandlerFunc(ag.rollout)))
 	mux.Handle("POST /admin/v1/devices/{id}/test-ring", agentInfo(http.HandlerFunc(ag.testRing)))
 	mux.Handle("GET /admin/v1/agent/config", view(http.HandlerFunc(ag.configs)))

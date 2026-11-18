@@ -51,6 +51,14 @@ type HeartbeatBody struct {
 	Status      *MachineStatus `json:"status,omitempty"`
 	// Rules: bộ rule đang cài trên máy (nil = agent bản cũ, không báo).
 	Rules *RuleSetReport `json:"rules,omitempty"`
+	// UpdateError: lần tải / kiểm bản agent gần nhất lỗi (nil = không lỗi). Server đếm để hiện trên web.
+	UpdateError *UpdateError `json:"update_error,omitempty"`
+}
+
+// UpdateError: agent không cài được bản agent server yêu cầu.
+type UpdateError struct {
+	Version string `json:"version"`
+	Error   string `json:"error"` // ≤ 200 ký tự
 }
 
 // RuleSetReport: agent báo bộ rule đang cài để web biết máy nào đã áp dụng bộ nào.
@@ -143,11 +151,11 @@ type LogEvent struct {
 // Response: phản hồi chung của server cho heartbeat và log_batch. Server không gửi lệnh:
 // chỉ báo đã nhận, nhịp gọi tiếp, và phiên bản rule / bản cập nhật để agent tự kéo về.
 type Response struct {
-	OK             bool         `json:"ok"`
-	NextPollS      int          `json:"next_poll_s,omitempty"`
+	OK        bool `json:"ok"`
+	NextPollS int  `json:"next_poll_s,omitempty"`
 	// NextPollMaxS: agent chờ ngẫu nhiên (theo giây) từ NextPollS tới NextPollMaxS rồi mới gọi tiếp.
 	// 0 = agent tự tính (NextPollS × SpreadMax của agent). Server đổi được khoảng mà không cần bản agent mới.
-	NextPollMaxS int `json:"next_poll_max_s,omitempty"`
+	NextPollMaxS   int          `json:"next_poll_max_s,omitempty"`
 	RuleSetVersion string       `json:"rule_set_version,omitempty"`
 	Update         *UpdateInfo  `json:"update,omitempty"`
 	Config         *AgentConfig `json:"config,omitempty"`

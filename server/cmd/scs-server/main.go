@@ -157,6 +157,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	base := app.Deps{
 		ReadyChecks: []httpx.Check{store.ReadyCheck(db), migrator.Check()},
 		Registry:    reg,
+		// Lệnh "all": cổng agent và web chung tiến trình nên trang Agent thấy được lượt tải đang dùng.
+		Downloads: app.NewDownloads(cfg.DownloadSlots, float64(cfg.DownloadMbps)),
 	}
 	if cfg.CACert != "" {
 		if base.CA, err = pki.Load(cfg.CACert, cfg.CAKey); err != nil {
@@ -245,6 +247,9 @@ func build(cmd string, cfg *config.Config, log *slog.Logger, base app.Deps) ([]r
 		// Lịch sử thông số server mỗi phút (trang Báo cáo server), giữ SCS_METRICS_KEEP.
 		rs = append(rs, app.MetricsRecorder(app.Deps{Log: log.With("role", "metrics"), Registry: base.Registry,
 			Stats: base.Stats}, cfg.MetricsKeep))
+		// Tiến độ phát hành bản agent (biểu đồ trang Agent), 5 phút một mốc, giữ 90 ngày.
+		rs = append(rs, app.RolloutRecorder(app.Deps{Log: log.With("role", "rollout"), Registry: base.Registry},
+			90*24*time.Hour))
 	}
 	if cmd == "ingest" || cmd == "all" {
 		if cfg.IngestInsecure() && !cfg.AllowInsecureIngest() {

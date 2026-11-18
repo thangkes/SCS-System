@@ -99,7 +99,7 @@ func testPool(t *testing.T) *pgxpool.Pool {
 	if _, err := pool.Exec(ctx, `
 		DROP TABLE IF EXISTS heartbeats, events, device_days, device_status, device_status_changes,
 			device_periods, agent_config, agent_rollout, agent_releases, seen_nonces, alerts,
-			audit, devices, stores, accounts, server_metrics, settings, schema_migrations CASCADE;
+			audit, devices, stores, accounts, server_metrics, settings, rollout_progress, schema_migrations CASCADE;
 		DROP PROCEDURE IF EXISTS scs_cleanup(integer, jsonb);
 		DROP FUNCTION IF EXISTS audit_append_only()`); err != nil {
 		t.Fatal(err)

@@ -1726,16 +1726,140 @@
   // (chung / siêu thị / máy). Agent nhận cả hai qua heartbeat (5–30 phút).
   const splitList = (s) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
 
+  // ---- Thống kê agent: tiến độ phát hành, phân bố phiên bản, bộ rule, bảng theo trạng thái máy.
+  const pct = (n, total) => (total ? (100 * n) / total : 0);
+  const pctStr = (n, total) => `${(Math.round(pct(n, total) * 10) / 10).toLocaleString('vi-VN')}%`;
+
+  // rolloutChart: số máy đã lên bản mới theo thời gian (trục trái: số máy, phải: %), kèm đường dự kiến.
+  function rolloutChart(points, total) {
+    const W = 1000, H = 250, L = 52, R = 48, T = 14, B = 28;
+    const t0 = new Date(points[0].at).getTime(), tl = new Date(points[points.length - 1].at).getTime();
+    const last = points[points.length - 1];
+    const goal = last.total || total;
+    // Dự kiến: tốc độ trung bình 2 giờ gần nhất (hoặc cả khoảng nếu ngắn hơn).
+    const ref = points.find((p) => new Date(p.at).getTime() >= tl - 2 * 3600e3) || points[0];
+    const rate = (last.on_target - ref.on_target) / Math.max(1, tl - new Date(ref.at).getTime()); // máy / ms
+    const left = Math.max(0, goal - last.on_target);
+    let tEnd = left > 0 && rate > 0 ? tl + left / rate : null;
+    if (tEnd && tEnd - t0 > 7 * 86400e3) tEnd = null; // quá xa: không vẽ dự kiến
+    const t1 = Math.max(tl, tEnd || tl, t0 + 3600e3);
+    const yMax = Math.max(1, total, ...points.map((p) => p.total));
+    const X = (t) => L + ((t - t0) / Math.max(1, t1 - t0)) * (W - L - R);
+    const Y = (v) => T + (1 - v / yMax) * (H - T - B);
+    const hm = (t) => { const d = new Date(t); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+    const tick = (t) => (t1 - t0 > 2 * 86400e3 ? `${new Date(t).getDate()}/${new Date(t).getMonth() + 1}` : hm(t));
+    let g = '';
+    for (let i = 0; i <= 4; i++) {
+      const y = Y((yMax * i) / 4);
+      g += `<line class="ch-grid" x1="${L}" x2="${W - R}" y1="${y.toFixed(1)}" y2="${y.toFixed(1)}"/>`
+        + `<text class="ch-ax" x="${L - 6}" y="${(y + 3.5).toFixed(1)}" text-anchor="end">${esc(fmtNum(Math.round((yMax * i) / 4)))}</text>`
+        + `<text class="ch-ax" x="${W - R + 6}" y="${(y + 3.5).toFixed(1)}">${i * 25}%</text>`;
+    }
+    for (let i = 0; i <= 6; i++) {
+      const t = t0 + ((t1 - t0) * i) / 6;
+      g += `<text class="ch-ax" x="${X(t).toFixed(1)}" y="${H - 8}" text-anchor="middle">${esc(tick(t))}</text>`;
+    }
+    const line = points.map((p, i) => `${i ? 'L' : 'M'}${X(new Date(p.at).getTime()).toFixed(1)} ${Y(p.on_target).toFixed(1)}`).join('');
+    const xl = X(tl), yl = Y(last.on_target);
+    g += `<path class="fl-area" d="${line}L${xl.toFixed(1)} ${Y(0).toFixed(1)}L${X(t0).toFixed(1)} ${Y(0).toFixed(1)}Z"/><path class="fl-line" d="${line}"/>`;
+    if (tEnd) {
+      g += `<line class="fl-est" x1="${xl.toFixed(1)}" y1="${yl.toFixed(1)}" x2="${X(tEnd).toFixed(1)}" y2="${Y(goal).toFixed(1)}"/>`
+        + `<text class="ch-ax" x="${Math.min(X(tEnd), W - R - 4).toFixed(1)}" y="${(Y(goal) + 16).toFixed(1)}" text-anchor="end">dự kiến xong khoảng ${esc(fmtTime(new Date(tEnd)))}</text>`;
+    }
+    const right = xl > W - 280;
+    g += `<circle class="fl-dot" cx="${xl.toFixed(1)}" cy="${yl.toFixed(1)}" r="5"/>`
+      + `<text class="fl-lbl" x="${(right ? xl - 10 : xl + 10).toFixed(1)}" y="${(yl < T + 30 ? yl + 20 : yl - 10).toFixed(1)}" text-anchor="${right ? 'end' : 'start'}">`
+      + `${esc(`${fmtNum(last.on_target)} máy · ${pctStr(last.on_target, last.total)} (${hm(tl)})`)}</text>`;
+    return { svg: `<svg class="fl-chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Tiến độ cập nhật">${g}</svg>`, tEnd };
+  }
+
+  function fleetHTML(f) {
+    const ro = f.target || {}, dl = f.downloads, target = ro.all || ro.test;
+    const fails = dl && target ? (dl.failures[target] || 0) : 0;
+    const left = Math.max(0, f.approved - f.on_target);
+    let chart = '', tEnd = null;
+    if (ro.all && f.progress.length >= 2) ({ svg: chart, tEnd } = rolloutChart(f.progress, f.approved));
+    const slots = dl ? Array.from({ length: dl.slots }, (_, i) => `<span class="${i < dl.in_use ? 'on' : ''}"></span>`).join('') : '';
+    const VC = ['c-ok', 'c-warn', 'c-bad', 'c-info', 'c-faint'];
+    let k = 0;
+    const vers = f.versions.map((v) => ({ ...v, color: v.version && v.version === target ? VC[0] : !v.version ? VC[4] : VC[1 + Math.min(k++, 2)] }));
+    const rules = [['Có rule, đang quét', f.rules.scanning, 'c-ok'], ['Có rule, chưa quét', f.rules.installed, 'c-info'],
+      ['Chưa có rule', f.rules.none, 'c-warn'], ['Agent cũ, không báo', f.rules.not_reported, 'c-faint']];
+    const withRules = f.rules.scanning + f.rules.installed;
+    let a = -90;
+    const P = (ang) => [80 + 62 * Math.cos((ang * Math.PI) / 180), 80 + 62 * Math.sin((ang * Math.PI) / 180)].map((v) => v.toFixed(2)).join(',');
+    const donut = f.approved ? rules.map(([, n, c]) => {
+      if (!n) return '';
+      const sweep = Math.min(359.9, (360 * n) / f.approved), b = a + sweep;
+      const d = `<path d="M${P(a)} A62,62 0 ${sweep > 180 ? 1 : 0} 1 ${P(b - (sweep > 2 && sweep < 359 ? 0.8 : 0))}" class="fl-arc ${c}"/>`;
+      a = b;
+      return d;
+    }).join('') : '';
+    const GROUP = { pending: ['pill-warn', 'Mới — chờ duyệt'], active: ['pill-ok', 'Đang hoạt động'],
+      offline: ['pill-bad', `Mất liên lạc (> ${f.rules.offline_min} phút)`], closed: ['', 'Từ chối / thu hồi'] };
+    const cell = (v) => `<td class="num">${v == null ? '—' : fmtNum(v)}</td>`;
+    const row = (g) => `${cell(g.total)}${cell(g.on_target)}${cell(g.not_updated)}${cell(g.rules)}${cell(g.no_rules)}`;
+    const mbpsNow = dl ? (Math.round(dl.now_mbps * 10) / 10).toLocaleString('vi-VN') : '';
+    return `
+      <div class="grid-kpi fl-kpi">
+        ${kpi(target ? `Đã lên bản ${target}` : 'Bản đang phát hành', target ? fmtNum(f.on_target) : '—', target ? `${pctStr(f.on_target, f.approved)} máy đã duyệt` : 'chưa phát hành bản nào', target ? 'is-ok' : '')}
+        ${kpi('Chưa cập nhật', target ? fmtNum(left) : '—', target ? 'chờ lượt tải ở heartbeat sau' : '', target && left ? 'is-warn' : '')}
+        ${kpi('Đang tải', dl ? `${dl.in_use} / ${dl.slots}` : '—', dl ? `${mbpsNow} Mbit/s · giới hạn ${fmtNum(dl.limit_mbps)} Mbit/s` : 'cổng agent chạy tiến trình khác')}
+        ${kpi('Tải / kiểm chữ ký lỗi', target ? fmtNum(fails) : '—', 'agent tự thử lại sau 1 giờ', fails ? 'is-bad' : '')}
+        ${kpi('Máy mới chờ duyệt', fmtNum(f.pending), 'duyệt xong mới được cập nhật', f.pending ? 'is-warn' : '')}
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Tiến độ cập nhật</h2><span class="sub">${ro.all ? `số máy và % máy đã duyệt chạy bản <span class="mono">${esc(ro.all)}</span>, 5 phút một mốc` : 'chưa phát hành bản nào cho tất cả máy'}</span>
+          ${dl ? `<div class="fl-slots-wrap"><div class="fl-slots" title="lượt tải đang dùng">${slots}</div><span class="sub">${dl.in_use}/${dl.slots} lượt tải</span></div>` : ''}</div>
+        ${chart ? `<div class="fl-chart-wrap">${chart}</div>
+          <p class="hint">Trục trái: số máy · trục phải: % máy đã duyệt.${tEnd ? ' Đường chấm: dự kiến theo tốc độ 2 giờ gần nhất.' : ''}
+            Tối đa ${dl ? dl.slots : '—'} máy tải cùng lúc, tổng ≤ ${dl ? fmtNum(dl.limit_mbps) : '—'} Mbit/s; máy chưa tới lượt vẫn chạy bản cũ và xin lại ở heartbeat sau (5–30 phút).</p>`
+          : `<p class="hint">${ro.all ? 'Đang gom số liệu: biểu đồ hiện sau 2 mốc (khoảng 10 phút).' : 'Phát hành một bản cho "Tất cả máy" để theo dõi tiến độ.'}</p>`}
+      </div>
+      <div class="grid-2 fl-two">
+        <div class="card">
+          <div class="card-head"><h2>Phân bố phiên bản</h2><span class="sub">máy đã duyệt, theo heartbeat gần nhất</span></div>
+          ${f.approved ? `<div class="fl-prog">${vers.map((v) => `<i class="${v.color}" data-p="${pct(v.devices, f.approved).toFixed(2)}" title="${esc(v.version || 'chưa báo')}"></i>`).join('')}</div>` : ''}
+          <div class="table-wrap"><table>
+            <thead><tr><th>Phiên bản</th><th class="num">Số máy</th><th class="num">%</th><th class="hide-sm"></th></tr></thead>
+            <tbody>${vers.map((v) => `<tr><td>${v.version ? `<span class="mono">${esc(v.version)}</span>` : 'Chưa báo phiên bản'}${v.version && v.version === target ? ' <span class="pill pill-ok no-dot">đang phát hành</span>' : ''}</td>
+              <td class="num">${fmtNum(v.devices)}</td><td class="num">${pctStr(v.devices, f.approved)}</td>
+              <td class="hide-sm"><span class="fl-mini"><i class="${v.color}" data-p="${pct(v.devices, f.approved).toFixed(2)}"></i></span></td></tr>`).join('') || '<tr><td colspan="4" class="empty">Chưa có máy nào được duyệt.</td></tr>'}
+            </tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h2>Bộ rule</h2><span class="sub">máy đã duyệt, theo heartbeat gần nhất</span></div>
+          <div class="fl-rules">
+            <svg class="fl-donut" viewBox="0 0 160 160" role="img" aria-label="Tỷ lệ máy có rule">
+              <circle class="fl-arc fl-track" cx="80" cy="80" r="62"/>${donut}
+              <text class="fl-dval" x="80" y="84" text-anchor="middle">${esc(pctStr(withRules, f.approved))}</text><text class="ch-ax" x="80" y="102" text-anchor="middle">có rule</text></svg>
+            <table><tbody>${rules.map(([l, n, c]) => `<tr><td class="fl-rl"><i class="fl-sw ${c}"></i>${esc(l)}</td><td class="num">${fmtNum(n)}</td><td class="num">${pctStr(n, f.approved)}</td></tr>`).join('')}</tbody></table>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>Thống kê theo trạng thái</h2><span class="sub">mọi máy, kể cả chờ duyệt${target ? '; "Bản mới" = bản đang phát hành cho nhóm của máy' : ''}</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Trạng thái máy</th><th class="num">Tổng</th><th class="num">Bản mới</th><th class="num">Chưa cập nhật</th><th class="num">Có rule</th><th class="num">Chưa có rule</th></tr></thead>
+          <tbody>${f.groups.map((g) => (g.key === 'approved'
+            ? `<tr class="fl-total"><td>Tổng máy đã duyệt</td>${row(g)}</tr>`
+            : `<tr><td>${pill(GROUP[g.key])}</td>${row(g)}</tr>`)).join('')}
+          </tbody></table></div>
+        <p class="hint">Máy chờ duyệt chưa gửi heartbeat nên chưa biết bộ rule; phiên bản là bản lúc đăng ký. Số lỗi tải tính từ lúc server khởi động.</p>
+      </div>`;
+  }
+
   async function pageAgent() {
     setTitle('Agent: cập nhật và cấu hình');
     const page = view;
     page.innerHTML = '<p class="hint">Đang tải…</p>';
-    let rel, cfg, devices;
+    let rel, cfg, devices, fleet;
     try {
-      [rel, cfg, devices] = await Promise.all([
+      [rel, cfg, devices, fleet] = await Promise.all([
         getJSON('/admin/v1/agent/releases'),
         getJSON('/admin/v1/agent/config'),
         getJSON('/admin/v1/devices?status=approved').then((j) => j.devices),
+        getJSON('/admin/v1/agent/fleet').then((j) => j.fleet).catch(() => null), // server bản cũ: bỏ phần thống kê
       ]);
     } catch (err) {
       if (page === view) showLoadError(page, err);
@@ -1757,6 +1881,7 @@
     const ringPill = (v) => (v ? `<span class="pill pill-ok no-dot mono">${esc(v)}</span>` : '<span class="pill no-dot">Chưa phát hành</span>');
 
     page.innerHTML = `
+      ${fleet ? fleetHTML(fleet) : ''}
       ${rel.signing ? '' : `<div class="card soon">${ICON.warn}<h2>Server chưa có khóa phát hành</h2><p>Chạy menu server mục 3 (cài lại dịch vụ) để tạo khóa; chưa có khóa thì không phát hành được bản agent.</p></div>`}
       <div class="card">
         <div class="card-head"><h2>Đang phát hành</h2><span class="sub">Máy nhóm thử theo bản "Nhóm thử" nếu có, các máy khác theo bản "Tất cả máy"</span></div>
@@ -1836,6 +1961,7 @@
         </div>
         <div class="form-actions"><button class="btn btn-sm" id="lb-save"${adminOnly(LV.agentInfo)}>Lưu nhãn</button></div>
       </div>`;
+    $$('[data-p]', page).forEach((b) => { b.style.width = `${b.dataset.p}%`; }); // CSP: không dùng style nội tuyến
 
     const saveCfg = async (scope, key, watch, okMsg) => {
       try {

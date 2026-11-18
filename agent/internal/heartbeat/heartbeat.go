@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"github.com/thangkes/SCS-System/agent/internal/client"
 	"github.com/thangkes/SCS-System/agent/internal/config"
@@ -73,6 +74,7 @@ func Run(ctx context.Context, d Deps) error {
 	lastServer := d.Client.Current()
 	marked := false
 	failedUpdate, failedAt := "", time.Time{}     // bản tải / kiểm lỗi lần trước và lúc lỗi
+	failedMsg := ""                               // lỗi đó (báo lên server, hiện trên web)
 	failedRules, failedRulesAt := "", time.Time{} // bộ rule tải / kiểm lỗi lần trước
 	for {
 		comps, _ := sysinfo.Components()
@@ -81,6 +83,9 @@ func Run(ctx context.Context, d Deps) error {
 			ServersHash: protocol.ServersHash(st.Servers), ServerURL: d.Client.Current(),
 			Capabilities: []string{protocol.CapRulesPrefix + strconv.Itoa(rules.SchemaMax)},
 			Rules:        report(d, st)}
+		if failedUpdate != "" {
+			body.UpdateError = &protocol.UpdateError{Version: failedUpdate, Error: shorten(failedMsg, 200)}
+		}
 		var resp protocol.Response
 		err := d.Client.Send(ctx, "/v1/heartbeat", protocol.TypeHeartbeat, st.DeviceID, comps.Hash(), body, &resp)
 
@@ -147,8 +152,14 @@ func Run(ctx context.Context, d Deps) error {
 				(u.Version != failedUpdate || time.Since(failedAt) >= RetryUpdate) {
 				d.Log.Info("server yêu cầu chạy bản agent khác, đang tải", "tu", d.Version, "sang", u.Version)
 				if err := update.Apply(ctx, d.Client, *u, d.StateDir, d.ReleasePub); err != nil {
-					failedUpdate, failedAt = u.Version, time.Now()
-					d.Log.Error("không cập nhật được bản agent", "version", u.Version, "err", err)
+					var busy *client.HTTPError
+					if errors.As(err, &busy) && busy.Status == http.StatusServiceUnavailable {
+						// Server hết lượt tải: không tính là lỗi, xin lại ở heartbeat sau (5–30 phút).
+						d.Log.Info("server đang hết lượt tải bản agent, thử lại ở heartbeat sau", "version", u.Version)
+					} else {
+						failedUpdate, failedAt, failedMsg = u.Version, time.Now(), err.Error()
+						d.Log.Error("không cập nhật được bản agent", "version", u.Version, "err", err)
+					}
 				} else {
 					d.Log.Info("đã tải và kiểm chữ ký bản agent mới, khởi động lại để chạy", "version", u.Version)
 					return ErrRestart
@@ -259,4 +270,15 @@ func fetchRules(ctx context.Context, d Deps, v string) error {
 		return fmt.Errorf("server gửi bộ %s, không phải %s", got, v)
 	}
 	return nil
+}
+
+// shorten cắt chuỗi còn tối đa n byte, không cắt giữa ký tự UTF-8.
+func shorten(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }

@@ -165,10 +165,17 @@ binary, `internal/store/migrations/`); DB chưa lên thì thử lại mỗi 5 gi
 | `alerts` | cảnh báo hiện trên web (giai đoạn cảnh báo, mất liên lạc, máy chờ duyệt, hostname sai, IP lạ) | 60 ngày |
 | `agent_releases`, `agent_rollout`, `agent_config` | bản agent, nhóm phát hành, cấu hình / nhãn máy 3 cấp | lâu dài |
 | `accounts` | tài khoản web quản trị: tên đăng nhập, email, trạng thái (chờ duyệt / hoạt động / khóa), mức quyền 1–7, ai duyệt, lần đăng nhập cuối. Không có mật khẩu, không lưu mã | lâu dài |
+| `settings` | cài đặt đổi trên web: công tắc duyệt tự động | lâu dài |
+| `rollout_progress` | tiến độ phát hành bản agent, 5 phút một mốc (biểu đồ trang Agent) | 90 ngày |
 | `server_metrics` | thông số máy server mỗi phút: CPU, RAM, ổ đĩa, lưu lượng mạng, heartbeat, dung lượng DB (trang Báo cáo server) | `SCS_METRICS_KEEP`, mặc định 90 ngày |
 | `audit` | nhật ký thao tác, chỉ ghi thêm (cả đăng ký, duyệt, đổi quyền, xóa tài khoản, sửa / nạp thông tin siêu thị) | lâu dài |
 
-Mọi máy đăng ký đều chờ admin duyệt. Ràng buộc nằm trong DB: hostname hợp lệ phải đúng quy ước PRI/SEC, mỗi vị trí
+Mọi máy đăng ký đều phải được duyệt: bởi admin, hoặc **duyệt tự động** khi bật công tắc ở trang Chờ duyệt (mặc định
+tắt; đổi cần mức Agent). Duyệt tự động chỉ khi đủ cả 4 điều kiện: hostname đúng quy ước; siêu thị đã có thông tin trong
+dữ liệu đã nạp (form hoặc file); máy gửi từ một IP WAN có trong thông tin siêu thị; không trùng hostname / vị trí TN với
+máy đang hoạt động. Thiếu điều kiện thì máy chờ người duyệt, lý do hiện trên thẻ máy; server kiểm lại mỗi lần máy hỏi
+lại (5 phút ±20%), nên nạp thông tin siêu thị xong thì lần hỏi kế tiếp được duyệt. Người duyệt ghi là "duyệt tự động",
+nhật ký thao tác ghi kèm IP. Ràng buộc nằm trong DB: hostname hợp lệ phải đúng quy ước PRI/SEC, mỗi vị trí
 TN trong siêu thị và mỗi hostname chỉ một máy đang hoạt động, mỗi gói có nonce (gửi lại không ghi trùng).
 
 Test cấu trúc DB chạy trên DB riêng `scs_test`: `bash scripts/setup.sh --start --test` tự tạo DB và chạy, hoặc
@@ -219,6 +226,21 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
   dung lượng DB. API `GET /admin/v1/server/stats` (mức Chỉ xem). Server đọc `/proc` mỗi 10 giây trong RAM, không ghi
   DB; dung lượng DB hỏi tối đa mỗi phút một lần. Số heartbeat / kết nối agent chỉ có khi chạy `scs-server all`
   (cổng agent cùng tiến trình, cách menu cài); số đếm về 0 khi khởi động lại.
+
+## Phát hành bản agent: lượt tải, băng thông, thống kê
+
+- **Lượt tải** (`SCS_DOWNLOAD_SLOTS`, mặc định 4): heartbeat chỉ báo "có bản mới" cho máy giữ được lượt; máy khác chạy
+  bản đang có, không báo lỗi, xin lại ở heartbeat sau (5–30 phút). Lượt trả khi tải xong, hoặc tự thu lại sau 15 phút
+  nếu máy không tải. Tải thẳng khi hết lượt (agent cũ, tải tay) bị trả 503; agent mới coi 503 là "chờ lượt", không phạt
+  1 giờ. Chạy được với agent bản cũ vì server quyết định.
+- **Băng thông** (`SCS_DOWNLOAD_MBPS`, mặc định 20 Mbit/s): tổng phần thân file tải (bản agent, bộ rule) của server;
+  heartbeat, log, web không bị giới hạn. Ví dụ bản agent ~7,6 MB: 5.000 máy cần khoảng 4,2 giờ ở 20 Mbit/s.
+- **Thống kê** (trang Agent, mức Chỉ xem; API `GET /admin/v1/agent/fleet`): số máy và % đã lên bản đang phát hành,
+  biểu đồ tiến độ (bảng `rollout_progress`, 5 phút một mốc, giữ 90 ngày) kèm dự kiến lúc xong, lượt tải đang dùng và
+  Mbit/s, số máy báo tải / kiểm chữ ký lỗi (agent báo qua heartbeat, tính từ lúc server khởi động), phân bố phiên bản,
+  tình trạng bộ rule (đang quét / đã cài chưa quét / chưa có / agent cũ không báo), bảng theo trạng thái máy (mới chờ
+  duyệt / đang hoạt động / mất liên lạc / từ chối, thu hồi × bản mới / chưa cập nhật / có rule / chưa có rule).
+  Lượt tải và lỗi chỉ thấy khi web và cổng agent chạy chung tiến trình (lệnh `all`, cách cài mặc định).
 
 ## Báo cáo server (lịch sử thông số)
 

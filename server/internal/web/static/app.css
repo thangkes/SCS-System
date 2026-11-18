@@ -607,3 +607,46 @@ label.inline input, label.inline select { height: 32px; }
 .auto-card .card-head .btn { margin-left: auto; }
 .auto-card .card-body { display: grid; gap: 8px; font-size: 13px; }
 .auto-card .card-body p { margin: 0; }
+/* Trang Agent: thống kê, tiến độ cập nhật */
+.fl-chart-wrap { padding: 4px 0 0; }
+.fl-chart { width: 100%; height: auto; display: block; }
+.fl-area { fill: var(--ok); opacity: .16; }
+.fl-line { fill: none; stroke: var(--ok); stroke-width: 2.5; }
+.fl-est { stroke: var(--faint); stroke-dasharray: 3 5; }
+.fl-dot { fill: var(--ok); }
+.fl-lbl { fill: var(--text); font-size: 12px; font-weight: 700; }
+.fl-slots-wrap { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+.fl-slots { display: flex; gap: 5px; }
+.fl-slots span { width: 20px; height: 8px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--line); }
+.fl-slots span.on { background: var(--info); border-color: var(--info); }
+.fl-prog { height: 14px; border-radius: 7px; background: var(--panel-2); overflow: hidden; display: flex; margin-bottom: 10px; }
+.fl-prog i, .fl-mini i { display: block; height: 100%; }
+.fl-mini { display: inline-block; width: 110px; height: 8px; border-radius: 4px; background: var(--panel-2); overflow: hidden; vertical-align: middle; }
+.fl-rules { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.fl-rules table { flex: 1; min-width: 220px; }
+.fl-donut { width: 150px; height: 150px; flex: none; }
+.fl-dval { fill: var(--text); font-size: 22px; font-weight: 750; }
+.fl-sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; }
+.fl-total td { font-weight: 700; }
+.fl-chart, .fl-donut { stroke: none; stroke-width: 1; }
+.fl-chart .ch-grid { stroke: var(--line); }
+.fl-chart text, .fl-donut text { stroke: none; }
+.fl-arc { fill: none; stroke-width: 22; }
+.fl-track { stroke: var(--panel-2); }
+.fl-arc.c-ok { stroke: var(--ok); }
+.fl-arc.c-warn { stroke: var(--warn); }
+.fl-arc.c-bad { stroke: var(--bad); }
+.fl-arc.c-info { stroke: var(--info); }
+.fl-arc.c-faint { stroke: var(--faint); }
+.fl-prog i.c-ok, .fl-mini i.c-ok, .fl-sw.c-ok { background: var(--ok); }
+.fl-prog i.c-warn, .fl-mini i.c-warn, .fl-sw.c-warn { background: var(--warn); }
+.fl-prog i.c-bad, .fl-mini i.c-bad, .fl-sw.c-bad { background: var(--bad); }
+.fl-prog i.c-info, .fl-mini i.c-info, .fl-sw.c-info { background: var(--info); }
+.fl-prog i.c-faint, .fl-mini i.c-faint, .fl-sw.c-faint { background: var(--faint); }
+.fl-prog i, .fl-mini i { width: 0; }
+.fl-rl { white-space: nowrap; }
+.fl-two .card > .fl-prog, .fl-two .card > .fl-rules { margin: 14px 18px; }
+@media (max-width: 640px) {
+  .card-head:has(.fl-slots-wrap) { flex-wrap: wrap; }
+  .card-head:has(.fl-slots-wrap) .sub { flex-basis: 100%; order: 3; }
+}

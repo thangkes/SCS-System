@@ -135,6 +135,15 @@ func heartbeatHandler(d Deps) http.Handler {
 			Servers: agentServers(d),
 		}
 		d.Servers.Report(id, body.ServersHash, body.ServerURL)
+		if u := body.UpdateError; u != nil && protocol.ValidVersion(u.Version) && u.Version != env.AgentVersion {
+			msg := u.Error
+			if len(msg) > 200 || !cleanText(msg, 200) {
+				msg = "lỗi không đọc được"
+			}
+			d.Downloads.Report(id, &UpdateFailure{Version: u.Version, Error: msg, At: time.Now().UTC()})
+		} else {
+			d.Downloads.Report(id, nil)
+		}
 		// Bản agent và cấu hình: đọc lỗi thì heartbeat vẫn thành công, lần sau gửi.
 		arch := body.Arch
 		if !protocol.ValidArch(arch) {
@@ -143,7 +152,12 @@ func heartbeatHandler(d Deps) http.Handler {
 		if plan, err := d.Registry.AgentPlan(r.Context(), id, arch); err != nil {
 			d.Log.Error("đọc bản agent / cấu hình cho máy thất bại", "err", err, "device", id)
 		} else {
-			if rel := plan.Release; rel != nil && rel.Version != env.AgentVersion {
+			// Bản agent mới: chỉ báo cho máy giữ được lượt tải (Downloads); hết lượt thì máy chạy bản
+			// đang có và xin lại ở heartbeat sau.
+			// Máy đang báo lỗi với chính bản này thì không giữ lượt (agent tự thử lại sau 1 giờ, lúc tải
+			// mới xin lượt ở cổng tải).
+			failing := body.UpdateError != nil && plan.Release != nil && body.UpdateError.Version == plan.Release.Version
+			if rel := plan.Release; rel != nil && rel.Version != env.AgentVersion && (failing || d.Downloads.Acquire(id)) {
 				resp.Update = &protocol.UpdateInfo{Version: rel.Version, Arch: rel.Arch, SHA256: rel.SHA256,
 					Size: rel.Size, Sig: rel.Sig}
 			}

@@ -225,9 +225,21 @@ func updateHandler(d Deps) http.Handler {
 			httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
 			return
 		}
+		// Chặn dự phòng: máy tải mà không giữ lượt (agent cũ thử lại, hay tải tay) khi đã hết lượt.
+		if !d.Downloads.Acquire(id) {
+			w.Header().Set("Retry-After", "600")
+			httpx.WriteError(w, http.StatusServiceUnavailable, "đang hết lượt tải bản agent, thử lại ở heartbeat sau")
+			return
+		}
 		d.Log.Info("máy tải bản agent", "device", id, "version", version, "arch", arch)
 		w.Header().Set("Content-Type", "application/octet-stream")
-		http.ServeContent(w, r, "", st.ModTime(), f)
+		tw := d.Downloads.throttle(w, r)
+		http.ServeContent(tw, r, "", st.ModTime(), f)
+		complete := r.Context().Err() == nil
+		if t, ok := tw.(*throttledWriter); ok && r.Method == http.MethodGet && r.Header.Get("Range") == "" {
+			complete = complete && t.written == st.Size()
+		}
+		d.Downloads.Release(id, complete)
 	})
 }
 

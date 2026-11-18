@@ -88,6 +88,10 @@ type Config struct {
 	OfflineAfter   time.Duration
 	// MetricsKeep (SCS_METRICS_KEEP): giữ lịch sử thông số server (trang Báo cáo server) bao lâu, mặc định 90 ngày.
 	MetricsKeep time.Duration
+	// DownloadSlots (SCS_DOWNLOAD_SLOTS): số máy được tải bản agent cùng lúc (mặc định 4); máy khác chờ
+	// heartbeat sau. DownloadMbps (SCS_DOWNLOAD_MBPS): tổng băng thông tải bản agent + bộ rule (mặc định 20).
+	DownloadSlots int
+	DownloadMbps  int
 }
 
 type DB struct {
@@ -169,6 +173,8 @@ func Load() (*Config, error) {
 		AlertAutoClose:   getDuration("SCS_ALERT_AUTOCLOSE", 24*time.Hour, time.Hour, 30*24*time.Hour, &errs),
 		OfflineAfter:     getDuration("SCS_OFFLINE_AFTER", 60*time.Minute, 10*time.Minute, 24*time.Hour, &errs),
 		MetricsKeep:      getDuration("SCS_METRICS_KEEP", 90*24*time.Hour, 24*time.Hour, 400*24*time.Hour, &errs),
+		DownloadSlots:    getInt("SCS_DOWNLOAD_SLOTS", 4, &errs),
+		DownloadMbps:     getInt("SCS_DOWNLOAD_MBPS", 20, &errs),
 	}
 	errs = append(errs, c.validate()...)
 	if len(errs) > 0 {
@@ -213,6 +219,12 @@ func (c *Config) validate() []error {
 	case "debug", "info", "warn", "error":
 	default:
 		errs = append(errs, fmt.Errorf("SCS_LOG_LEVEL không hợp lệ: %q", c.LogLevel))
+	}
+	if c.DownloadSlots < 1 || c.DownloadSlots > 256 {
+		errs = append(errs, fmt.Errorf("SCS_DOWNLOAD_SLOTS phải từ 1 tới 256, đang là %d", c.DownloadSlots))
+	}
+	if c.DownloadMbps < 1 || c.DownloadMbps > 10000 {
+		errs = append(errs, fmt.Errorf("SCS_DOWNLOAD_MBPS phải từ 1 tới 10000, đang là %d", c.DownloadMbps))
 	}
 	if (c.TLSCert == "") != (c.TLSKey == "") {
 		errs = append(errs, errors.New("SCS_TLS_CERT và SCS_TLS_KEY phải khai cùng nhau"))

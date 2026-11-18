@@ -23,10 +23,11 @@ type fakeRegistry struct {
 	rollout  Rollout
 	configs  map[string]ConfigEntry // scope + "/" + key
 	// Lưu theo giai đoạn (fakeperiods_test.go).
-	periods []*periods.Period
-	status  map[int64]fakeStatus
-	changes map[int64][]StatusChange
-	auto    fakeAuto // duyệt tự động (fakeauto_test.go)
+	periods  []*periods.Period
+	status   map[int64]fakeStatus
+	changes  map[int64][]StatusChange
+	auto     fakeAuto        // duyệt tự động (fakeauto_test.go)
+	progress []ProgressPoint // tiến độ phát hành (fakefleet_test.go)
 }
 
 type fakeDevice struct {
