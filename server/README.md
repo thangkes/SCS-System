@@ -157,7 +157,7 @@ binary, `internal/store/migrations/`); DB chưa lên thì thử lại mỗi 5 gi
 
 | Bảng | Nội dung | Giữ |
 |---|---|---|
-| `stores` | mã siêu thị, IP WAN cố định | lâu dài |
+| `stores` | mã siêu thị, IP WAN chính + IP WAN thêm, thông tin nhập trên web: tên, tổ chức, quản lý, phó quản lý, trưởng nhóm, phó phòng, ghi chú | lâu dài |
 | `devices` | hostname `<mã>-TN1-PRI`, `<mã>-TN2-SEC`, `<mã>-TN3`…, khóa, fingerprint, trạng thái duyệt | lâu dài |
 | `device_status` | trạng thái mới nhất mỗi máy (một dòng, ghi đè mỗi heartbeat), kèm bộ rule máy báo đang cài (`rules`) | bản mới nhất |
 | `device_status_changes` | lịch sử trạng thái, **chỉ khi đổi đáng kể** (OS, kernel, agent, bộ rule, IP, dịch vụ, RAID, đồng bộ giờ, ổ đầy 80/90/95%) | 60 ngày |
@@ -189,6 +189,12 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
 
 ## Trang Máy và khung Server
 
+- **Thông tin siêu thị** (trang Máy → bấm mã siêu thị → **Sửa thông tin siêu thị**, cần mức 6): tên siêu thị, tổ chức,
+  danh sách IP WAN (IP đầu là IP chính; máy gửi từ bất kỳ IP nào trong danh sách không bị cảnh báo "IP lạ"; tối đa 9),
+  quản lý, phó quản lý, trưởng nhóm, phó phòng, ghi chú. Ô tên người và tổ chức gõ tự do, có gợi ý từ giá trị đã nhập ở
+  siêu thị khác. Đầu nhóm hiện "mã - tên" và quản lý; ô tìm kiếm tìm cả tên, tổ chức, người phụ trách, IP; trang Cảnh báo
+  hiện tên siêu thị. API `GET /admin/v1/stores` (Chỉ xem), `POST /admin/v1/stores/{mã}` (mức 6); mỗi lần sửa ghi `audit`
+  (`store.update`). Migration 0008.
 - **Trang Máy** gom máy theo mã siêu thị (hostname `<mã>-TN…`; máy chưa có mã nằm cuối). Viền trái tô theo máy tệ
   nhất trong siêu thị, tính từ cảnh báo đang mở: **đỏ** = cảnh báo nghiêm trọng (critical, phải có người đóng) hoặc
   mất liên lạc; **vàng** = cảnh báo khác đang mở (mức cao tự đóng sau 24 giờ, mức thấp, IP lạ, hostname sai...) hoặc

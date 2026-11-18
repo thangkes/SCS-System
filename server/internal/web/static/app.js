@@ -550,7 +550,7 @@
     setTitle('Máy');
     const page = view;
     const state = { q: params.get('q') || '', status: params.get('status') || 'approved', page: 0, list: [],
-      alerts: [], pending: [], open: new Set() };
+      alerts: [], pending: [], stores: {}, open: new Set() };
     const PAGE = 20; // siêu thị mỗi trang
 
     page.innerHTML = `
@@ -612,7 +612,10 @@
         g.bad = g.lv.filter((l) => l === 'bad').length;
         g.warn = g.lv.filter((l) => l === 'warn').length;
         g.last = g.devs.reduce((m, d) => (d.last_seen && d.last_seen > m ? d.last_seen : m), '');
-        g.show = !q || g.code.toLowerCase().includes(q) ? g.devs : g.devs.filter(hit);
+        g.info = state.stores[g.code] || null;
+        const infoHit = g.info && [g.info.name, g.info.organization, g.info.manager, g.info.deputy, g.info.leader,
+          g.info.deputy_department, ...(g.info.ips || [])].some((v) => (v || '').toLowerCase().includes(q));
+        g.show = !q || g.code.toLowerCase().includes(q) || infoHit ? g.devs : g.devs.filter(hit);
         return g;
       }).filter((g) => g.show.length);
       // Đỏ trước, rồi vàng, rồi xanh; cùng màu thì theo mã, máy chưa có mã siêu thị xếp cuối.
@@ -640,12 +643,12 @@
         return `<div class="store-group lvl-${g.level}${open ? ' open' : ''}">
           <button type="button" class="store-head" data-store="${esc(g.code)}" aria-expanded="${open}">
             <span class="chev" aria-hidden="true"></span>
-            <span class="store-code mono">${esc(g.code || 'Chưa có mã siêu thị')}</span>
-            <span class="store-meta">${fmtNum(g.devs.length)} máy${pos ? ` · ${esc(pos)}` : ''}</span>
+            <span class="store-code"><span class="mono">${esc(g.code || 'Chưa có mã siêu thị')}</span>${g.info && g.info.name ? ` - ${esc(g.info.name)}` : ''}</span>
+            <span class="store-meta">${fmtNum(g.devs.length)} máy${pos ? ` · ${esc(pos)}` : ''}${g.info && g.info.manager ? ` · QL: ${esc(g.info.manager)}` : ''}</span>
             <span class="store-badges">${badges}${g.level !== 'none' && !badges ? `<span class="pill pill-ok no-dot">OK</span>` : ''}</span>
             <span class="store-last hide-sm">${g.last ? esc(ago(new Date(g.last))) : '—'}</span>
           </button>
-          ${open ? `<div class="table-wrap"><table class="store-devs">
+          ${open ? `${g.code ? storeSummary(g.code, g.info) : ''}<div class="table-wrap"><table class="store-devs">
             <thead><tr><th>Máy</th><th>Vị trí</th><th>Liên lạc lần cuối</th><th class="hide-sm">IP</th><th class="hide-sm">Agent</th><th class="hide-sm">Bộ rule</th></tr></thead>
             <tbody>${g.show.map((d) => devRow(d, g.lv[g.devs.indexOf(d)])).join('')}</tbody></table></div>` : ''}
         </div>`;
@@ -655,14 +658,18 @@
     const load = async () => {
       try {
         const approved = state.status === 'approved';
-        const [list, alerts, pending] = await Promise.all([
+        const [list, alerts, pending, stores] = await Promise.all([
           getJSON(`/admin/v1/devices?status=${encodeURIComponent(state.status)}`).then((j) => j.devices),
           approved ? getJSON('/admin/v1/alerts').then((j) => j.alerts) : [],
           approved ? getJSON('/admin/v1/devices?status=pending').then((j) => j.devices) : [],
+          getJSON('/admin/v1/stores').then((j) => j.stores).catch(() => []),
         ]);
-        const sig = state.status + JSON.stringify([list, alerts.map((a) => [a.id, a.device_id, a.severity, a.kind]), pending.map((d) => d.id)]);
+        const sig = state.status + JSON.stringify([list, alerts.map((a) => [a.id, a.device_id, a.severity, a.kind]), pending.map((d) => d.id), stores]);
         if (sig === state.sig) return; // không đổi: không vẽ lại
-        Object.assign(state, { sig, list, alerts, pending });
+        const byCode = {};
+        stores.forEach((x) => { byCode[x.code] = x; });
+        storeCache = byCode;
+        Object.assign(state, { sig, list, alerts, pending, stores: byCode });
       } catch (err) {
         if (page === view) showLoadError(page, err);
         return;
@@ -675,6 +682,8 @@
     $('#dev-prev').addEventListener('click', () => { state.page--; render(); });
     $('#dev-next').addEventListener('click', () => { state.page++; render(); });
     $('#dev-groups').addEventListener('click', (e) => {
+      const edit = e.target.closest('[data-store-edit]');
+      if (edit) { editStore(edit.dataset.storeEdit, state.stores, () => { state.sig = ''; load(); }); return; }
       const h = e.target.closest('.store-head');
       if (h) {
         const k = h.dataset.store;
@@ -687,6 +696,84 @@
     });
     load();
     liveReload = load;
+  }
+
+  // ---------------------------------------------------------------- thông tin siêu thị
+  let storeCache = {}; // mã siêu thị → thông tin (trang Máy tải; trang Cảnh báo dùng để hiện tên)
+  const STORE_PEOPLE = [['manager', 'Quản lý'], ['deputy', 'Phó quản lý'], ['leader', 'Trưởng nhóm'], ['deputy_department', 'Phó phòng']];
+  const storeLabel = (code) => {
+    const n = storeCache[code] && storeCache[code].name;
+    return n ? `${code} - ${n}` : code;
+  };
+
+  function storeSummary(code, info) {
+    const i = info || {};
+    const row = (k, v) => (v ? `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>` : '');
+    const body = [row('Tổ chức', i.organization), row('IP', (i.ips || []).join(', ')),
+      ...STORE_PEOPLE.map(([k, l]) => row(l, i[k]))].join('');
+    return `<div class="store-info">
+      <dl class="store-kv">${body || '<div class="sub-inline">Chưa có thông tin siêu thị.</div>'}</dl>
+      ${i.note ? `<p class="store-note">${esc(i.note)}</p>` : ''}
+      <div class="store-info-actions"><button type="button" class="btn btn-sm" data-store-edit="${esc(code)}">${can(LV.agentInfo) ? 'Sửa thông tin siêu thị' : 'Xem thông tin siêu thị'}</button>
+      ${i.updated_by ? `<span class="sub-inline">sửa lần cuối bởi ${esc(i.updated_by)}</span>` : ''}</div></div>`;
+  }
+
+  // editStore: form thông tin siêu thị (giống form quản lý cửa hàng: tên, tổ chức, IP, người phụ trách, ghi chú).
+  function editStore(code, stores, done) {
+    const i = stores[code] || { code, ips: [] };
+    const ro = !can(LV.agentInfo);
+    const dis = ro ? ' disabled' : '';
+    // Gợi ý từ giá trị đã nhập ở các siêu thị khác (gõ tự do vẫn được).
+    const all = Object.values(stores);
+    const opts = (keys) => [...new Set(all.flatMap((x) => keys.map((k) => x[k])).filter(Boolean))].sort()
+      .map((v) => `<option value="${esc(v)}"></option>`).join('');
+    const ipRow = (v) => `<div class="ip-row"><input class="mono" data-ip value="${esc(v)}" placeholder="203.0.113.10" spellcheck="false" autocomplete="off"${dis}>
+      ${ro ? '' : '<button type="button" class="btn btn-sm" data-ip-del aria-label="Bỏ IP">×</button>'}</div>`;
+    const field = (id, label, val, list) => `<label class="field"><span>${esc(label)}</span>
+      <input id="sf-${id}" value="${esc(val || '')}" maxlength="120" autocomplete="off"${list ? ` list="sl-${list}"` : ''}${dis}></label>`;
+    openDrawer(`${code}${i.name ? ` - ${i.name}` : ''}`, `
+      <form id="store-form" class="store-form" autocomplete="off">
+        ${field('name', 'Tên siêu thị', i.name)}
+        ${field('organization', 'Tổ chức', i.organization, 'org')}
+        <div class="field"><span>IP WAN <small>(IP đầu là IP chính; máy gửi từ các IP này không bị báo "IP lạ")</small></span>
+          <div id="sf-ips">${((i.ips || []).length ? i.ips : ['']).map(ipRow).join('')}</div>
+          ${ro ? '' : '<button type="button" class="btn btn-sm" id="sf-ip-add">+ Thêm IP</button>'}</div>
+        ${STORE_PEOPLE.map(([k, l]) => field(k, l, i[k], 'people')).join('')}
+        <label class="field"><span>Ghi chú</span><textarea id="sf-note" rows="4" maxlength="2000"${dis}>${esc(i.note || '')}</textarea></label>
+        <datalist id="sl-org">${opts(['organization'])}</datalist>
+        <datalist id="sl-people">${opts(STORE_PEOPLE.map(([k]) => k))}</datalist>
+        <p class="form-error" id="sf-err" hidden></p>
+        ${ro ? `<p class="hint">Cần quyền: ${esc(LEVEL_NAMES[LV.agentInfo])} để sửa.</p>` : `<div class="form-actions">
+          <button type="button" class="btn" data-action="close-drawer">Hủy</button>
+          <button type="submit" class="btn btn-primary">Lưu</button></div>`}
+      </form>`);
+    if (ro) return;
+    const ips = $('#sf-ips');
+    $('#sf-ip-add').addEventListener('click', () => {
+      if ($$('[data-ip]', ips).length >= 9) { toast('Tối đa 9 IP mỗi siêu thị'); return; }
+      ips.insertAdjacentHTML('beforeend', ipRow(''));
+      $$('[data-ip]', ips).pop().focus();
+    });
+    ips.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-ip-del]'); if (!b) return;
+      if ($$('[data-ip]', ips).length > 1) b.parentElement.remove(); else $('[data-ip]', ips).value = '';
+    });
+    $('#store-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.submitter; btn.disabled = true;
+      const body = { name: $('#sf-name').value, organization: $('#sf-organization').value, note: $('#sf-note').value,
+        ips: $$('[data-ip]', ips).map((x) => x.value.trim()).filter(Boolean) };
+      STORE_PEOPLE.forEach(([k]) => { body[k] = $(`#sf-${k}`).value; });
+      try {
+        await postJSON(`/admin/v1/stores/${encodeURIComponent(code)}`, body);
+        toast('Đã lưu thông tin siêu thị');
+        closeDrawer();
+        done();
+      } catch (err) {
+        const el = $('#sf-err'); el.hidden = false; el.textContent = err.message;
+        btn.disabled = false;
+      }
+    });
   }
 
   // ruleCell: bộ rule máy báo đang cài (heartbeat gần nhất).
@@ -938,7 +1025,7 @@
       $('#al-rows').innerHTML = rows.map((a) => `
         <tr${a.device_id ? ` class="clickable" data-dev="${esc(a.device_id)}" title="Bấm để xem tình trạng máy"` : ''}>
           <td>${pill(SEV[a.severity] || SEV.low)}</td>
-          <td><span class="strong mono">${esc(a.hostname || '—')}</span>${a.store_code ? `<span class="sub">Siêu thị ${esc(a.store_code)}</span>` : ''}</td>
+          <td><span class="strong mono">${esc(a.hostname || '—')}</span>${a.store_code ? `<span class="sub">Siêu thị ${esc(storeLabel(a.store_code))}</span>` : ''}</td>
           <td class="reasons-cell"><div class="reason-kind">${esc(KIND[a.kind] || a.kind)}</div>${reasonsHTML(a, 3)}</td>
           <td class="num hide-sm">${a.occurrences}</td>
           <td>${esc(ago(new Date(a.last_at)))}</td>
@@ -951,8 +1038,10 @@
 
     const load = async () => {
       try {
-        const j = await getJSON(`/admin/v1/alerts${state.all ? '?state=all' : ''}`);
-        const sig = String(state.all) + JSON.stringify(j.alerts);
+        const [j, stores] = await Promise.all([getJSON(`/admin/v1/alerts${state.all ? '?state=all' : ''}`),
+          getJSON('/admin/v1/stores').then((x) => x.stores).catch(() => null)]);
+        if (stores) { storeCache = {}; stores.forEach((x) => { storeCache[x.code] = x; }); }
+        const sig = String(state.all) + JSON.stringify(j.alerts) + JSON.stringify(stores);
         if (sig === state.sig) return; // không đổi: không vẽ lại
         state.sig = sig;
         state.list = j.alerts;

@@ -132,10 +132,12 @@ func checkWAN(ctx context.Context, tx pgx.Tx, deviceID int64, store string, ip n
 		return nil
 	}
 	var wan *string
-	if err := tx.QueryRow(ctx, `SELECT host(wan_ip) FROM stores WHERE code = $1`, store).Scan(&wan); err != nil {
+	var known bool
+	if err := tx.QueryRow(ctx, `SELECT host(wan_ip), $2::inet = ANY(extra_ips) FROM stores WHERE code = $1`,
+		store, ip.String()).Scan(&wan, &known); err != nil {
 		return err
 	}
-	if wan == nil || *wan == ip.String() {
+	if wan == nil || *wan == ip.String() || known {
 		return nil
 	}
 	return raise(ctx, tx, deviceID, store, "wan_ip_mismatch", "high",
