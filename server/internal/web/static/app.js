@@ -253,7 +253,8 @@
   }
 
   function notifyAlert(a) {
-    const host = a.hostname || a.store_code || '';
+    const st = a.store_code ? storeLabel(a.store_code) : '';
+    const host = a.hostname ? `${a.hostname}${st && st !== a.store_code ? ` (${st})` : ''}` : st;
     const title = `${(SEV[a.severity] || SEV.low)[1]} · ${KIND[a.kind] || a.kind}`;
     const body = [host, alertText(a)].filter(Boolean).join(' — ');
     toast(`${title}${body ? `: ${body}` : ''}`);
@@ -376,13 +377,14 @@
       return;
     }
     // Bộ rule cần ký: không tải được (kho chưa mở) thì bỏ qua, trang vẫn hiện.
-    const ruleList = await getJSON('/admin/v1/rules').then((j) => j.entries).catch(() => []);
+    const [ruleList] = await Promise.all([getJSON('/admin/v1/rules').then((j) => j.entries).catch(() => []), loadStoreCache()]);
     if (page !== view) return;
     setPendingCount(pending.length);
     setAlertCount(alerts);
     setRuleCount(ruleList);
     const sig = JSON.stringify([approved.map((d) => [d.id, d.store_code, d.tn]), pending.length,
-      alerts.map((a) => [a.id, a.severity, a.occurrences]), ruleList.map((e) => [e.name, e.version, e.status])]);
+      alerts.map((a) => [a.id, a.severity, a.occurrences]), ruleList.map((e) => [e.name, e.version, e.status]),
+      Object.values(storeCache).map((x) => [x.code, x.name])]);
     if (soft && sig === softSig.overview) return;
     softSig.overview = sig;
     if (soft) page = swapView();
@@ -533,7 +535,7 @@
 
   function alertItem(a) {
     const click = a.device_id ? ` class="clickable" data-dev="${esc(a.device_id)}" tabindex="0" title="Bấm để xem tình trạng máy"` : '';
-    return `<li${click}>${pill(SEV[a.severity] || SEV.low)}<div class="grow"><div class="title">${esc(KIND[a.kind] || a.kind)} · <span class="mono">${esc(a.hostname || a.store_code || '—')}</span></div><div class="reasons">${reasonsHTML(a, 2)}</div></div><span class="time">${esc(ago(new Date(a.last_at)))}</span></li>`;
+    return `<li${click}>${pill(SEV[a.severity] || SEV.low)}<div class="grow"><div class="title">${esc(KIND[a.kind] || a.kind)} · <span class="mono">${esc(a.hostname || (a.store_code ? storeLabel(a.store_code) : '—'))}</span>${a.hostname && storeCache[a.store_code]?.name ? `<span class="store-tag">${esc(storeLabel(a.store_code))}</span>` : ''}</div><div class="reasons">${reasonsHTML(a, 2)}</div></div><span class="time">${esc(ago(new Date(a.last_at)))}</span></li>`;
   }
 
   // ---------------------------------------------------------------- trang: Báo cáo server
@@ -859,7 +861,16 @@
   }
 
   // ---------------------------------------------------------------- thông tin siêu thị
-  let storeCache = {}; // mã siêu thị → thông tin (trang Máy tải; trang Cảnh báo dùng để hiện tên)
+  let storeCache = {}; // mã siêu thị → thông tin (hiện "mã - tên" ở Tổng quan, Cảnh báo, chi tiết máy, Chờ duyệt)
+  async function loadStoreCache() {
+    try {
+      const list = (await getJSON('/admin/v1/stores')).stores || [];
+      const m = {};
+      list.forEach((x) => { m[x.code] = x; });
+      storeCache = m;
+      return true;
+    } catch { return false; } // chưa có kho thông tin siêu thị: hiện mã như cũ
+  }
   const STORE_PEOPLE = [['manager', 'Quản lý'], ['deputy', 'Phó quản lý'], ['leader', 'Trưởng nhóm'], ['deputy_department', 'Phó phòng']];
   const storeLabel = (code) => {
     const n = storeCache[code] && storeCache[code].name;
@@ -1202,7 +1213,7 @@
     if (!d) return;
     const when = (t) => (t ? `${fmtTime(new Date(t))} (${ago(new Date(t))})` : '—');
     openDrawer(d.hostname, `
-      <div class="drawer-actions">${pill(DEV_STATUS[d.status] || ['', d.status])}${d.store_code ? `<span class="pill no-dot">Siêu thị ${esc(d.store_code)}</span>` : ''}</div>
+      <div class="drawer-actions">${pill(DEV_STATUS[d.status] || ['', d.status])}${d.store_code ? `<span class="pill no-dot">Siêu thị ${esc(storeLabel(d.store_code))}</span>` : ''}</div>
       <section><h3>Thông tin</h3><dl class="kv">
         <dt>Hostname</dt><dd class="mono">${esc(d.hostname)}</dd>
         <dt>Quy ước tên</dt><dd>${d.hostname_ok ? 'Đúng' : `<span class="pill pill-warn no-dot">Sai</span> ${esc(d.hostname_error || '')}`}</dd>
@@ -1426,7 +1437,7 @@
           <div class="req-head"><div><h3 class="mono">${esc(d.hostname)}</h3><span class="sub">${esc(ago(new Date(d.requested_at)))}</span></div>
             ${!d.hostname_ok ? '<span class="pill pill-bad">Hostname sai</span>' : ipOk ? '<span class="pill pill-ok">Đủ điều kiện</span>' : '<span class="pill pill-warn">Cần kiểm tra</span>'}</div>
           <dl class="kv">
-            <dt>Siêu thị</dt><dd>${esc(d.store_code || '—')}</dd>
+            <dt>Siêu thị</dt><dd>${esc(d.store_code ? storeLabel(d.store_code) : '—')}</dd>
             <dt>Vị trí</dt><dd>${esc(position(d))}</dd>
             <dt>Mã khóa</dt><dd class="mono">${esc(d.key_id)}</dd>
             <dt>IP gửi</dt><dd class="mono">${esc(d.enroll_ip)}</dd>
@@ -2585,6 +2596,7 @@
     refreshPendingCount();
     refreshAlertCount();
     refreshRuleCount();
+    loadStoreCache();
     setNotifyButton();
     startLive();
     try {

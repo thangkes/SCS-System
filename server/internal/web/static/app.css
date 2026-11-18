@@ -601,3 +601,4 @@ label.inline input, label.inline select { height: 32px; }
 .imp-mode .check input { margin-top: 3px; }
 .imp-map h3 { margin: 0 0 6px; font-size: 13px; }
 .imp-map select { height: 30px; font-size: 13px; width: 100%; max-width: 240px; }
+.store-tag { margin-left: 8px; font-weight: 400; font-size: 12px; color: var(--muted); }
