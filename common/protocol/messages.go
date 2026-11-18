@@ -145,6 +145,9 @@ type LogEvent struct {
 type Response struct {
 	OK             bool         `json:"ok"`
 	NextPollS      int          `json:"next_poll_s,omitempty"`
+	// NextPollMaxS: agent chờ ngẫu nhiên (theo giây) từ NextPollS tới NextPollMaxS rồi mới gọi tiếp.
+	// 0 = agent tự tính (NextPollS × SpreadMax của agent). Server đổi được khoảng mà không cần bản agent mới.
+	NextPollMaxS int `json:"next_poll_max_s,omitempty"`
 	RuleSetVersion string       `json:"rule_set_version,omitempty"`
 	Update         *UpdateInfo  `json:"update,omitempty"`
 	Config         *AgentConfig `json:"config,omitempty"`

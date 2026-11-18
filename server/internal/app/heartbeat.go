@@ -13,9 +13,13 @@ import (
 	"github.com/thangkes/SCS-System/server/internal/pki"
 )
 
-// heartbeatEvery: nhịp tối thiểu agent gọi về. Agent chờ ngẫu nhiên từ nhịp này tới gấp đôi
-// (5–10 phút) để không dồn cùng lúc; agent bản cũ chờ 5 phút ±20%.
-const heartbeatEvery = 5 * time.Minute
+// heartbeatEvery / heartbeatMax: agent chờ ngẫu nhiên (theo giây) trong khoảng 5–30 phút rồi mới gọi
+// tiếp, để hàng nghìn máy không dồn cùng lúc và giảm tải server. Agent bản cũ không đọc
+// next_poll_max_s nên vẫn chờ 5–10 phút tới khi được cập nhật. SCS_OFFLINE_AFTER phải ≥ 2 × heartbeatMax.
+const (
+	heartbeatEvery = 5 * time.Minute
+	heartbeatMax   = 30 * time.Minute
+)
 
 // authDevice: máy gọi bằng chứng chỉ client (requireClientCert đã kiểm do CA ký) phải còn được
 // duyệt và chứng chỉ phải là chứng chỉ mới nhất đã cấp. Trả mã máy; lỗi thì đã trả lời.
@@ -127,7 +131,7 @@ func heartbeatHandler(d Deps) http.Handler {
 		}
 		activity(d).Heartbeat()
 		resp := protocol.Response{
-			OK: true, NextPollS: int(heartbeatEvery / time.Second), ServerTime: time.Now().UTC(),
+			OK: true, NextPollS: int(heartbeatEvery / time.Second), NextPollMaxS: int(heartbeatMax / time.Second), ServerTime: time.Now().UTC(),
 			Servers: agentServers(d),
 		}
 		d.Servers.Report(id, body.ServersHash, body.ServerURL)

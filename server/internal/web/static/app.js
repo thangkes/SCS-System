@@ -427,7 +427,7 @@
 
   // ---------------------------------------------------------------- khung Server (chỉ xem)
   let lastStats = null;     // số liệu server lần gần nhất (vẽ lại trang không bị trống)
-  let overviewDevices = []; // máy đang hoạt động, để đếm máy gọi về trong 15 phút
+  let overviewDevices = []; // máy đang hoạt động, để đếm máy gọi về trong 30 phút
 
   async function refreshStats() {
     const card = $('#srv-card'); if (!card) return;
@@ -489,7 +489,7 @@
     const memUsed = h.mem_total ? h.mem_total - h.mem_avail : -1;
     const diskUsed = h.disk_total ? h.disk_total - h.disk_free : -1;
     const now = Date.now();
-    const recent = (devices || []).filter((d) => d.last_seen && now - new Date(d.last_seen).getTime() < 15 * 60000).length;
+    const recent = (devices || []).filter((d) => d.last_seen && now - new Date(d.last_seen).getTime() < 30 * 60000).length;
     const since = n.today_since ? new Date(n.today_since) : null;
     const todayLbl = since && (since.getHours() || since.getMinutes()) ? `từ ${since.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}` : 'hôm nay';
     const ifaces = (n.ifaces || []).map((i) => `
@@ -519,7 +519,7 @@
           <div class="srv-grid">
             ${stat('Heartbeat / phút', c.ingest_here ? perMin(c.heartbeats_min) : '—')}
             ${stat('Sự kiện log / phút', c.ingest_here ? perMin(c.log_events_min) : '—')}
-            ${stat('Máy gọi về 15 phút', `${fmtNum(recent)} / ${fmtNum((devices || []).length)}`)}
+            ${stat('Máy gọi về 30 phút', `${fmtNum(recent)} / ${fmtNum((devices || []).length)}`)}
             ${stat('RAM scs-server', fmtBytes(c.rss || -1))}
             ${stat('Dung lượng DB', j.db_size >= 0 ? fmtBytes(j.db_size) : '—')}
             ${stat('scs-server chạy', fmtUptime((now - new Date(c.started).getTime()) / 1000))}
@@ -1723,7 +1723,7 @@
 
   // ---------------------------------------------------------------- trang: Agent (cập nhật + cấu hình)
   // Bản agent server giữ, phát hành cho nhóm thử rồi cho tất cả; cấu hình agent theo cấp
-  // (chung / siêu thị / máy). Agent nhận cả hai qua heartbeat (5–10 phút).
+  // (chung / siêu thị / máy). Agent nhận cả hai qua heartbeat (5–30 phút).
   const splitList = (s) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
 
   async function pageAgent() {
@@ -1787,7 +1787,7 @@
         <p>${testers.map((d) => `<span class="pill no-dot mono">${esc(d.hostname)}</span>`).join(' ') || 'Chưa có máy nào trong nhóm thử.'}</p>
       </div>
       <div class="card">
-        <div class="card-head"><h2>Cấu hình agent</h2><span class="sub">Máy &gt; siêu thị &gt; chung. Agent nhận trong vòng 10 phút</span></div>
+        <div class="card-head"><h2>Cấu hình agent</h2><span class="sub">Máy &gt; siêu thị &gt; chung. Agent nhận trong vòng 30 phút</span></div>
         <div class="form-grid">
           <label class="field full">Dịch vụ cần báo trạng thái, dùng chung cho mọi máy
             <input id="cfg-global" placeholder="pos.service, printer.service" value="${esc((globalCfg?.watch_services || []).join(', '))}"${adminOnly(LV.agentInfo)}>
@@ -1814,7 +1814,7 @@
         <div class="form-actions"><button class="btn btn-sm" id="ov-save"${adminOnly(LV.agentInfo)}>Thêm / sửa ghi đè</button></div>
       </div>
       <div class="card">
-        <div class="card-head"><h2>Nhãn máy (chọn rule)</h2><span class="sub">Gộp theo từng nhãn: chung &lt; siêu thị &lt; máy. Agent nhận trong vòng 10 phút</span></div>
+        <div class="card-head"><h2>Nhãn máy (chọn rule)</h2><span class="sub">Gộp theo từng nhãn: chung &lt; siêu thị &lt; máy. Agent nhận trong vòng 30 phút</span></div>
         <p class="hint">Agent tự biết <span class="mono">role</span> (pri / sec / phu) và <span class="mono">store</span> từ hostname, <span class="mono">os</span> (ví dụ ubuntu-22.04) từ /etc/os-release.
           Nhãn ở đây ghi đè các giá trị đó hoặc thêm nhãn tự do; rule có <span class="mono">applies_to</span> chỉ chạy trên máy có nhãn khớp.</p>
         <div class="table-wrap"><table>
@@ -1858,7 +1858,7 @@
       if (ro2 && !ro2.disabled) {
         const ring = ro2.dataset.rollout, v = ro2.dataset.version;
         const ok = await confirmBox(ring === 'test' ? 'Phát hành cho nhóm thử?' : 'Phát hành cho tất cả máy?',
-          `<p>Bản <strong class="mono">${esc(v)}</strong> sẽ được ${ring === 'test' ? `${fmtNum(testers.length)} máy nhóm thử` : 'mọi máy đã duyệt'} tải về ở lần heartbeat tới (tối đa khoảng 10 phút), kiểm chữ ký rồi tự khởi động lại.</p>`,
+          `<p>Bản <strong class="mono">${esc(v)}</strong> sẽ được ${ring === 'test' ? `${fmtNum(testers.length)} máy nhóm thử` : 'mọi máy đã duyệt'} tải về ở lần heartbeat tới (tối đa khoảng 30 phút), kiểm chữ ký rồi tự khởi động lại.</p>`,
           'Phát hành', ring === 'all');
         if (!ok) return;
         try { await postJSON('/admin/v1/agent/rollout', { ring, version: v }); toast(`Đã phát hành ${v}`); pageAgent(); }
@@ -2102,14 +2102,14 @@
           <div class="card-body"><p class="hint">Agent luôn giữ địa chỉ lúc cài trong danh sách của nó. Khi địa chỉ đó không còn dùng được, agent tự chuyển sang địa chỉ trong danh sách và lần khởi động sau thử địa chỉ gọi được lần cuối trước.</p></div>
         </div>` : ''}
         ${s.pending.length ? `<div class="card">
-          <div class="card-head"><h2>Máy chưa nhận danh sách hiện tại</h2><span class="sub">Nhận ở lần heartbeat kế tiếp (≤ 10 phút)</span></div>
+          <div class="card-head"><h2>Máy chưa nhận danh sách hiện tại</h2><span class="sub">Nhận ở lần heartbeat kế tiếp (≤ 30 phút)</span></div>
           <div class="card-body"><p>${s.pending.map((id) => `<span class="pill no-dot mono">${esc(hosts.get(id) || `#${id}`)}</span>`).join(' ')}</p></div></div>` : ''}
         <div class="card">
           <div class="card-head"><h2>Đổi địa điểm / đổi mạng không mất kết nối</h2></div>
           <div class="card-body">
             <ol class="hint">
               <li>Thêm địa chỉ mới (IP WAN mới hoặc tên miền DDNS) <strong>trước khi</strong> chuyển, lúc agent còn gọi được server.</li>
-              <li>Chờ ô "Đã nhận danh sách hiện tại" gần 100% (mỗi máy nhận ở heartbeat kế tiếp, tối đa khoảng 10 phút).</li>
+              <li>Chờ ô "Đã nhận danh sách hiện tại" gần 100% (mỗi máy nhận ở heartbeat kế tiếp, tối đa khoảng 30 phút).</li>
               <li>Chuyển server sang mạng mới. Agent thấy địa chỉ cũ không gọi được thì tự thử địa chỉ kế tiếp.</li>
               <li>Khi cột "Máy đang dùng" của địa chỉ cũ về 0, gỡ địa chỉ cũ.</li>
             </ol>
@@ -2134,7 +2134,7 @@
           if (!url) { toast('Nhập địa chỉ trước'); return; }
           const { status, j } = await change({ action: 'add', url, note: $('#sv-note').value.trim(), first: $('#sv-first').checked });
           if (status !== 200) throw new Error(j.error || `lỗi ${status}`);
-          toast(`Đã thêm ${url}. Agent nhận trong vòng 10 phút.`);
+          toast(`Đã thêm ${url}. Agent nhận trong vòng 30 phút.`);
         } else if (b.dataset.act === 'remove') {
           const url = b.dataset.url;
           const using = Number(b.dataset.using || 0);
@@ -2304,7 +2304,7 @@
     }
 
     // Gán bộ rule cho máy: cấp cụ thể hơn thắng (máy > siêu thị > tất cả máy). Agent nhận ở heartbeat kế
-    // tiếp (≤ 10 phút), tự tải, kiểm chữ ký, cài rồi quét log theo bộ mới.
+    // tiếp (≤ 30 phút), tự tải, kiểm chữ ký, cài rồi quét log theo bộ mới.
     function assignCard(j) {
       const signed = j.entries.filter((e) => e.status === 'da-ky' && e.bundle).map(ruleKey);
       const hostOf = (id) => (state.devices || []).find((d) => String(d.id) === String(id))?.hostname || `máy #${id}`;
@@ -2313,7 +2313,7 @@
         <td class="hide-sm">${a.updated_at ? esc(fmtTime(new Date(a.updated_at))) : ''}${a.updated_by ? ` · ${esc(a.updated_by)}` : ''}</td>
         <td><button class="btn btn-sm btn-danger" data-unassign="${esc(a.scope)}" data-key="${esc(a.key)}"${adminOnly(LV.rules)}>Bỏ gán</button></td></tr>`).join('');
       return `<div class="card">
-        <div class="card-head"><h2>Áp dụng bộ rule cho máy</h2><span class="sub">Máy &gt; siêu thị &gt; tất cả máy. Agent nhận trong vòng 10 phút</span></div>
+        <div class="card-head"><h2>Áp dụng bộ rule cho máy</h2><span class="sub">Máy &gt; siêu thị &gt; tất cả máy. Agent nhận trong vòng 30 phút</span></div>
         <div class="table-wrap"><table><thead><tr><th>Cấp</th><th>Bộ rule</th><th class="hide-sm">Gán lúc · bởi</th><th></th></tr></thead>
           <tbody>${rows || '<tr><td colspan="4" class="empty">Chưa gán bộ nào: agent giữ bộ đang cài (nếu có).</td></tr>'}</tbody></table></div>
         <div class="card-body">
@@ -2391,7 +2391,7 @@
           const set = $('#as-set').value;
           const where = scope === 'global' ? 'mọi máy' : scope === 'store' ? `siêu thị ${key}` : $('#as-dev').selectedOptions[0].textContent;
           if (!(await confirmBox(`Áp dụng ${set}?`,
-            `<p>Bộ <span class="mono">${esc(set)}</span> sẽ được cài cho <strong>${esc(where)}</strong> ở heartbeat kế tiếp (≤ 10 phút),
+            `<p>Bộ <span class="mono">${esc(set)}</span> sẽ được cài cho <strong>${esc(where)}</strong> ở heartbeat kế tiếp (≤ 30 phút),
              thay bộ đang cài trên các máy đó (cấp cụ thể hơn vẫn thắng).</p>`, 'Áp dụng'))) return;
           await postJSON('/admin/v1/rules/assign', { scope, key, rule_set: set });
           toast(`Đã gán ${set} cho ${where}`);

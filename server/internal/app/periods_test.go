@@ -143,8 +143,8 @@ func TestPeriodsThroughHandlers(t *testing.T) {
 		t.Fatalf("xử lý giai đoạn OK phải bị từ chối: %d", rec.Code)
 	}
 
-	// Kiểm định kỳ: quá 30 phút không nghe máy → mất liên lạc (kèm cảnh báo), máy gửi lại thì tự đóng.
-	if n, _ := reg.PeriodTick(context.Background(), time.Now().Add(40*time.Minute)); n != 1 {
+	// Kiểm định kỳ: quá 60 phút không nghe máy → mất liên lạc (kèm cảnh báo), máy gửi lại thì tự đóng.
+	if n, _ := reg.PeriodTick(context.Background(), time.Now().Add(70*time.Minute)); n != 1 {
 		t.Fatalf("tick: %d", n)
 	}
 	if tl = timelineOf(t, reg, id); tl.Periods[0].Kind != periods.KindOffline {

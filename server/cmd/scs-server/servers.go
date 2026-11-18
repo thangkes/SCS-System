@@ -19,7 +19,7 @@ const serversUsage = `scs-server servers - danh sách địa chỉ server gửi 
   servers set URL[,URL...]                  thay cả danh sách (ghi đè được file hỏng)
 
   Server đang chạy tự đọc lại file trong vài giây, không phải khởi động lại. Agent nhận danh sách ở
-  heartbeat kế tiếp (≤ 10 phút). Số máy đã nhận / đang dùng từng địa chỉ xem trên web, trang "Địa chỉ server".
+  heartbeat kế tiếp (≤ 30 phút). Số máy đã nhận / đang dùng từng địa chỉ xem trên web, trang "Địa chỉ server".
   Đổi mạng: thêm địa chỉ mới TRƯỚC, chờ agent nhận, chuyển mạng, rồi mới gỡ địa chỉ cũ.
 
   Mọi lệnh nhận -env-file FILE (mặc định ./.env) và -file FILE (mặc định SCS_AGENT_SERVERS_FILE).
@@ -116,7 +116,7 @@ func runServers(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, line)
 	}
 	if sub != "list" {
-		fmt.Fprintln(stdout, "Đã lưu. Agent nhận ở heartbeat kế tiếp (≤ 10 phút); xem số máy đã nhận trên web, trang \"Địa chỉ server\".")
+		fmt.Fprintln(stdout, "Đã lưu. Agent nhận ở heartbeat kế tiếp (≤ 30 phút); xem số máy đã nhận trên web, trang \"Địa chỉ server\".")
 	}
 	return 0
 }

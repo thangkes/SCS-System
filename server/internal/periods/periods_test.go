@@ -118,11 +118,11 @@ func TestHighAutoClose(t *testing.T) {
 func TestOffline(t *testing.T) {
 	var tl timeline
 	tl.seen(t, at(0, 0))
-	tl.tick(t, at(0, 0), at(0, 29))
+	tl.tick(t, at(0, 0), at(0, 59))
 	if tl.cur.Kind != KindOK || tl.offline != 0 {
-		t.Fatal("chưa quá 30 phút")
+		t.Fatal("chưa quá 60 phút")
 	}
-	tl.tick(t, at(0, 0), at(0, 31))
+	tl.tick(t, at(0, 0), at(1, 1))
 	if tl.cur.Kind != KindOffline || tl.offline != 1 || tl.closed[0].EndedAt != at(0, 0) || tl.cur.StartedAt != at(0, 0) {
 		t.Fatalf("mất liên lạc: %+v %+v", tl.cur, tl.closed)
 	}
@@ -137,7 +137,7 @@ func TestOffline(t *testing.T) {
 func TestOfflineDuringAlert(t *testing.T) {
 	var tl timeline
 	tl.events(t, at(0, 0), ev("A", "critical", at(0, 0)))
-	tl.tick(t, at(0, 0), at(1, 0))
+	tl.tick(t, at(0, 0), at(1, 1))
 	if tl.cur.Kind != KindAlert || tl.cur.OfflineSince != at(0, 0) || tl.offline != 1 || len(tl.closed) != 0 {
 		t.Fatalf("%+v", tl.cur)
 	}

@@ -416,7 +416,7 @@ do_servers() {
 		echo
 		servers_cmd list || return 0
 		echo
-		echo "  ${C_DIM}Đổi địa điểm / đổi mạng: thêm địa chỉ mới TRƯỚC khi chuyển, chờ agent nhận (≤ 10 phút; web,${C_0}"
+		echo "  ${C_DIM}Đổi địa điểm / đổi mạng: thêm địa chỉ mới TRƯỚC khi chuyển, chờ agent nhận (≤ 30 phút; web,${C_0}"
 		echo "  ${C_DIM}trang \"Địa chỉ server\" cho biết bao nhiêu máy đã nhận), chuyển mạng, rồi mới gỡ địa chỉ cũ.${C_0}"
 		echo "  ${C_DIM}Không phải cấp lại chứng chỉ, không phải khởi động lại server.${C_0}"
 		echo

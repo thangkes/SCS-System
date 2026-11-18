@@ -283,6 +283,12 @@ if [[ -d "$PKI_DIR" ]]; then
 	set_env SCS_RELEASE_KEY "$PKI_DIR/release.key"
 	install -o root -g root -m 644 "$PKI_DIR/release.pub" "$ETC_DIR/agent-release.pub"
 fi
+# Agent gọi về ngẫu nhiên 5–30 phút (từ 2026-11-18): hạn mất liên lạc cũ 30m (mặc định trước đây, có sẵn
+# trong .env) sẽ báo mất liên lạc oan, đổi sang 60m. Giá trị khác do admin tự đặt thì giữ nguyên.
+if [[ "$(env_value "$ENV_FILE" SCS_OFFLINE_AFTER)" == "30m" ]]; then
+	set_env SCS_OFFLINE_AFTER 60m
+	ok "SCS_OFFLINE_AFTER: 30m → 60m (agent gọi về 5–30 phút một lần)"
+fi
 [[ -n "$(env_value "$ENV_FILE" SCS_AGENT_DIST)" ]] || set_env SCS_AGENT_DIST "$OPT_DIR/agent"
 [[ -n "$(env_value "$ENV_FILE" SCS_AGENT_RELEASES)" ]] || set_env SCS_AGENT_RELEASES "$DATA_DIR/agent-releases"
 # Thư mục cụm luôn ghi đường dẫn tuyệt đối: lệnh "scs-server cluster ..." gõ tay từ thư mục khác

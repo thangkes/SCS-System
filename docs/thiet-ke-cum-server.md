@@ -249,7 +249,7 @@ Không đưa vào nhật ký quyết định: thay đổi quá nhiều (mỗi m�
   ```
   chỉ gồm các máy thay đổi từ bản trước, kèm một bản đầy đủ mỗi giờ.
 - Mỗi node lưu, với từng máy, **bản mới nhất theo `last_seen`** trong các bản tóm tắt nhận được.
-- **Máy online** nếu có node nào thấy máy trong 30 phút gần nhất (3 nhịp heartbeat 5–10 phút). **Máy offline** khi **không node nào** thấy. Máy đã chuyển kênh thì node mới thấy nó, nên không bị báo offline oan.
+- **Máy online** nếu có node nào thấy máy trong 60 phút gần nhất (`SCS_OFFLINE_AFTER`, 2 nhịp heartbeat 5–30 phút). **Máy offline** khi **không node nào** thấy. Máy đã chuyển kênh thì node mới thấy nó, nên không bị báo offline oan.
 - **Trạng thái siêu thị** là tổng hợp từ các máy của siêu thị đó, tính tại mỗi node từ cùng dữ liệu, nên mọi web hiện giống nhau.
 - **Chống giả:** bản tóm tắt phải có chữ ký của node gửi, node đó đang hoạt động, `seq` tăng dần. Một node bị hack chỉ khai sai được về **các máy đang gửi về nó**; cô lập node đó thì dữ liệu của nó bị bỏ.
 

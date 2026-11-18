@@ -100,7 +100,7 @@ func TestPeriodsOnPostgres(t *testing.T) {
 		t.Fatal("dòng cảnh báo phải được đóng cùng giai đoạn")
 	}
 	// Mất liên lạc: đẩy giờ heartbeat cuối về quá khứ rồi kiểm định kỳ.
-	if _, err := pool.Exec(ctx, `UPDATE device_status SET received_at = now() - interval '1 hour' WHERE device_id = $1`, id); err != nil {
+	if _, err := pool.Exec(ctx, `UPDATE device_status SET received_at = now() - interval '2 hours' WHERE device_id = $1`, id); err != nil {
 		t.Fatal(err)
 	}
 	if n, err := g.PeriodTick(ctx, time.Now()); err != nil || n != 1 {

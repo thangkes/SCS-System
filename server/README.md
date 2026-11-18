@@ -180,7 +180,7 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
 
 - Sự kiện `info` / `low` / `medium` cộng vào giai đoạn đang mở; `high` / `critical` đóng OK, mở **cảnh báo**.
 - Cảnh báo high tự đóng sau `SCS_ALERT_AUTOCLOSE` (mặc định 24h) không có sự kiện nặng mới; đã lên critical thì chỉ
-  admin đóng (web: **Đã xử lý**). Quá `SCS_OFFLINE_AFTER` (30m; agent gọi về ngẫu nhiên 5–10 phút) không nghe máy: **mất liên lạc**, tự đóng khi máy gửi lại.
+  admin đóng (web: **Đã xử lý**). Quá `SCS_OFFLINE_AFTER` (60m; agent gọi về ngẫu nhiên 5–30 phút, tính theo giây) không nghe máy: **mất liên lạc**, tự đóng khi máy gửi lại.
 - Agent gửi sự kiện qua `POST /v1/logs` (lô đã ký, tối đa 500 sự kiện; high / critical sau vài giây, còn lại mỗi phút). Tiến trình `worker`
   (hoặc `all`) kiểm mỗi phút.
 - API web: `GET /admin/v1/devices/{id}/periods`, `POST /admin/v1/periods/{id}/resolve`.
@@ -215,7 +215,7 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
   từng máy); tìm theo hostname thì tự mở siêu thị chứa máy đó.
 - **Tổng quan → khung Server** (chỉ xem, không có nút thao tác), tự cập nhật 10 giây: từng card mạng (IP, tốc độ
   nhận / gửi, lưu lượng từ 0 giờ), số kết nối agent đang mở; CPU, RAM, ổ chứa thư mục dữ liệu (thanh vàng từ 70%,
-  đỏ từ 90%), thời gian máy chạy; heartbeat / phút, sự kiện log / phút, số máy gọi về trong 15 phút, RAM scs-server,
+  đỏ từ 90%), thời gian máy chạy; heartbeat / phút, sự kiện log / phút, số máy gọi về trong 30 phút, RAM scs-server,
   dung lượng DB. API `GET /admin/v1/server/stats` (mức Chỉ xem). Server đọc `/proc` mỗi 10 giây trong RAM, không ghi
   DB; dung lượng DB hỏi tối đa mỗi phút một lần. Số heartbeat / kết nối agent chỉ có khi chạy `scs-server all`
   (cổng agent cùng tiến trình, cách menu cài); số đếm về 0 khi khởi động lại.
