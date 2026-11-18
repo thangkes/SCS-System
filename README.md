@@ -70,8 +70,8 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 | Gia hạn chứng chỉ máy (90 ngày), kiểm nonce chống gửi lại gói | Chưa có |
 | Tăng cứng thêm web quản trị khi mở ra Internet: mã SSH vẫn khóa chung toàn hệ thống khi bị dò (chưa khóa riêng từng IP), chứng chỉ tự ký | Chưa có |
 
-Chưa chạy trên Ubuntu thật: migration 0003–0004 và 0007 (nhãn máy, lưu theo giai đoạn, tài khoản), gửi mail qua Gmail,
-kho rule, cụm, menu mục 12–16.
+Chưa chạy trên Ubuntu thật: migration 0003–0004 và 0007–0009 (nhãn máy, lưu theo giai đoạn, tài khoản, thông tin siêu
+thị, lịch sử thông số server), gửi mail qua Gmail, kho rule, cụm, menu mục 12–17.
 
 ## Cụm nhiều server (đang làm)
 

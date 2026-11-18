@@ -108,6 +108,12 @@ SCS_OFFLINE_AFTER=30m     # không nghe máy gửi gì bấy lâu thì báo mấ
 
 Xem dòng thời gian của máy: web, trang **Máy** → bấm mã siêu thị (viền đỏ / vàng / xanh theo sự cố) để xổ danh sách → bấm vào máy. Đóng sự cố: trang **Cảnh báo** → **Đã xử lý**.
 
+Thông tin siêu thị (tên, tổ chức, IP, người phụ trách, ghi chú): trang **Máy** → bấm mã siêu thị → **Sửa thông tin siêu
+thị** (mức 6), hoặc nạp hàng loạt bằng **Nạp thông tin từ file** (.xlsx / .csv, có ghép cột, chế độ Bổ sung / Ghi đè, xem
+trước; mức 2 trở lên). Báo cáo vận hành server (CPU, RAM, ổ đĩa, băng thông, heartbeat theo giờ / ngày, xuất Excel / CSV,
+in PDF): trang **Báo cáo server**; giữ số liệu `SCS_METRICS_KEEP` (mặc định 90 ngày, ví dụ `SCS_METRICS_KEEP=4320h` = 180
+ngày).
+
 ### 1.5 Sau khi cài
 
 ```bash

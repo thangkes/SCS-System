@@ -165,7 +165,8 @@ binary, `internal/store/migrations/`); DB chưa lên thì thử lại mỗi 5 gi
 | `alerts` | cảnh báo hiện trên web (giai đoạn cảnh báo, mất liên lạc, máy chờ duyệt, hostname sai, IP lạ) | 60 ngày |
 | `agent_releases`, `agent_rollout`, `agent_config` | bản agent, nhóm phát hành, cấu hình / nhãn máy 3 cấp | lâu dài |
 | `accounts` | tài khoản web quản trị: tên đăng nhập, email, trạng thái (chờ duyệt / hoạt động / khóa), mức quyền 1–7, ai duyệt, lần đăng nhập cuối. Không có mật khẩu, không lưu mã | lâu dài |
-| `audit` | nhật ký thao tác, chỉ ghi thêm (cả đăng ký, duyệt, đổi quyền, xóa tài khoản) | lâu dài |
+| `server_metrics` | thông số máy server mỗi phút: CPU, RAM, ổ đĩa, lưu lượng mạng, heartbeat, dung lượng DB (trang Báo cáo server) | `SCS_METRICS_KEEP`, mặc định 90 ngày |
+| `audit` | nhật ký thao tác, chỉ ghi thêm (cả đăng ký, duyệt, đổi quyền, xóa tài khoản, sửa / nạp thông tin siêu thị) | lâu dài |
 
 Mọi máy đăng ký đều chờ admin duyệt. Ràng buộc nằm trong DB: hostname hợp lệ phải đúng quy ước PRI/SEC, mỗi vị trí
 TN trong siêu thị và mỗi hostname chỉ một máy đang hoạt động, mỗi gói có nonce (gửi lại không ghi trùng).
@@ -353,5 +354,6 @@ Giao diện nằm trong
 `internal/web/static/` (HTML/CSS/JS thuần, nhúng vào binary bằng `go:embed`, không cần Node).
 Có CSP chặt: không script/style inline, không tải gì từ nguồn ngoài.
 
-Trang **Hệ thống** dùng dữ liệu thật (`/healthz`, `/readyz`). Các trang Tổng quan, Máy, Cảnh báo,
-Chờ duyệt, Token đang dùng **dữ liệu mẫu** (có ghi rõ trên trang) cho tới khi admin API xong (M6).
+Mọi trang dùng dữ liệu thật từ API quản trị: Tổng quan, Máy, Cảnh báo, Báo cáo server, Chờ duyệt, Agent, Rule quét log,
+Địa chỉ server, Cụm server, Tài khoản, Hệ thống. Chưa có trang chi tiết trạng thái máy theo thời gian (M6, chờ agent gửi
+trạng thái máy — A2).
