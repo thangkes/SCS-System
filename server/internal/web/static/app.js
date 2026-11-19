@@ -709,6 +709,8 @@
 
   // ---------------------------------------------------------------- sức khỏe máy (agent gửi trạng thái máy)
   // health = { level: ok | warn | bad, issues: [{code, severity, text}] } do server tính; null = agent chưa gửi.
+  // Sức khỏe TÁCH khỏi cảnh báo: không tô viền siêu thị, không vào trang Cảnh báo — chỉ cột Sức khỏe, ô lọc,
+  // thẻ Tình trạng máy và ô đếm ở Tổng quan.
   const HEALTH_TXT = { ok: ['pill-ok', 'Tốt'], warn: ['pill-warn', 'Cần chú ý'], bad: ['pill-bad', 'Nguy hiểm'] };
   const healthOf = (d) => (d && d.health && HEALTH_TXT[d.health.level] ? d.health : null);
   function healthCell(d) {
@@ -825,8 +827,6 @@
           if (a.device_id) byDev[a.device_id] = worst(byDev[a.device_id] || 'ok', l);
           else if (a.store_code && a.kind !== 'enroll_request') byStore[a.store_code] = worst(byStore[a.store_code] || 'ok', l);
         });
-        // Sức khỏe máy hiện tại (ổ đầy, RAID hỏng, dịch vụ dừng…) cũng tô màu, kể cả khi cảnh báo đã đóng.
-        state.list.forEach((d) => { const h = healthOf(d); if (h && h.level !== 'ok') byDev[d.id] = worst(byDev[d.id] || 'ok', h.level); });
       }
       const pendingBy = {};
       if (colored) state.pending.forEach((d) => { const k = d.store_code || ''; pendingBy[k] = (pendingBy[k] || 0) + 1; });

@@ -13,11 +13,12 @@ import (
 // Sức khỏe máy tính từ trạng thái agent gửi trong heartbeat (mốc A2).
 //
 // Mỗi vấn đề có mã (ví dụ "disk_full:/var") và mức. Máy: ok (không có vấn đề), warn (chỉ mức medium), bad
-// (có high / critical). Vấn đề MỚI xuất hiện (hoặc tăng mức) được ghi thành sự kiện "may.<mã>" vào giai
-// đoạn của máy — mở cảnh báo, hiện thông báo trên web như sự kiện log. Trạng thái hiện tại (vấn đề đang còn)
-// luôn hiện ở trang Máy; hết vấn đề thì tự xóa khỏi trạng thái.
+// (có high / critical). Sức khỏe TÁCH khỏi cảnh báo: không ghi sự kiện, không mở giai đoạn cảnh báo, không tô
+// viền siêu thị — chỉ hiện ở thẻ Tình trạng máy, cột Sức khỏe (trang Máy) và ô đếm ở Tổng quan; hết vấn đề thì
+// tự về Tốt. (Bản 6963dd3 từng ghi sự kiện "may.<mã>"; migration 0017 đóng các cảnh báo chỉ gồm sự kiện đó.)
 
-// HealthPrefix: tiền tố mã rule của sự kiện sức khỏe máy trong giai đoạn / cảnh báo.
+// HealthPrefix: tiền tố mã rule của sự kiện sức khỏe máy trong giai đoạn cũ (bản 6963dd3; nay không ghi nữa,
+// giữ để hiện tiêu đề trong lịch sử).
 const HealthPrefix = "may."
 
 // Ngưỡng (đổi được khi test).
@@ -155,21 +156,6 @@ func sevRank(s string) int {
 		return 1
 	}
 	return 0
-}
-
-// NewHealthIssues: vấn đề có trong cur mà prev chưa có, hoặc tăng mức — ghi thành sự kiện.
-func NewHealthIssues(prev, cur []HealthIssue) []HealthIssue {
-	old := map[string]int{}
-	for _, p := range prev {
-		old[p.Code] = sevRank(p.Severity)
-	}
-	var out []HealthIssue
-	for _, c := range cur {
-		if r, ok := old[c.Code]; !ok || sevRank(c.Severity) > r {
-			out = append(out, c)
-		}
-	}
-	return out
 }
 
 // HealthTitle: tiêu đề hiển thị của sự kiện sức khỏe "may.<mã>" (trang Cảnh báo, dòng thời gian).

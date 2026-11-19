@@ -92,19 +92,6 @@ func TestLowMemStreak(t *testing.T) {
 	}
 }
 
-// Chỉ vấn đề mới hoặc tăng mức mới ghi thành sự kiện.
-func TestNewHealthIssues(t *testing.T) {
-	prev := []HealthIssue{{Code: "disk_full:/", Severity: "high"}, {Code: "time", Severity: "medium"}}
-	cur := []HealthIssue{{Code: "disk_full:/", Severity: "critical"}, {Code: "time", Severity: "medium"}, {Code: "raid:md0", Severity: "critical"}}
-	n := NewHealthIssues(prev, cur)
-	if len(n) != 2 || n[0].Code != "disk_full:/" || n[1].Code != "raid:md0" {
-		t.Fatalf("mới: %+v", n)
-	}
-	if len(NewHealthIssues(cur, cur)) != 0 || len(NewHealthIssues(cur, nil)) != 0 {
-		t.Fatal("không đổi / hết vấn đề: không có sự kiện")
-	}
-}
-
 func TestHealthTitle(t *testing.T) {
 	for id, want := range map[string]string{"may.disk_full:/var": "Phân vùng /var sắp đầy", "may.io_err:sda": "Ổ sda có lỗi I/O",
 		"may.svc:pos.service": "Dịch vụ pos.service không chạy", "ssh-brute": ""} {

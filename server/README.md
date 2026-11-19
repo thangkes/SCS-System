@@ -224,14 +224,14 @@ chấm sức khỏe — **Tốt** (không vấn đề), **Cần chú ý** (chỉ
 | Đồng hồ chưa đồng bộ NTP | trung bình |
 | RAM còn dưới 5% liên tiếp 3 heartbeat | trung bình |
 
-- Lưu ở `device_status.health` (migration 0016), ghi đè mỗi heartbeat; agent không gửi trạng thái thì giữ giá trị cũ.
-- **Vấn đề mới xuất hiện** (hoặc tăng mức) được ghi thành sự kiện `may.<mã>` vào giai đoạn của máy, giống sự kiện log:
-  mức cao / nghiêm trọng mở cảnh báo, hiện thông báo trên web; vấn đề còn nguyên ở các heartbeat sau không ghi thêm.
-  Hết vấn đề thì trạng thái sức khỏe tự về Tốt; cảnh báo đóng theo luật giai đoạn (cao tự đóng sau 24 giờ yên,
-  nghiêm trọng chờ admin bấm "Đã xử lý").
+- Lưu ở `device_status.health` (migration 0016), ghi đè mỗi heartbeat; agent không gửi trạng thái thì giữ giá trị cũ;
+  hết vấn đề thì tự về Tốt.
+- **Tách khỏi cảnh báo**: sức khỏe không ghi sự kiện, không mở giai đoạn cảnh báo, không vào trang Cảnh báo, không tô
+  viền siêu thị (viền vẫn chỉ theo cảnh báo log / mất liên lạc). Bản 6963dd3 từng ghi vấn đề sức khỏe thành sự kiện
+  `may.<mã>`; migration 0017 đóng các cảnh báo đang mở chỉ gồm sự kiện đó (cảnh báo có lẫn sự kiện log giữ nguyên).
 - Web: chi tiết máy có thẻ **Tình trạng máy** (vấn đề, RAM / swap / từng phân vùng, ổ vật lý + lỗi I/O, RAID, dịch vụ,
-  NTP, phần không đọc được); trang **Máy** có cột **Sức khỏe**, ô "Chỉ máy có vấn đề sức khỏe", viền siêu thị tính cả
-  sức khỏe; **Tổng quan** có ô đếm và danh sách máy có vấn đề.
+  NTP, phần không đọc được); trang **Máy** có cột **Sức khỏe** và ô "Chỉ máy có vấn đề sức khỏe"; **Tổng quan** có ô
+  đếm và danh sách máy có vấn đề.
 - Chưa đọc **SMART** (cần quyền raw với ổ, agent chạy user thường).
 
 ## Thông báo bản server mới (chỉ đề xuất)

@@ -246,21 +246,14 @@ func (g *Registry) RecordHeartbeat(ctx context.Context, id int64, h app.Heartbea
 			return err
 		}
 		var oldSig *string
-		var oldHealth []byte
-		err = tx.QueryRow(ctx, `SELECT sig, health FROM device_status WHERE device_id = $1 FOR UPDATE`, id).Scan(&oldSig, &oldHealth)
+		err = tx.QueryRow(ctx, `SELECT sig FROM device_status WHERE device_id = $1 FOR UPDATE`, id).Scan(&oldSig)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
 		}
+		// Sức khỏe máy chỉ lưu để hiển thị (thẻ Tình trạng máy, cột Sức khỏe), KHÔNG tạo cảnh báo.
 		var healthJSON any
-		var newIssues []app.HealthIssue
 		if h.Health != nil {
-			b, _ := json.Marshal(h.Health)
-			healthJSON = b
-			var prev app.Health
-			if len(oldHealth) > 0 {
-				_ = json.Unmarshal(oldHealth, &prev)
-			}
-			newIssues = app.NewHealthIssues(prev.Issues, h.Health.Issues)
+			healthJSON, _ = json.Marshal(h.Health)
 		}
 		var status any
 		if h.Status != nil {
@@ -289,20 +282,7 @@ func (g *Registry) RecordHeartbeat(ctx context.Context, id int64, h app.Heartbea
 				return err
 			}
 		}
-		now := time.Now()
-		if cur, err = applyPeriod(ctx, tx, cur, periods.Seen(cur, id, now)); err != nil {
-			return err
-		}
-		// Vấn đề sức khỏe mới (hoặc tăng mức): ghi thành sự kiện "may.<mã>" như sự kiện log — mở cảnh báo
-		// (high / critical), hiện thông báo trên web.
-		if len(newIssues) > 0 {
-			evs := make([]periods.Event, 0, len(newIssues))
-			for _, is := range newIssues {
-				evs = append(evs, periods.Event{RuleID: app.HealthPrefix + is.Code, Severity: is.Severity, Count: 1,
-					First: now, Last: now, Sample: is.Text})
-			}
-			_, err = applyPeriod(ctx, tx, cur, periods.AddEvents(cur, id, evs, now))
-		}
+		_, err = applyPeriod(ctx, tx, cur, periods.Seen(cur, id, time.Now()))
 		return err
 	})
 }
