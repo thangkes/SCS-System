@@ -117,6 +117,9 @@ Ví dụ 5.000 máy, heartbeat ngẫu nhiên 5–30 phút (trung bình 17,5 phú
 `device_status_changes` và `device_periods` mỗi phút. Cách cũ là thêm khoảng 17 dòng mới / giây vào
 `heartbeats` cộng mỗi sự kiện một dòng, rồi phải nén và xóa theo ngày.
 
+**Đo thật (19/11/2026, khoảng 150 máy):** 5–15 heartbeat / phút (tính toán ≈ 8,6), CPU máy server 1–5%,
+RAM `scs-server` 25–35 MB, DB 13 MB.
+
 ## 10. Giữ dữ liệu
 
 - `device_periods`, `device_status_changes`: xóa khi **đã đóng hơn 60 ngày** (quy tắc 60 ngày của dự án).

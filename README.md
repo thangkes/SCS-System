@@ -11,7 +11,8 @@ và sự kiện log về **SCS-Server**; admin duyệt máy và theo dõi trên 
 and matched log events to SCS-Server, where admins approve machines and watch alerts on a web console.
 Code comments and docs are in Vietnamese.*
 
-> Trạng thái: đang phát triển (giai đoạn 1). Chưa dùng cho môi trường thật.
+> Trạng thái: giai đoạn 1, **đang chạy thật** từ 11/2026 (khoảng 150 máy, xem [số đo thực tế](#số-đo-thực-tế)).
+> Vẫn đang phát triển tiếp.
 > Đang chuyển sang **cụm nhiều server ngang hàng**: thiết kế đã chốt ở
 > [docs/thiet-ke-cum-server.md](docs/thiet-ke-cum-server.md). Đã có mốc C1 (khóa node, cổng 5222,
 > `scs-server cluster init | status | ping | join`), phần lõi C2 (đề nghị, ký quá nửa, bắt kịp nhật ký) và C3
@@ -64,24 +65,37 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 | **Lưu theo giai đoạn**: trạng thái máy (chỉ ghi khi đổi đáng kể), cảnh báo high tự đóng sau 24 giờ, critical chỉ admin đóng, mất liên lạc sau 60 phút (agent gọi về ngẫu nhiên 5–30 phút một lần, tính theo giây) tự đóng khi máy gửi lại; dòng thời gian từng máy trên web; cổng nhận sự kiện `POST /v1/logs` | Đã có phía server |
 | **Thông báo tức thời trên web** (không dùng dịch vụ ngoài): số trên thanh bên và trang đang xem tự cập nhật, cảnh báo mới hiện góc màn hình; bật nút chuông thì thêm thông báo hệ điều hành và tiếng báo cho mức cao / nghiêm trọng / mất liên lạc. Cần mở ít nhất một tab web | Đã có |
 | **Bộ rule đã áp dụng trên từng máy**: agent báo bộ đang cài (tên, phiên bản, SHA-256, chữ ký đúng / lỗi, số rule chạy trên máy) trong heartbeat; web hiện ở trang Máy, chi tiết máy, và số máy đang dùng mỗi bộ ở trang Rule. Cần agent bản mới | Đã có |
-| **Tài khoản web quản trị bằng Gmail và 8 mức quyền**: đăng ký → mã xác minh về mail → quản trị gốc (mã SSH) duyệt và đặt mức 1–7 (cụm server, rule, agent + bản cập nhật, địa chỉ server, xác nhận sự cố, thông tin agent, chỉ xem); đăng nhập bằng mã gửi về mail (5 phút, nhập một lần); trang **Tài khoản**; tên đăng ký chỉ chữ số; quản trị gốc đặt thời gian sống phiên (1 giờ – 15 ngày, mặc định 24 giờ) và số phiên cùng lúc (1 – 20, mặc định 4) cho từng tài khoản. Cần Gmail gửi mã (`SCS_SMTP_*`) | Đã có, chưa chạy thật trên Ubuntu |
+| **Tài khoản web quản trị bằng Gmail và 8 mức quyền**: đăng ký → mã xác minh về mail → quản trị gốc (mã SSH) duyệt và đặt mức 1–7 (cụm server, rule, agent + bản cập nhật, địa chỉ server, xác nhận sự cố, thông tin agent, chỉ xem); đăng nhập bằng mã gửi về mail (5 phút, nhập một lần); trang **Tài khoản**; tên đăng ký chỉ chữ số; quản trị gốc đặt thời gian sống phiên (1 giờ – 15 ngày, mặc định 24 giờ) và số phiên cùng lúc (1 – 20, mặc định 4) cho từng tài khoản. Cần Gmail gửi mã (`SCS_SMTP_*`) | Đã có, đã lên server thật |
 | **Trang Máy gom theo mã siêu thị**, viền màu theo máy tệ nhất: đỏ = cần xử lý (cảnh báo nghiêm trọng, mất liên lạc), vàng = đang chờ xử lý (cảnh báo khác đang mở, máy chờ duyệt), xanh = OK; bấm mã siêu thị để xổ danh sách máy. **Tổng quan có khung Server** (chỉ xem): tốc độ / lưu lượng mạng, CPU, RAM, ổ đĩa, heartbeat và sự kiện mỗi phút, kết nối agent, dung lượng DB | Đã có |
-| **Thông tin siêu thị** trên web: tên, tổ chức, nhiều IP WAN, quản lý / phó quản lý / trưởng nhóm / phó phòng, ghi chú; tìm kiếm theo các trường này. **Cảnh báo hiện lý do** (rule, dòng log), bấm mở tình trạng máy | Đã có, chưa chạy thật trên Ubuntu |
-| **Báo cáo server**: lưu thông số mỗi phút (CPU, RAM, ổ đĩa, băng thông, heartbeat, DB) 90 ngày; trang báo cáo có biểu đồ, bảng 20 dòng mới nhất (đủ số liệu trong file xuất), xuất Excel / CSV, in PDF. **Nạp thông tin siêu thị từ file .xlsx / .csv** có xem trước | Đã có, chưa chạy thật trên Ubuntu |
-| **Duyệt tự động** máy mới (công tắc ở trang Chờ duyệt, mặc định tắt, mức Agent): đủ 4 điều kiện (hostname đúng quy ước, siêu thị có trong dữ liệu đã nạp, gửi từ IP WAN của siêu thị, không trùng máy đang hoạt động) thì duyệt ngay; thiếu thì chờ người duyệt, lý do hiện trên thẻ máy; nạp thông tin xong thì lần hỏi lại kế tiếp được duyệt | Đã có, chưa chạy thật trên Ubuntu |
-| **Giảm tải server**: agent gọi heartbeat ngẫu nhiên 5–30 phút (theo giây, server đặt khoảng bằng `next_poll_max_s`); mất liên lạc sau 60 phút (`SCS_OFFLINE_AFTER`, cập nhật server tự đổi 30m cũ sang 60m). Agent bản cũ vẫn 5–10 phút tới khi cập nhật | Đã có, chưa chạy thật trên Ubuntu |
-| **Phân lượt mọi lần tải**: tối đa 4 máy tải cùng lúc (`SCS_DOWNLOAD_SLOTS`) — bản agent, bộ rule, cả chứng chỉ máy mới hòa mạng — tổng ≤ 20 Mbit/s (`SCS_DOWNLOAD_MBPS`); máy chưa tới lượt chạy cái đang có (máy mới: vẫn chờ duyệt), xin lại ở lần gọi sau. **Trang Agent có thống kê**: số máy / % đã lên bản mới, biểu đồ tiến độ kèm dự kiến xong, lượt tải đang dùng, máy báo lỗi tải, phân bố phiên bản, tình trạng bộ rule, bảng theo trạng thái máy | Đã có, chưa chạy thật trên Ubuntu |
+| **Thông tin siêu thị** trên web: tên, tổ chức, nhiều IP WAN, quản lý / phó quản lý / trưởng nhóm / phó phòng, ghi chú; tìm kiếm theo các trường này. **Cảnh báo hiện lý do** (rule, dòng log), bấm mở tình trạng máy | Đã có, đã lên server thật |
+| **Báo cáo server**: lưu thông số mỗi phút (CPU, RAM, ổ đĩa, băng thông, heartbeat, DB) 90 ngày; trang báo cáo có biểu đồ, bảng 20 dòng mới nhất (đủ số liệu trong file xuất), xuất Excel / CSV, in PDF. **Nạp thông tin siêu thị từ file .xlsx / .csv** có xem trước | Đã có, đang chạy thật |
+| **Duyệt tự động** máy mới (công tắc ở trang Chờ duyệt, mặc định tắt, mức Agent): đủ 4 điều kiện (hostname đúng quy ước, siêu thị có trong dữ liệu đã nạp, gửi từ IP WAN của siêu thị, không trùng máy đang hoạt động) thì duyệt ngay; thiếu thì chờ người duyệt, lý do hiện trên thẻ máy; nạp thông tin xong thì lần hỏi lại kế tiếp được duyệt | Đã có, đã lên server thật |
+| **Giảm tải server**: agent gọi heartbeat ngẫu nhiên 5–30 phút (theo giây, server đặt khoảng bằng `next_poll_max_s`); mất liên lạc sau 60 phút (`SCS_OFFLINE_AFTER`, cập nhật server tự đổi 30m cũ sang 60m). Agent bản cũ vẫn 5–10 phút tới khi cập nhật | Đã có, đang chạy thật |
+| **Phân lượt mọi lần tải**: tối đa 4 máy tải cùng lúc (`SCS_DOWNLOAD_SLOTS`) — bản agent, bộ rule, cả chứng chỉ máy mới hòa mạng — tổng ≤ 20 Mbit/s (`SCS_DOWNLOAD_MBPS`); máy chưa tới lượt chạy cái đang có (máy mới: vẫn chờ duyệt), xin lại ở lần gọi sau. **Trang Agent có thống kê**: số máy / % đã lên bản mới, biểu đồ tiến độ kèm dự kiến xong, lượt tải đang dùng, máy báo lỗi tải, phân bố phiên bản, tình trạng bộ rule, bảng theo trạng thái máy | Đã có, đang chạy thật |
 | Agent gửi trạng thái máy (RAM, ổ đĩa, dịch vụ…) trong heartbeat | Chưa có (A2) |
-| **Agent quét log liên tục** theo bộ rule (file trong /var/log nhớ vị trí, nhận ra xoay vòng; journald qua `journalctl`), hàng đợi trên đĩa khi mất mạng, gửi sự kiện: high / critical sau vài giây, còn lại mỗi phút | Đã có (A3), chưa chạy thật trên Ubuntu |
-| **Server phát bộ rule**: gán bộ đã ký cho tất cả máy / siêu thị / máy trên trang Rule; agent nhận qua heartbeat, tự tải, kiểm chữ ký, cài rồi quét theo bộ mới | Đã có (M7), chưa chạy thật trên Ubuntu |
-| **Gia hạn chứng chỉ máy** (hạn 90 ngày): agent tự gia hạn khi còn dưới 30 ngày bằng cách gửi lại gói đăng ký với chính khóa máy (chứng chỉ đã hết hạn vẫn gia hạn được); qua lượt tải; web hiện số máy sắp / đã hết hạn và hạn từng máy. **Cần phát hành bản agent mới cho mọi máy trước khi chứng chỉ đầu tiên hết hạn** — agent bản cũ không tự gia hạn | Đã có, chưa chạy thật trên Ubuntu |
-| **Sao lưu DB định kỳ** ngày 1 và 16 hằng tháng (≈ 15 ngày, giữ 6 bản), sao lưu tay và hướng dẫn khôi phục ở menu mục 18; mỗi lần cập nhật tự chạy test SQL trên DB riêng `scs_test` trước khi cài | Đã có, chưa chạy thật trên Ubuntu |
+| **Agent quét log liên tục** theo bộ rule (file trong /var/log nhớ vị trí, nhận ra xoay vòng; journald qua `journalctl`), hàng đợi trên đĩa khi mất mạng, gửi sự kiện: high / critical sau vài giây, còn lại mỗi phút | Đã có (A3), đang chạy thật |
+| **Server phát bộ rule**: gán bộ đã ký cho tất cả máy / siêu thị / máy trên trang Rule; agent nhận qua heartbeat, tự tải, kiểm chữ ký, cài rồi quét theo bộ mới | Đã có (M7), đang chạy thật |
+| **Gia hạn chứng chỉ máy** (hạn 90 ngày): agent tự gia hạn khi còn dưới 30 ngày bằng cách gửi lại gói đăng ký với chính khóa máy (chứng chỉ đã hết hạn vẫn gia hạn được); qua lượt tải; web hiện số máy sắp / đã hết hạn và hạn từng máy. **Cần phát hành bản agent mới cho mọi máy trước khi chứng chỉ đầu tiên hết hạn** — agent bản cũ không tự gia hạn | Đã có, chưa tới lúc gia hạn thật (cần agent bản mới trên máy) |
+| **Sao lưu DB định kỳ** ngày 1 và 16 hằng tháng (≈ 15 ngày, giữ 6 bản), sao lưu tay và hướng dẫn khôi phục ở menu mục 18; mỗi lần cập nhật tự chạy test SQL trên DB riêng `scs_test` trước khi cài | Đã có; kiểm SQL khi cập nhật đã chạy thật, lịch sao lưu chờ lần chạy đầu (01/12) |
 | **Cập nhật server tự kiểm SQL trên PostgreSQL + TimescaleDB thật** (DB riêng `scs_test`) trước khi cài; lỗi thì không cài, giữ bản cũ. Lần chạy đầu bắt được lỗ hổng ràng buộc DB (hostname TN1/TN2 thiếu hậu tố lọt qua khi vai trò NULL, sửa ở migration 0014) và deadlock khi xóa hypertable (bộ chạy migration nay tự chạy lại) | Đã có |
 | Kiểm nonce chống gửi lại gói | Chưa có |
 | Tăng cứng thêm web quản trị khi mở ra Internet: mã SSH vẫn khóa chung toàn hệ thống khi bị dò (chưa khóa riêng từng IP), chứng chỉ tự ký | Chưa có |
 
-Chưa chạy trên Ubuntu thật: migration 0003–0004 và 0007–0009 (nhãn máy, lưu theo giai đoạn, tài khoản, thông tin siêu
-thị, lịch sử thông số server), gửi mail qua Gmail, kho rule, cụm, menu mục 12–17.
+Đã chạy trên Ubuntu + PostgreSQL / TimescaleDB thật: migration 0001–0014, heartbeat ngẫu nhiên, quét log và phát bộ
+rule, phân lượt tải (bản agent và bộ rule đúng 4 lượt, ≤ 20 Mbit/s), báo cáo server, cập nhật server có kiểm SQL trên
+`scs_test`. Chưa kiểm thật: gia hạn chứng chỉ (chưa máy nào tới hạn), khôi phục DB từ bản sao lưu, cụm nhiều server.
+
+## Số đo thực tế
+
+Đo trên server thật ngày 19/11/2026, khoảng **150 máy**, agent gọi heartbeat ngẫu nhiên 5–30 phút:
+
+| Chỉ số | Đo được | Ghi chú |
+|---|---|---|
+| Heartbeat | 5–15 lần / phút | khớp tính toán: 150 máy ÷ 17,5 phút trung bình ≈ 8,6 lần / phút |
+| CPU máy server | 1–5% | |
+| RAM `scs-server` | 25–35 MB | |
+| Dung lượng DB | 13 MB | nhờ lưu theo giai đoạn (chỉ ghi khi có thay đổi) |
+| Phân lượt tải | đúng 4 lượt, ≤ 20 Mbit/s | quan sát khi phát bản agent và bộ rule; chỉ số không biến động lớn |
 
 ## Định hướng tương lai (chưa triển khai)
 
