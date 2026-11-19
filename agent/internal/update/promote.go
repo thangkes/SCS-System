@@ -43,8 +43,11 @@ const (
 
 // Thời gian chờ (test đổi được).
 var (
-	PromoteAfter  = time.Hour        // bản mới phải chạy tốt bấy lâu mới được làm bản khung
-	RollbackAfter = 30 * time.Minute // bản khung mới khởi động mà bấy lâu chưa chạy tốt thì quay về
+	PromoteAfter = time.Hour // bản mới phải chạy tốt bấy lâu mới được làm bản khung
+	// RollbackAfter: bản khung mới khởi động mà bấy lâu chưa chạy tốt thì quay về. Phải dài hơn hẳn thời gian
+	// dời heartbeat đầu sau khi máy khởi động (heartbeat.BootDelayMax = 30 phút) cộng vài lần thử lại khi
+	// mạng chưa lên: bản khung mới chỉ có hiệu lực ở lần khởi động tới, đúng lúc heartbeat bị dời.
+	RollbackAfter = 90 * time.Minute
 )
 
 // Các phép phụ thuộc hệ điều hành (test thay được).

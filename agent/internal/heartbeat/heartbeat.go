@@ -63,6 +63,8 @@ type Deps struct {
 	Renew  func(context.Context) (bool, error)
 	// Scanner: phần quét log (nil = không quét). Active: SHA bộ đang quét; Reload: nạp lại ngay.
 	Scanner RuleScanner
+	// FirstDelay: chờ bấy lâu trước heartbeat đầu tiên (BootDelay khi máy vừa khởi động; 0 = gọi ngay).
+	FirstDelay time.Duration
 }
 
 // RuleScanner: phần quét log (watch.Scanner) heartbeat cần.
@@ -75,6 +77,15 @@ type RuleScanner interface {
 // Server báo máy bị thu hồi (403) thì ghi log và giãn nhịp tối đa, không thoát (systemd không
 // khởi động lại liên tục).
 func Run(ctx context.Context, d Deps) error {
+	if d.FirstDelay > 0 {
+		d.Log.Info("máy vừa khởi động: dời heartbeat đầu tiên để các máy không gọi về cùng lúc (quét log vẫn chạy)",
+			"cho", d.FirstDelay.Round(time.Second).String(), "luc", time.Now().Add(d.FirstDelay).Format("15:04:05"))
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(d.FirstDelay):
+		}
+	}
 	st := d.State
 	start := time.Now()
 	backoff := BackoffMin
@@ -141,6 +152,7 @@ func Run(ctx context.Context, d Deps) error {
 				"thu_lai_sau", wait.Round(time.Second).String())
 		default:
 			backoff = BackoffMin
+			saveLast(d.StateDir, time.Now())
 			wait, spread = Every, true
 			if resp.NextPollS > 0 {
 				wait = min(max(time.Duration(resp.NextPollS)*time.Second, MinEvery), MaxEvery)

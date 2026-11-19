@@ -170,7 +170,8 @@ Khi chạy thật nên đặt `SCS_ENV=prod` trong `/etc/scs-server/server.env` 
 **Cách hoạt động:** máy tại điểm bán chỉ cài một lần **bản agent khung** (đóng gói trên server). Bản khung đăng ký
 với server và chờ duyệt (admin duyệt tay, hoặc duyệt tự động nếu đã bật ở trang **Chờ duyệt** và máy đủ điều kiện:
 hostname đúng, siêu thị đã có thông tin + IP WAN trong dữ liệu đã nạp, máy gửi từ IP đó). Duyệt xong, agent nhận qua
-heartbeat (ngẫu nhiên 5–30 phút một lần):
+heartbeat (ngẫu nhiên 5–30 phút một lần; sau khi máy khởi động — ví dụ lịch reboot mỗi sáng — heartbeat đầu tiên cũng
+dời ngẫu nhiên 5–30 phút để các máy không gọi về cùng lúc, quét log vẫn chạy ngay):
 
 - **cấu hình** đặt trên web, trang **Agent** (dịch vụ cần theo dõi: chung, theo siêu thị, theo máy);
 - **bản agent cần chạy**: mỗi lần cập nhật server (menu mục 4) có thêm bản agent cùng phiên bản; admin bấm
@@ -181,7 +182,7 @@ heartbeat (ngẫu nhiên 5–30 phút một lần):
 - **bản khung cũng được thay từ server**, không phải cài lại máy: khi một bản agent mới đã chạy tốt trên máy được
   1 giờ, tác vụ `scs-agent-promote.timer` (chạy bằng root, 30 phút một lần) kiểm lại chữ ký rồi chép bản đó vào
   `/opt/scs-agent` làm bản khung, giữ bản khung cũ. Lần khởi động sau, nếu bản khung mới không gọi được server trong
-  30 phút thì máy tự trả lại bản khung cũ và không dùng bản đó làm bản khung nữa. Xem tình trạng:
+  90 phút thì máy tự trả lại bản khung cũ và không dùng bản đó làm bản khung nữa. Xem tình trạng:
   `systemctl list-timers scs-agent-promote.timer`, `journalctl -u scs-agent-promote -n 20`,
   `cat /opt/scs-agent/bootstrap.json`. Máy cài bằng gói cũ (trước bản này) chưa có tác vụ này: cài lại một lần
   bằng gói mới (không phải duyệt lại).

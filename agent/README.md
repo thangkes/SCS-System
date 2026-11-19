@@ -38,7 +38,7 @@ Xem [../INSTALL.md](../INSTALL.md) mục 2. Dịch vụ: `deploy/systemd/scs-age
 Bản cài lần đầu ("bản khung", `/opt/scs-agent/scs-agent`, root sở hữu) kiểm chữ ký rồi chuyển sang bản server phát hành.
 Bản khung cũng được thay từ server: `deploy/systemd/scs-agent-promote.timer` chạy `scs-agent promote` bằng root mỗi 30
 phút; bản mới đã chạy tốt 1 giờ và qua kiểm chữ ký thì được chép vào `/opt`, giữ bản cũ để tự quay về nếu bản khung mới
-không gọi được server (`internal/update/promote.go`).
+không gọi được server trong 90 phút (`internal/update/promote.go`; đủ dài cho heartbeat đầu bị dời 5–30 phút sau khi máy bật).
 
 ## Lệnh
 
@@ -69,6 +69,13 @@ rồi chờ duyệt — admin duyệt tay hoặc server duyệt tự động khi
 hạn thời gian chờ; lỗi mạng giãn 30 giây → 30 phút). Được duyệt thì kiểm chứng chỉ (do CA server ký, mang đúng khóa
 máy, đúng mã máy) rồi mới lưu `cert.pem`. Bị từ chối thì dừng gửi. Lỗi mạng / server bận thì giãn từ 30 giây
 tới 30 phút. Đồng hồ máy lệch thì agent tự bù theo giờ server (header Date).
+
+**Sau khi máy khởi động** (máy tại điểm bán reboot cùng giờ mỗi sáng), máy đã được duyệt từ trước dời heartbeat đầu
+tiên **ngẫu nhiên 5–30 phút** (theo giây) để hàng nghìn máy không gọi về — và tải bản agent / bộ rule — cùng một phút.
+Chỉ áp khi máy vừa bật (uptime dưới 20 phút): agent khởi động lại giữa chừng (sau khi tự cập nhật, restart dịch vụ)
+và lần chạy đầu / đang đăng ký vẫn gọi ngay. Khoảng chờ được cắt để từ heartbeat thành công cuối (trước khi tắt) tới
+heartbeat đầu sau khi bật không quá 45 phút (server báo mất liên lạc sau 60 phút), nhưng không dưới 5 phút. Trong lúc
+chờ, quét log vẫn chạy và sự kiện vẫn gửi bình thường (`internal/heartbeat/boot.go`).
 
 **Gia hạn chứng chỉ** (hạn 90 ngày): còn dưới 30 ngày thì agent gửi lại gói đăng ký bằng chính khóa máy, nhận chứng
 chỉ mới (kiểm như lúc đăng ký, phải đúng mã máy) rồi dùng ngay; chưa được (server hết lượt, lỗi) thì 1 giờ sau thử

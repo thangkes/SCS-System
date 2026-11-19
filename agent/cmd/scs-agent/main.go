@@ -169,6 +169,7 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 	c.SetServers(st.Servers) // địa chỉ server gửi xuống từ lần trước
 	c.Prefer(st.LastServer)
 	_, certErr := os.Stat(identity.CertPath(cfg.KeyDir))
+	enrolledBefore := st.Status == identity.StatusApproved && certErr == nil // không phải lần chạy đầu / đang đăng ký
 	if st.Status != identity.StatusApproved || certErr != nil {
 		st, err = enroll.Run(ctx, enroll.Deps{Log: log, Client: c, Key: key,
 			KeyDir: cfg.KeyDir, StateDir: cfg.StateDir, CAFile: cfg.ServerCA})
@@ -195,8 +196,15 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 			return enroll.Renew(ctx, enroll.Deps{Log: log, Client: c, Key: key, KeyDir: cfg.KeyDir,
 				StateDir: cfg.StateDir, CAFile: cfg.ServerCA}, deviceID)
 		}
+		// Máy vừa khởi động (lịch reboot cùng giờ mỗi sáng) và đã duyệt từ trước: dời heartbeat đầu 5–30 phút.
+		var firstDelay time.Duration
+		if up, err := sysinfo.Uptime(); err == nil && enrolledBefore {
+			last, ok := heartbeat.LastHeartbeat(cfg.StateDir)
+			firstDelay = heartbeat.BootDelay(time.Duration(up)*time.Second, time.Since(last), ok)
+		}
 		err := heartbeat.Run(ctx, heartbeat.Deps{Log: log, Client: c, StateDir: cfg.StateDir, State: st,
-			Version: version, ReleasePub: cfg.ReleasePub, Scanner: sc, KeyDir: cfg.KeyDir, Renew: renew})
+			Version: version, ReleasePub: cfg.ReleasePub, Scanner: sc, KeyDir: cfg.KeyDir, Renew: renew,
+			FirstDelay: firstDelay})
 		stopScan()
 		<-scanDone
 		if errors.Is(err, heartbeat.ErrRestart) {
