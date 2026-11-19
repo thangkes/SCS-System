@@ -88,7 +88,9 @@ Script:
   `--admin-allow 10.10.0.0/16`, lặp lại được; `--admin-allow internet` = mọi IP, gõ thẳng `0.0.0.0/0` bị từ chối).
   Script thêm vào `SCS_ADMIN_ALLOW` và mở ufw cho đúng các dải đó nếu ufw đang bật.
   **Mở cả Internet:** web chỉ được bảo vệ bằng mã 6 số (mã SSH, hoặc mã gửi về Gmail nếu bật tài khoản email, mục 1.5),
-  người lạ có thể gửi mã SSH sai để khóa đăng nhập bằng mã SSH (mở khóa trên server: `sudo scs-login-code -unlock`), chứng chỉ tự ký; router phải chuyển tiếp cổng 7222. An toàn hơn: VPN
+  nhập sai mã 5 lần cho một tài khoản thì IP đó bị khóa 24 giờ, dò tên quá 10 lần / 24 giờ thì khóa 7 ngày (IP siêu thị khóa
+  theo từng trình duyệt); người lạ vẫn có thể gửi mã SSH sai để khóa chung đăng nhập bằng mã SSH vài phút. Gỡ khóa: trang
+  **Tài khoản** → "Khóa đăng nhập", hoặc trên server `sudo scs-login-code -unlock`. Chứng chỉ tự ký; router phải chuyển tiếp cổng 7222. An toàn hơn: VPN
   (WireGuard, Tailscale) rồi chỉ cho dải VPN. Vào từ trong cùng mạng với server thì dùng IP LAN (nhiều modem không
   cho gọi IP WAN của chính mình từ bên trong).
 - Riêng web quản trị 7222: muốn trình duyệt không báo sai tên, chứng chỉ server phải ghi IP bạn gõ trên trình duyệt (IP LAN, IP VPN):
@@ -103,7 +105,7 @@ Hai hạn chỉnh trong `/etc/scs-server/server.env` (không có dòng thì dùn
 
 ```bash
 SCS_ALERT_AUTOCLOSE=24h   # cảnh báo mức high tự đóng sau bấy lâu không có sự kiện high / critical mới (critical: chỉ admin)
-SCS_OFFLINE_AFTER=30m     # không nghe máy gửi gì bấy lâu thì báo mất liên lạc (tự đóng khi máy gửi lại); nên từ 20m
+SCS_OFFLINE_AFTER=60m     # không nghe máy gửi gì bấy lâu thì báo mất liên lạc (tự đóng khi máy gửi lại); heartbeat 5–30 phút nên từ 60m
 ```
 
 Xem dòng thời gian của máy: web, trang **Máy** → bấm mã siêu thị (viền đỏ / vàng / xanh theo sự cố) để xổ danh sách → bấm vào máy. Đóng sự cố: trang **Cảnh báo** → **Đã xử lý**.
@@ -132,7 +134,7 @@ Server cài từ bản cũ: cập nhật (mục 4) tự thêm khối `SCS_SMTP_*
 điền `SCS_SMTP_HOST=smtp.gmail.com`, `SCS_SMTP_USER=<gmail-gui-ma>@gmail.com`, `SCS_SMTP_PASSWORD=<mat-khau-ung-dung>`,
 rồi `sudo systemctl restart scs-server`; thử gửi bằng
 `sudo -u scs /opt/scs-server/scs-server mail-test -to <gmail-cua-ban> -env-file /etc/scs-server/server.env` (chạy từ thư mục `/`). Trang đăng nhập sẽ có thêm tab **Email** và **Đăng ký**; tài khoản mới phải
-được quản trị gốc (đăng nhập bằng `scs-login-code`) duyệt ở trang **Tài khoản**.
+được quản trị gốc (đăng nhập bằng `scs-login-code`, đặt được mọi mức) hoặc người mức 1 (chỉ đặt mức 5–7) duyệt ở trang **Tài khoản**.
 
 ### 1.6 Cập nhật server
 
@@ -149,6 +151,10 @@ Chạy bằng user thường hoặc root (tự gọi sudo khi cài). Script kéo
 **sao lưu DB** vào `server/data/backup/` trước; cài xong kiểm `/readyz`, không lên trong 60 giây thì **tự quay về
 binary cũ**. Thư mục code có thay đổi chưa commit thì từ chối chạy. Mỗi lần cập nhật cũng build **bản agent cùng
 phiên bản** (amd64, arm64); server nhập vào kho, admin phát hành trên web (mục 2).
+
+**Thông báo bản mới**: máy server tự kiểm GitHub 6 giờ một lần (timer `scs-server-update-check`, cài cùng lần cập nhật);
+có bản mới thì web hiện "Có bản mới" cho quản trị gốc và mức 1, trang **Hệ thống** liệt kê các thay đổi. **Không tự cài**:
+vẫn cập nhật bằng menu mục 4 / lệnh trên. Kiểm ngay: `sudo systemctl start scs-server-update-check`.
 
 **Sao lưu DB định kỳ**: ngày 1 và 16 hằng tháng (≈ 15 ngày), giữ 6 bản gần nhất; menu mục **18** để sao lưu ngay, xem
 các bản và cách khôi phục (chi tiết: `server/README.md`, mục "Sao lưu DB"). Nên chép thư mục `server/data/backup/`
