@@ -2,9 +2,15 @@
 # move-server.sh - chép NGUYÊN SCS-Server (DB, CA, khóa phát hành, cấu hình, dữ liệu) sang một server khác
 # QUA SSH, giữ đúng CA và khóa phát hành nên agent đang chạy không phải cài lại (menu mục 20).
 #
-#   Máy CŨ:  sudo bash scripts/move-server.sh export --to <user>@<máy mới> [--port 22]
-#   Máy MỚI: sudo bash scripts/move-server.sh import --bundle ~/scs-move-<giờ>.tar.gz [--wan-ip IP] [--lan-ip IP]
+#   Cách 1 — máy cũ SSH được sang máy mới (máy cũ ĐẨY):
+#     Máy CŨ:  sudo bash scripts/move-server.sh export --to <user>@<máy mới> [--port 22]
+#   Cách 2 — máy mới không nhận SSH vào (sau NAT / tường lửa công ty), máy mới KÉO về:
+#     Máy CŨ:  sudo bash scripts/move-server.sh export --pull         (để gói trong ~ của user chạy sudo, quyền 600)
+#     Máy MỚI: sudo bash scripts/move-server.sh fetch --from <user>@<máy cũ> [--port 22]
+#              (scp gói về, kiểm SHA-256, rồi XÓA gói trên máy cũ bằng shred)
+#   Rồi máy MỚI: sudo bash scripts/move-server.sh import --bundle ~/scs-move-<giờ>.tar.gz [--wan-ip IP] [--lan-ip IP]
 #                                                    [--dns TÊN] [--vpn-ip IP]   (chuyển cho install.sh)
+#   Máy CŨ, nếu gói kéo về rồi mà chưa bị xóa: sudo bash scripts/move-server.sh clean
 #   Tùy chọn chung: --yes (không hỏi)
 #
 # Trước khi export: máy mới đã chạy menu mục 1 → 2 (Docker, Go, PostgreSQL), CHƯA chạy mục 3; code máy mới cùng
@@ -49,23 +55,25 @@ die() {
 trap 'die "Lệnh ở dòng $LINENO thất bại: $BASH_COMMAND" "Xem thông báo phía trên"' ERR
 
 MODE="${1:-}"
-if [[ "$MODE" == -h || "$MODE" == --help ]]; then sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0; fi
+if [[ "$MODE" == -h || "$MODE" == --help ]]; then sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0; fi
 [[ $# -gt 0 ]] && shift
-TO="" PORT=22 BUNDLE="" YES=0 FORCE=0
+TO="" FROM="" PORT=22 BUNDLE="" YES=0 FORCE=0 PULL=0
 INSTALL_ARGS=()
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--to) TO="${2:-}"; shift 2 ;;
+		--from) FROM="${2:-}"; shift 2 ;;
+		--pull) PULL=1; shift ;;
 		--port) PORT="${2:-}"; shift 2 ;;
 		--bundle) BUNDLE="${2:-}"; shift 2 ;;
 		--wan-ip | --lan-ip | --vpn-ip | --dns) INSTALL_ARGS+=("$1" "${2:-}"); shift 2 ;;
 		--force) FORCE=1; shift ;;
 		--yes | -y) YES=1; shift ;;
-		-h | --help) sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		-h | --help) sed -n '2,29p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
 		*) die "Tham số không hợp lệ: $1" "Xem: bash $0 --help" ;;
 	esac
 done
-[[ "$MODE" == export || "$MODE" == import ]] || die "Chọn export (máy cũ) hoặc import (máy mới)" "Xem: bash $0 --help"
+[[ "$MODE" =~ ^(export|import|fetch|clean)$ ]] || die "Chọn export / clean (máy cũ) hoặc fetch / import (máy mới)" "Xem: bash $0 --help"
 [[ $EUID -eq 0 ]] || die "Cần chạy bằng sudo (đọc / ghi khóa CA, cấu hình, dữ liệu)" "sudo bash $0 $MODE ..."
 umask 077
 
@@ -102,8 +110,12 @@ wipe() {
 
 # ======================================================================= export (máy cũ)
 do_export() {
-	[[ -n "$TO" ]] || die "Thiếu --to <user>@<máy mới>"
-	[[ "$TO" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9.:_-]+$ ]] || die "--to phải có dạng user@máy (IP hoặc tên), không có đường dẫn"
+	if [[ $PULL -eq 1 ]]; then
+		[[ -z "$TO" ]] || die "Chọn một: --to (máy cũ đẩy sang) hoặc --pull (máy mới kéo về)"
+	else
+		[[ -n "$TO" ]] || die "Thiếu --to <user>@<máy mới> (hoặc --pull nếu máy mới không nhận SSH vào)"
+		[[ "$TO" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9.:_-]+$ ]] || die "--to phải có dạng user@máy (IP hoặc tên), không có đường dẫn"
+	fi
 	[[ "$PORT" =~ ^[0-9]{1,5}$ ]] || die "--port không hợp lệ"
 	[[ -x "$OPT_DIR/scs-server" && -f "$ETC_DIR/server.env" ]] || die "Máy này chưa cài SCS-Server (không có $OPT_DIR/scs-server, $ETC_DIR/server.env)"
 	local runas="${SUDO_USER:-}"
@@ -121,13 +133,17 @@ do_export() {
 		grep -oE 'https://[^"]+' "$servers" | sed 's/^/    /' || true
 	fi
 	warn "Địa chỉ của máy mới PHẢI có trong danh sách trên (menu mục 15) và gần 100% máy đã nhận — nếu không, agent không tìm được máy mới"
-	echo "  ssh tới máy mới bằng user $runas (khóa SSH của user này):"
-	sudo -u "$runas" ssh -p "$PORT" -o BatchMode=yes -o ConnectTimeout=10 "$TO" true ||
-		die "Không SSH được tới $TO bằng khóa của $runas" "Kiểm tra: ssh -p $PORT $TO (dùng khóa SSH, không dùng mật khẩu); chấp nhận khóa máy mới lần đầu bằng tay"
-	ok "SSH tới $TO được"
+	if [[ $PULL -eq 0 ]]; then
+		echo "  ssh tới máy mới bằng user $runas (khóa SSH của user này):"
+		sudo -u "$runas" ssh -p "$PORT" -o BatchMode=yes -o ConnectTimeout=10 "$TO" true ||
+			die "Không SSH được tới $TO bằng khóa của $runas" "Kiểm tra: ssh -p $PORT $TO (dùng khóa SSH); máy mới không nhận SSH vào thì dùng --pull"
+		ok "SSH tới $TO được"
+	else
+		warn "Chế độ kéo: gói sẽ nằm ở /home của $runas (quyền 600) tới khi máy mới chạy fetch — fetch xóa gói sau khi kéo về"
+	fi
 	echo
 	warn "Tiếp theo: DỪNG và TẮT TỰ CHẠY scs-server ở máy này (agent giữ sự kiện trong hàng đợi, tự chuyển sang máy mới)."
-	confirm "Dừng server này và chép toàn bộ sang $TO?" || exit 0
+	confirm "Dừng server này và đóng gói toàn bộ?" || exit 0
 
 	step "2. Dừng server, gom dữ liệu"
 	systemctl disable --now scs-server >/dev/null 2>&1 || systemctl stop scs-server
@@ -160,6 +176,21 @@ do_export() {
 	(cd "$tmp" && sha256sum "$name" >"$name.sha256")
 	ok "Gói: $name ($(du -h "$tmp/$name" | cut -f1)), SHA-256 $(cut -c1-16 "$tmp/$name.sha256")…"
 
+	if [[ $PULL -eq 1 ]]; then
+		step "3. Để gói cho máy mới kéo về"
+		local home
+		home="$(getent passwd "$runas" | cut -d: -f6)"
+		[[ -d "$home" ]] || die "Không thấy thư mục nhà của $runas"
+		install -o "$runas" -g "$(id -gn "$runas")" -m 600 "$tmp/$name" "$tmp/$name.sha256" "$home/"
+		wipe "$tmp"
+		trap - EXIT
+		ok "Gói ở $home/$name (chỉ $runas đọc được)"
+		echo
+		echo "  Trên máy mới chạy (máy mới SSH sang máy này bằng user $runas):"
+		echo "    sudo bash scripts/move-server.sh fetch --from $runas@<IP hoặc tên máy này> [--port <cổng SSH>]"
+		echo "  fetch kéo gói về, kiểm SHA-256 rồi XÓA gói ở máy này. Chưa fetch được thì xóa tay: sudo bash $0 clean"
+		return 0
+	fi
 	step "3. Chép sang $TO qua SSH"
 	chown "$runas" "$tmp" "$tmp/$name" "$tmp/$name.sha256"
 	sudo -u "$runas" scp -q -P "$PORT" "$tmp/$name" "$tmp/$name.sha256" "$TO:" ||
@@ -174,6 +205,51 @@ do_export() {
 	echo "  Trên máy mới chạy:"
 	echo "    cd <thư mục SCS-System>/server && sudo bash scripts/move-server.sh import --bundle ~/$name --wan-ip <IP WAN mới> [--lan-ip <IP LAN mới>]"
 	echo "  Máy cũ giữ nguyên dữ liệu (đang dừng). Khi máy mới chạy ổn 1–2 ngày: xóa sạch máy cũ (xem docs/thiet-ke-cum-server.md mục 17.1)."
+}
+
+# ======================================================================= fetch (máy mới kéo gói về)
+do_fetch() {
+	[[ -n "$FROM" ]] || die "Thiếu --from <user>@<máy cũ>"
+	[[ "$FROM" =~ ^[A-Za-z0-9._-]+@[A-Za-z0-9.:_-]+$ ]] || die "--from phải có dạng user@máy (IP hoặc tên), không có đường dẫn"
+	[[ "$PORT" =~ ^[0-9]{1,5}$ ]] || die "--port không hợp lệ"
+	local runas="${SUDO_USER:-}"
+	[[ -n "$runas" && "$runas" != root ]] ||
+		die "Chạy bằng sudo từ user thường (khóa SSH tới máy cũ là của user đó)" "Đăng nhập user thường rồi: sudo bash $0 fetch --from ..."
+	local home
+	home="$(getent passwd "$runas" | cut -d: -f6)"
+	step "1. Tìm gói trên máy cũ"
+	local name
+	name="$(sudo -u "$runas" ssh -p "$PORT" -o BatchMode=yes -o ConnectTimeout=10 "$FROM" 'ls -t scs-move-*.tar.gz 2>/dev/null | head -n1')" ||
+		die "Không SSH được tới $FROM bằng khóa của $runas" "Kiểm tra: ssh -p $PORT $FROM (dùng khóa SSH); chấp nhận khóa máy cũ lần đầu bằng tay"
+	[[ "$name" =~ ^scs-move-[0-9]{8}-[0-9]{6}\.tar\.gz$ ]] || die "Máy cũ chưa có gói" "Trên máy cũ chạy: sudo bash scripts/move-server.sh export --pull"
+	ok "Gói: $name"
+	step "2. Kéo về qua SSH, kiểm SHA-256"
+	sudo -u "$runas" scp -q -P "$PORT" "$FROM:$name" "$FROM:$name.sha256" "$home/" || die "scp thất bại"
+	chmod 600 "$home/$name" "$home/$name.sha256"
+	(cd "$home" && sha256sum -c "$name.sha256" >/dev/null) || {
+		wipe "$home/$name" "$home/$name.sha256"
+		die "SHA-256 KHÔNG khớp (đã xóa bản kéo về)" "Chạy lại fetch"
+	}
+	ok "SHA-256 khớp: $home/$name"
+	if sudo -u "$runas" ssh -p "$PORT" "$FROM" "shred -u -z '$name' '$name.sha256' 2>/dev/null || rm -f '$name' '$name.sha256'"; then
+		ok "Đã xóa gói trên máy cũ"
+	else
+		warn "Chưa xóa được gói trên máy cũ: trên máy cũ chạy sudo bash scripts/move-server.sh clean"
+	fi
+	echo
+	echo "  Tiếp: sudo bash scripts/move-server.sh import --bundle $home/$name --wan-ip <IP WAN máy này> [--lan-ip <IP LAN>]"
+}
+
+# ======================================================================= clean (máy cũ xóa gói còn sót)
+do_clean() {
+	local runas="${SUDO_USER:-root}" home n=0 f
+	home="$(getent passwd "$runas" | cut -d: -f6)"
+	for f in "$home"/scs-move-*.tar.gz "$home"/scs-move-*.tar.gz.sha256 /root/scs-move.*; do
+		[[ -e "$f" ]] || continue
+		wipe "$f"
+		n=$((n + 1))
+	done
+	ok "Đã xóa $n file / thư mục gói chuyển server"
 }
 
 # ======================================================================= import (máy mới)
@@ -285,4 +361,6 @@ do_import() {
 case "$MODE" in
 	export) do_export ;;
 	import) do_import ;;
+	fetch) do_fetch ;;
+	clean) do_clean ;;
 esac

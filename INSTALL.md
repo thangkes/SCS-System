@@ -173,9 +173,12 @@ bên ngoài về trụ sở. Giữ đúng CA và khóa phát hành nên **agent 
 
 1. Máy mới: clone repo (cùng hoặc mới hơn bản máy cũ), menu mục 1 → 2. **Chưa** chạy mục 3.
 2. Máy cũ, menu mục 15: thêm địa chỉ máy mới cho agent, mở chuyển tiếp cổng 6222 về máy mới; chờ gần 100% máy nhận danh sách.
-3. Máy cũ (user thường có khóa SSH tới máy mới): `sudo bash server/scripts/move-server.sh export --to <user>@<máy mới>` —
-   dừng và tắt tự chạy server cũ, sao lưu DB, gom `/etc/scs-server` + `/var/lib/scs-server`, chép bằng scp, kiểm SHA-256
-   hai đầu, xóa bản tạm.
+3. Đóng gói ở máy cũ (dừng và tắt tự chạy server cũ, sao lưu DB, gom `/etc/scs-server` + `/var/lib/scs-server`):
+   - Máy cũ SSH được vào máy mới: `sudo bash server/scripts/move-server.sh export --to <user>@<máy mới>` — chép bằng scp,
+     kiểm SHA-256 hai đầu, xóa bản tạm.
+   - **Máy mới không nhận SSH vào** (sau NAT / tường lửa công ty): máy cũ `sudo bash server/scripts/move-server.sh export --pull`
+     (gói để trong thư mục nhà của user chạy sudo, quyền 600); máy mới `sudo bash server/scripts/move-server.sh fetch --from <user>@<máy cũ>`
+     — kéo về qua SSH, kiểm SHA-256, rồi **xóa gói trên máy cũ** (`shred`). Sót gói thì máy cũ chạy `move-server.sh clean`.
 4. Máy mới: `sudo bash server/scripts/move-server.sh import --bundle ~/scs-move-<giờ>.tar.gz --wan-ip <IP WAN mới> [--lan-ip <IP LAN>]`
    — đặt khóa / cấu hình đúng quyền, khôi phục DB (sao lưu DB đang có trước), chạy `install.sh` (giữ CA, thêm IP mới vào
    chứng chỉ server, dùng mật khẩu DB của máy mới), hỏi xóa gói.

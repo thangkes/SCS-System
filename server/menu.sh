@@ -340,8 +340,11 @@ do_move() {
 	echo "  Máy mới: đã chạy mục 1 → 2, CHƯA chạy mục 3; code cùng hoặc mới hơn máy này."
 	echo "  Trước khi chép: thêm địa chỉ máy mới vào danh sách cho agent (mục 15) và chờ gần 100% máy nhận."
 	echo
-	echo "   1) Máy CŨ — đóng gói và gửi sang máy mới (DỪNG server này)"
-	echo "   2) Máy MỚI — cài từ gói nhận được"
+	echo "   1) Máy CŨ — đóng gói và ĐẨY sang máy mới qua SSH (máy cũ SSH được vào máy mới; DỪNG server này)"
+	echo "   2) Máy CŨ — đóng gói, để máy mới KÉO về (máy mới không nhận SSH vào; DỪNG server này)"
+	echo "   3) Máy MỚI — kéo gói từ máy cũ về (sau mục 2 ở máy cũ), xóa gói trên máy cũ"
+	echo "   4) Máy MỚI — cài từ gói nhận được"
+	echo "   5) Máy CŨ — xóa gói còn sót (sau khi máy mới đã kéo về)"
 	echo "   0) Quay lại"
 	ask "Chọn" 0
 	case "$REPLY" in
@@ -351,7 +354,15 @@ do_move() {
 			ask "Cổng SSH" 22
 			sudo bash "$SCRIPTS/move-server.sh" export --to "$to" --port "$REPLY"
 			;;
-		2)
+		2) sudo bash "$SCRIPTS/move-server.sh" export --pull ;;
+		3)
+			ask "Máy cũ (user@IP hoặc user@tên — đúng user đã chạy mục 2 ở máy cũ)" ""
+			local from="$REPLY"
+			ask "Cổng SSH của máy cũ" 22
+			sudo bash "$SCRIPTS/move-server.sh" fetch --from "$from" --port "$REPLY"
+			;;
+		5) sudo bash "$SCRIPTS/move-server.sh" clean ;;
+		4)
 			ask "Đường dẫn gói (scs-move-*.tar.gz)" "$(ls -t "$HOME"/scs-move-*.tar.gz 2>/dev/null | head -n1)"
 			local bundle="$REPLY" args=()
 			ask "IP WAN của máy này (agent gọi tới; Enter = bỏ qua)" ""
