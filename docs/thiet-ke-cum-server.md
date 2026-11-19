@@ -20,6 +20,7 @@ Mục lục
 14. [Mối đe dọa và cách chặn](#14-mối-đe-dọa-và-cách-chặn)
 15. [Thứ tự làm](#15-thứ-tự-làm)
 16. [Đã xác nhận](#16-đã-xác-nhận-2026-11-12)
+17. [Đồng bộ dữ liệu siêu thị và tài khoản (mốc D1)](#17-đồng-bộ-dữ-liệu-siêu-thị-và-tài-khoản-mốc-d1)
 
 ---
 
@@ -261,8 +262,8 @@ Không đưa vào nhật ký quyết định: thay đổi quá nhiều (mỗi m�
 - Máy chuyển kênh nên lịch sử của nó nằm ở nhiều node; trạng thái chung ([mục 7](#7-trạng-thái-chung-siêu-thị-máy)) cho biết máy từng gửi về những node nào, để chỉ hỏi đúng các node đó.
 - Câu hỏi giữa các node có chữ ký của node hỏi, kèm tên người dùng và mức quyền (0 quản trị gốc … 7 chỉ xem, xem server/README.md "Tài khoản và mức quyền"); node được hỏi ghi nhật ký thao tác.
 - **Thay đổi** (duyệt máy, đổi cấu hình…) trên web là **đề nghị** gửi vào nhật ký quyết định ([mục 5](#5-nhật-ký-quyết-định-và-quy-tắc-quá-nửa)). Web hiện trạng thái "đang chờ đủ chữ ký (2/3)".
-- Phiên đăng nhập và mã đăng nhập vẫn riêng từng node. Tài khoản email (bảng `accounts`) hiện cũng riêng từng node:
-  muốn dùng trên node khác thì đăng ký và duyệt lại ở node đó (đồng bộ tài khoản trong cụm chưa thiết kế).
+- Phiên đăng nhập và mã đăng nhập vẫn riêng từng node. Tài khoản email (bảng `accounts`) và thông tin siêu thị hiện
+  riêng từng node; thiết kế đồng bộ ở [mục 17](#17-đồng-bộ-dữ-liệu-siêu-thị-và-tài-khoản-mốc-d1) (chưa làm).
 
 ## 9. Agent trong cụm
 
@@ -435,3 +436,127 @@ Các mốc của bản một server (A3 đọc log, M4 lưu trạng thái máy, 
 5. Agent hỏi **một node khác bất kỳ, chọn ngẫu nhiên** mỗi **12 giờ** (và mỗi lần khởi động).
 6. **Làm cụm ngay**, bắt đầu từ mốc C1.
 7. **Giữ quy tắc quá nửa** (không đổi sang hơn 2/3): chấp nhận việc một node gian ký hai lần chỉ bị phát hiện chứ không bị chặn ([mục 14](#quá-nửa-hay-hơn-23)).
+
+## 17. Đồng bộ dữ liệu siêu thị và tài khoản (mốc D1)
+
+Trạng thái: **bản đề xuất (2026-11-19), chưa làm, chờ chốt các câu hỏi ở cuối mục**. Phạm vi D1 chỉ gồm **thông tin
+siêu thị** (bảng `stores`) và **tài khoản web** (bảng `accounts`). Trạng thái realtime (máy online / offline, cảnh báo —
+mục 7) và dữ liệu lớn (mục 8) để mốc sau.
+
+**Nguyên tắc số 1: bảo vệ dữ liệu đặt trên tốc độ và tiện lợi.** Hai bảng này có dữ liệu cá nhân (email, tên người phụ
+trách) và dữ liệu ảnh hưởng tới bảo mật (mức quyền tài khoản; IP WAN siêu thị — điều kiện duyệt tự động máy). Vì vậy:
+
+| Mục tiêu | Cách làm |
+|---|---|
+| **Không node nào tự ý đổi dữ liệu của node khác** | Mọi thay đổi là một **quyết định trong nhật ký** (mục 5), cần **quá nửa** node ký; node nhận tự kiểm lại nội dung trước khi ký và trước khi áp dụng. Một node bị hack không tự cấp được tài khoản hay sửa IP WAN cho cả cụm |
+| **Việc nâng quyền cần người xác nhận** | Cấp / nâng tài khoản lên **mức 1–4** cần **admin xác nhận trên quá nửa node** (như phát hành bản agent). Mức 5–7, khóa, hạ mức, xóa: quá nửa ký tự động sau khi kiểm |
+| **Dữ liệu cá nhân không nằm rải rác trên đĩa** | Nhật ký quyết định (`log.jsonl`, file chữ thường) **chỉ ghi SHA-256** của gói thay đổi, không ghi email hay tên người. Nội dung chỉ đi qua 5222 (TLS 1.3 hai chiều) và ghi thẳng vào DB trong một transaction, không ghi file tạm |
+| **Chỉ đồng bộ cái cần** | Không đồng bộ: phiên đăng nhập, mã đăng nhập, khóa đăng nhập (`login_blocks`), lần đăng nhập cuối, nhật ký thao tác (`audit`) — mỗi node giữ riêng. Mức 0 (quản trị gốc qua SSH) không bao giờ đồng bộ |
+| **Biết khi dữ liệu bị sửa ngoài luồng** | Mỗi giờ mỗi node tính **dấu (SHA-256) của hai bảng** theo thứ tự cố định và gửi trong trạng thái cụm; lệch với số đông → cảnh báo trên trang Cụm server và tự đồng bộ lại từ quá nửa |
+| **Truy vết được** | Mỗi lần áp dụng ghi `audit` tại node đó: số quyết định, node đề nghị, người thao tác gốc, số dòng đổi |
+
+### 17.1 Dữ liệu đồng bộ
+
+| Bảng | Đồng bộ | Không đồng bộ |
+|---|---|---|
+| `stores` | mã, IP WAN chính + thêm, tên, tổ chức, quản lý, phó QL, trưởng nhóm, phó phòng, ghi chú, người sửa cuối, `rev` | `created_at` (mỗi node tự ghi); dòng siêu thị trống do máy đăng ký tự tạo (D1 chỉ đồng bộ dòng có thông tin) |
+| `accounts` | tên đăng nhập, email, trạng thái, mức 1–7, người duyệt + lúc duyệt, thời gian sống phiên, số phiên tối đa, `rev` | `last_login_at`, phiên, mã đăng nhập; tài khoản **chờ duyệt** (đăng ký chưa duyệt chỉ nằm ở node nhận đăng ký) |
+
+Mỗi dòng thêm cột **`rev`** (số đời, tăng mỗi lần đổi) để chặn ghi đè lên bản cũ: gói thay đổi ghi `rev` gốc của từng
+dòng; node áp dụng thấy `rev` hiện tại khác thì **từ chối cả gói** (người sửa phải tải lại và sửa lại), không âm thầm
+ghép.
+
+### 17.2 Luồng một thay đổi
+
+```
+admin sửa trên web node A (form, nạp file, duyệt / đổi mức tài khoản)
+   │  A kiểm như hiện nay (mức quyền, định dạng, bộ kiểm dữ liệu siêu thị)
+   ▼
+A tạo GÓI THAY ĐỔI (JSON, sắp xếp cố định): loại, các dòng mới + rev gốc, người thao tác
+A tính SHA-256 của gói, giữ gói trong RAM + bảng sync_blobs (chỉ chứa gói chờ, xóa khi mọi node đã áp dụng hoặc sau 7 ngày)
+   ▼
+A đề nghị quyết định:  data.stores / data.accounts  { sha256, số dòng, loại, người thao tác, tóm tắt an toàn* }
+   ▼
+node B, C nhận đề nghị → TẢI GÓI từ A qua 5222 (có giới hạn băng thông) → kiểm SHA-256 → kiểm lại toàn bộ nội dung
+bằng chính bộ kiểm của mình (định dạng, độ dài, IP hợp lệ, mức 1–7, rev khớp) → ký (hoặc chờ admin xác nhận nếu
+là nâng quyền mức 1–4)
+   ▼
+đủ quá nửa → quyết định có hiệu lực → MỌI node áp dụng gói trong một transaction, ghi audit
+```
+
+\* *Tóm tắt an toàn* chỉ có số liệu không chứa dữ liệu cá nhân, để web các node hiện "đang chờ ký": ví dụ
+`{"stores": 37, "wan_changed": 2}` hoặc `{"account_level": 5, "action": "approve"}` — **không có email, không có tên**.
+
+Node đang **ít hơn quá nửa** (mạng bị chia) thì không sửa được hai bảng này (web báo "chỉ đọc khi mất kết nối với quá
+nửa cụm"), nhưng vẫn đọc và đăng nhập bình thường bằng dữ liệu đã có.
+
+### 17.3 Kênh giao tiếp giữa các server
+
+Dùng lại cổng **5222** (TLS 1.3 hai chiều, chỉ nhận khóa node có trong danh sách cụm, node bị cô lập bị từ chối ngay).
+Thêm các đường dẫn chỉ cho node hợp lệ:
+
+| Đường dẫn | Việc | Giới hạn |
+|---|---|---|
+| `GET /cluster/v1/sync/blob/{sha256}` | tải một gói thay đổi đang chờ ký / vừa có hiệu lực | gói ≤ 8 MB; chỉ trả gói có trong quyết định đang chờ hoặc đã có hiệu lực |
+| `GET /cluster/v1/sync/snapshot/{bảng}?after=&limit=` | bản đầy đủ theo trang (node mới vào cụm, node lệch dấu, node bị mất gói) | 1.000 dòng / trang; kèm số quyết định mà bản chụp ứng với |
+| `GET /cluster/v1/sync/digest` | dấu SHA-256 của từng bảng + số quyết định đã áp dụng | nhẹ, gọi mỗi giờ |
+
+Bảo vệ thêm trên kênh này:
+
+- **Mỗi phản hồi có chữ ký của node trả** (khóa node) trên `{đường dẫn, sha256 nội dung, số quyết định, giờ}`: node nhận
+  kiểm chữ ký trước khi dùng — kể cả khi TLS bị đứng giữa (đã khó) cũng không chèn được dữ liệu.
+- Gói và bản chụp **chỉ được áp dụng khi SHA-256 khớp quyết định có quá nửa chữ ký** — node gửi không tự quyết được
+  nội dung, chỉ là "người chở".
+- Node hỏi phải ghi rõ lý do (`pending`, `catchup`, `digest_mismatch`); node trả ghi log và giới hạn số lần hỏi bản chụp
+  (tối đa 1 bản chụp đầy đủ / node / 10 phút).
+- Không có đường nào để node khác **đọc tùy ý** một tài khoản hay một siêu thị: chỉ tải được gói / bản chụp đã gắn với
+  quyết định.
+
+### 17.4 Giới hạn băng thông: 10 Mbit/s
+
+- **Một bộ giới hạn chung cho toàn bộ phần thân dữ liệu đồng bộ** của mỗi node: tổng **gửi ≤ 10 Mbit/s** và tổng
+  **nhận ≤ 10 Mbit/s** (token bucket, cửa sổ 1 giây), cấu hình `SCS_CLUSTER_SYNC_MBPS` (mặc định 10). Quyết định, chữ ký,
+  `hello` / `status` nhỏ nên không tính vào giới hạn (để cụm không bị kẹt bỏ phiếu khi đang chuyển bản chụp lớn).
+- **Tối đa 2 lượt chuyển cùng lúc** mỗi node (gói hoặc trang bản chụp); quá thì trả 503 + `Retry-After`, bên hỏi chờ rồi
+  thử lại — giống phân lượt tải bản agent.
+- Ước lượng: 20.000 siêu thị đầy đủ thông tin ≈ 6–8 MB JSON → ≈ 6 giây ở 10 Mbit/s; 1.000 tài khoản ≈ 0,3 MB. Một lần
+  nạp file siêu thị thường vài trăm KB → dưới 1 giây. Giới hạn chủ yếu để bản chụp lúc node mới vào cụm không chiếm
+  đường truyền của agent và web.
+
+### 17.5 Node mới vào cụm, hoặc server đang chạy riêng nay join
+
+1. Node đầu tiên (đang có dữ liệu) tạo quyết định **`data.baseline`** ghi dấu của hai bảng hiện tại (chỉ SHA-256 + số
+   dòng). Đây là "bản gốc" của cụm.
+2. Node mới, sau khi vào cụm (100% node đồng ý như hiện nay), tải bản chụp theo trang từ một node, kiểm dấu khớp
+   `data.baseline` + các quyết định sau đó, rồi mới thay dữ liệu của mình.
+3. **Node mới đã có dữ liệu riêng** (siêu thị, tài khoản từ trước) — xem câu hỏi Q-D3. Đề xuất mặc định: **sao lưu DB
+   rồi thay bằng dữ liệu cụm**; phần chỉ có ở node mới thì liệt kê ra để admin nạp lại qua luồng thay đổi bình thường
+   (có quá nửa ký), không tự trộn.
+
+### 17.6 Rủi ro còn lại (ghi rõ)
+
+| Rủi ro | Mức | Ghi chú |
+|---|---|---|
+| Dữ liệu cá nhân nằm trên **nhiều máy** hơn (mỗi node một bản email + tên người phụ trách) | Trung bình | Bản chất của đồng bộ. Giảm: chỉ đồng bộ cột cần, không ghi vào log / file tạm, khuyến nghị mã hóa ổ đĩa node, mã hóa bản sao lưu (R17) |
+| Node bị gỡ / cô lập **vẫn giữ bản dữ liệu đã có** | Trung bình | Không thu hồi được dữ liệu đã chép. Chỉ thêm node do người tin cậy quản lý; khi gỡ node thì xóa DB của node đó |
+| Hack quá nửa node | Cao | Giới hạn chung của quy tắc quá nửa (mục 14) |
+| Đang chia cụm thì phía ít node không sửa được tài khoản / siêu thị | Thấp | Đánh đổi có chủ ý để không có hai bản trái nhau |
+| Hai người sửa cùng một siêu thị trên hai node cùng lúc | Thấp | `rev` chặn: một bên bị từ chối, sửa lại |
+
+### 17.7 Thứ tự làm D1
+
+| Bước | Nội dung |
+|---|---|
+| D1.1 | Cột `rev` cho `stores`, `accounts`; gói thay đổi (định dạng, SHA-256, bộ kiểm dùng chung với web) |
+| D1.2 | Quyết định `data.stores`, `data.accounts`, `data.baseline`; ký tự động sau khi kiểm / chờ admin xác nhận khi nâng quyền 1–4 |
+| D1.3 | Đường dẫn blob / snapshot / digest trên 5222, chữ ký phản hồi, giới hạn 10 Mbit/s + 2 lượt |
+| D1.4 | Web: sửa siêu thị / tài khoản thành "đề nghị", hiện "đang chờ ký (2/3)", chỉ đọc khi thiếu quá nửa; trang Cụm server có dấu dữ liệu từng node |
+| D1.5 | Join node có sẵn dữ liệu (Q-D3), kiểm dấu mỗi giờ, test cụm 3 node trên PostgreSQL thật |
+
+### 17.8 Câu hỏi cần chốt
+
+- **Q-D1**: "10mb/s" hiểu là **10 Mbit/s** (cùng đơn vị với giới hạn tải bản agent 20 Mbit/s) — đúng không?
+- **Q-D2**: Nâng quyền mức 1–4 cần admin xác nhận trên quá nửa node; mức 5–7, khóa, hạ mức thì ký tự động — đồng ý?
+- **Q-D3**: Server đang chạy riêng khi join mà đã có dữ liệu: **thay bằng dữ liệu cụm** (sao lưu trước, liệt kê phần
+  khác để nạp lại) hay **trộn** (phức tạp, dễ đưa dữ liệu sai vào cả cụm)?
+- **Q-D4**: Tài khoản chờ duyệt có cần thấy ở mọi node không (đề xuất: không — chỉ node nhận đăng ký)?
