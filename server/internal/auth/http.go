@@ -34,11 +34,18 @@ type Manager struct {
 	Mail         Mailer
 	EmailDomains []string // tên miền email được đăng ký (rỗng = mọi tên miền)
 	email        *emailAuth
+
+	// Khóa đăng nhập theo IP / thiết bị (blocks.go). Blocks nil = chỉ trong RAM; SiteIP nil = không có IP
+	// siêu thị (luôn khóa theo IP).
+	Blocks BlockStore
+	SiteIP func(ctx context.Context, ip string) (bool, error)
+	guard  *guard
 }
 
 // NewManager tạo bộ đăng nhập. apiToken rỗng thì không nhận Bearer token.
 func NewManager(apiToken string, log *slog.Logger) *Manager {
-	m := &Manager{Codes: NewCodes(), lim: newLimiter(time.Now), sess: newSessions(time.Now), log: log, email: newEmailAuth()}
+	m := &Manager{Codes: NewCodes(), lim: newLimiter(time.Now), sess: newSessions(time.Now), log: log, email: newEmailAuth(),
+		guard: newGuard(time.Now)}
 	if apiToken != "" {
 		m.apiToken, m.hasToken = sha256.Sum256([]byte(apiToken)), true
 	}
@@ -55,8 +62,15 @@ func (m *Manager) Snapshot() Current {
 	return c
 }
 
-// Unlock mở khóa đăng nhập và xóa các lần sai đã đếm (lệnh `login-code -unlock`).
-func (m *Manager) Unlock() { m.lim.unlock() }
+// Unlock mở khóa đăng nhập, gỡ mọi khóa IP / thiết bị và xóa các lần sai đã đếm (lệnh `login-code -unlock`).
+func (m *Manager) Unlock() {
+	m.lim.unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if n, err := m.Unblock(ctx, "", "", "login-code -unlock"); err != nil {
+		m.log.Error("gỡ khóa đăng nhập trong DB thất bại", "err", err, "da_go_trong_ram", n)
+	}
+}
 
 type ctxKey struct{}
 
@@ -127,6 +141,8 @@ func (m *Manager) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("GET /auth/me", m.me)
 	mux.Handle("GET /admin/v1/sessions", m.RequireLevel(LevelRoot)(http.HandlerFunc(m.listSessions)))
 	mux.Handle("POST /admin/v1/sessions/{id}/revoke", m.RequireLevel(LevelRoot)(http.HandlerFunc(m.revokeSession)))
+	mux.Handle("GET /admin/v1/login-blocks", m.RequireLevel(LevelCluster)(http.HandlerFunc(m.listBlocks)))
+	mux.Handle("POST /admin/v1/login-blocks/remove", m.RequireLevel(LevelCluster)(http.HandlerFunc(m.removeBlock)))
 	m.mountEmail(mux)
 }
 
@@ -147,6 +163,10 @@ func (m *Manager) login(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	if !sameOrigin(r) || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
 		httpx.WriteError(w, http.StatusForbidden, "yêu cầu không đến từ trang đăng nhập")
+		return
+	}
+	who := m.subjectOf(r)
+	if m.checkBlocked(w, r, who) {
 		return
 	}
 	// Đặt chỗ lượt thử TRƯỚC khi đọc body: gửi nhiều request cùng lúc (giữ body lại)
@@ -193,10 +213,12 @@ func (m *Manager) login(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ok {
 		m.log.Warn("đăng nhập sai mã", "name", name, "ip", ip, "con_lai", at.left)
+		m.codeFailed(who, rootSubject)
 		httpx.WriteJSON(w, http.StatusUnauthorized, map[string]any{"ok": false, "error": "mã không đúng, đã dùng hoặc đã hết hạn", "left": at.left})
 		return
 	}
 	m.lim.refund(ip) // đúng mã: trả lại lượt đã đặt
+	m.codeOK(who, rootSubject)
 
 	cookie, s := m.sess.create(name, Role(role), ip, truncate(r.UserAgent(), 160))
 	setSessionCookie(w, r, cookie)

@@ -473,14 +473,15 @@ func TestLoginRejects(t *testing.T) {
 		t.Fatalf("mã vẫn còn dùng được sau các lần bị chặn: %d", w.Code)
 	}
 
-	// Sai 10 lần từ một IP → 429.
+	// Sai 5 lần liên tiếp từ một IP → IP bị khóa 24 giờ (403), kể cả với mã đúng.
 	m2, h2, _ := newTestManager(t)
-	_ = m2
-	for i := 0; i < ipMaxFails; i++ {
-		login(t, h2, "000000", "Dò mã")
+	for i := 0; i < codeFailMax; i++ {
+		if w, _ := login(t, h2, "000000", "Dò mã"); w.Code != http.StatusUnauthorized {
+			t.Fatalf("lần sai %d: %d", i+1, w.Code)
+		}
 	}
-	if w, _ := login(t, h2, "000000", "Dò mã"); w.Code != http.StatusTooManyRequests {
-		t.Fatalf("quá 10 lần sai phải 429, được %d", w.Code)
+	if w, _ := login(t, h2, m2.Codes.Snapshot().Admin, "Dò mã"); w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "bị khóa") {
+		t.Fatalf("sai 5 lần phải khóa IP (403), được %d %s", w.Code, w.Body)
 	}
 }
 

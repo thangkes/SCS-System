@@ -97,8 +97,9 @@ func escLogin(t *testing.T, h http.Handler, mail escMail, user string) *http.Coo
 }
 
 // Leo thang quyền: mỗi mức 1–7 (đăng nhập thật bằng email) gọi MỌI route ghi của web quản trị. Mức
-// thấp hơn mức route cần → 403; đủ mức → qua kiểm quyền (không 401/403). Route của quản trị gốc (tài
-// khoản, phiên) thì mọi tài khoản đều 403, kể cả mức 1.
+// thấp hơn mức route cần → 403; đủ mức → qua kiểm quyền (không 401/403). Route phiên của quản trị gốc thì
+// mọi tài khoản đều 403, kể cả mức 1; route tài khoản / khóa đăng nhập mở cho mức 1 (phạm vi hẹp, xem
+// TestDelegatedAccounts).
 func TestNoPrivilegeEscalation(t *testing.T) {
 	d, _ := deps(t, nil)
 	accts := &escAccounts{m: map[string]auth.Account{}}
@@ -110,8 +111,10 @@ func TestNoPrivilegeEscalation(t *testing.T) {
 		method, path string
 		need         auth.Level
 	}{
-		{"POST", "/admin/v1/accounts/10001", auth.LevelRoot},
-		{"GET", "/admin/v1/accounts", auth.LevelRoot},
+		{"POST", "/admin/v1/accounts/19999", auth.LevelCluster},
+		{"GET", "/admin/v1/accounts", auth.LevelCluster},
+		{"GET", "/admin/v1/login-blocks", auth.LevelCluster},
+		{"POST", "/admin/v1/login-blocks/remove", auth.LevelCluster},
 		{"GET", "/admin/v1/sessions", auth.LevelRoot},
 		{"POST", "/admin/v1/sessions/abc/revoke", auth.LevelRoot},
 		{"POST", "/admin/v1/cluster/approve", auth.LevelCluster},

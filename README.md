@@ -37,6 +37,9 @@ Code comments and docs are in Vietnamese.*
   chung trong source agent.
 - Mỗi máy có **khóa Ed25519 riêng** (không rời máy): ký mọi gói tin và dùng làm chứng chỉ mTLS do CA nội bộ của server cấp.
 - Gói tin có giờ và nonce (chống gửi lại), giao tiếp qua TLS 1.3, agent chỉ tin CA của server.
+- **Khóa đăng nhập theo IP**: sai mã 5 lần liên tiếp cho một tài khoản → khóa IP 24 giờ; dò tên / đăng ký sai quá 10
+  lần trong 24 giờ → khóa 7 ngày. IP của siêu thị khóa theo từng trình duyệt (cookie mã thiết bị) để không chặn cả
+  siêu thị; quá 3 trình duyệt bị khóa trong 24 giờ thì khóa cả IP.
 - **Phiên web gắn với IP + trình duyệt lúc đăng nhập**: cookie bị đánh cắp đem sang máy / trình duyệt khác bị từ chối
   và phiên bị thu hồi. Có test tự động cho leo thang quyền (7 mức × 26 route quản trị) và dùng lại phiên đánh cắp.
 - Dữ liệu lưu trong **PostgreSQL + TimescaleDB**, ràng buộc nằm trong DB. Sự kiện và trạng thái máy lưu **theo giai đoạn**
@@ -79,7 +82,8 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 | **Sao lưu DB định kỳ** ngày 1 và 16 hằng tháng (≈ 15 ngày, giữ 6 bản), sao lưu tay và hướng dẫn khôi phục ở menu mục 18; mỗi lần cập nhật tự chạy test SQL trên DB riêng `scs_test` trước khi cài | Đã có; kiểm SQL khi cập nhật đã chạy thật, lịch sao lưu chờ lần chạy đầu (01/12) |
 | **Cập nhật server tự kiểm SQL trên PostgreSQL + TimescaleDB thật** (DB riêng `scs_test`) trước khi cài; lỗi thì không cài, giữ bản cũ. Lần chạy đầu bắt được lỗ hổng ràng buộc DB (hostname TN1/TN2 thiếu hậu tố lọt qua khi vai trò NULL, sửa ở migration 0014) và deadlock khi xóa hypertable (bộ chạy migration nay tự chạy lại) | Đã có |
 | Kiểm nonce chống gửi lại gói | Chưa có |
-| Tăng cứng thêm web quản trị khi mở ra Internet: mã SSH vẫn khóa chung toàn hệ thống khi bị dò (chưa khóa riêng từng IP), chứng chỉ tự ký | Chưa có |
+| **Khóa đăng nhập theo IP / thiết bị** (sai mã 5 lần → 24 giờ; sai tên quá 10 lần / 24 giờ → 7 ngày; IP siêu thị khóa theo trình duyệt, quá 3 trình duyệt → khóa IP), lưu DB, gỡ trên web hoặc `scs-login-code -unlock`. **Mức 1 quản lý tài khoản mức 5–7** (duyệt, đổi mức, khóa, từ chối đăng ký), không đụng mức 1–4 | Đã có, chưa chạy thật |
+| Tăng cứng thêm web quản trị khi mở ra Internet: chứng chỉ tự ký; mã SSH vẫn còn khóa chung toàn hệ thống (20 lần sai / 5 phút) | Chưa có |
 
 Đã chạy trên Ubuntu + PostgreSQL / TimescaleDB thật: migration 0001–0014, heartbeat ngẫu nhiên, quét log và phát bộ
 rule, phân lượt tải (bản agent và bộ rule đúng 4 lượt, ≤ 20 Mbit/s), báo cáo server, cập nhật server có kiểm SQL trên

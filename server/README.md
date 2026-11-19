@@ -347,10 +347,12 @@ scs-server login-code -watch   # tự in mã mới mỗi phút, Ctrl+C để tho
 
 - Hai mã: **Admin** (= quản trị gốc, mức 0, toàn quyền) và **Chỉ xem** (mức 7, mọi thao tác ghi bị chặn 403). Hai mã không bao giờ trùng nhau.
 - Mã đổi đầu mỗi phút, mã cũ còn dùng được thêm 10 giây. Mỗi mã dùng một lần; dùng mã Admin thì chỉ mã Admin đổi.
-- Sai 5 lần thì đổi mã sớm. Mỗi IP sai tối đa 10 lần / 15 phút; toàn hệ thống 20 lần / 5 phút thì khóa đăng nhập
+- Sai 5 lần thì đổi mã sớm. **Một IP sai 5 lần liên tiếp thì bị khóa 24 giờ** (xem "Khóa đăng nhập theo IP / thiết bị"
+  bên dưới); toàn hệ thống 20 lần / 5 phút thì khóa đăng nhập
   5 phút, bị khóa lại liên tiếp thì gấp đôi (10, 20, 40, tối đa 60 phút), yên 1 giờ thì về 5 phút.
   Lượt thử được tính ngay khi request tới, nên gửi nhiều request cùng lúc cũng không vượt được giới hạn.
-- Đang bị khóa thì `login-code` báo, kèm log mức error (có thể đang bị dò mã). Mở khóa ngay: `scs-server login-code -unlock`.
+- Đang bị khóa thì `login-code` báo, kèm log mức error (có thể đang bị dò mã). Mở khóa ngay: `scs-server login-code -unlock`
+  (gỡ luôn mọi khóa IP / thiết bị — dùng khi chính quản trị gốc bị khóa IP).
 - Phiên là cookie HttpOnly, Secure, SameSite=Strict, không lưu lâu: tắt trình duyệt là mất, server cắt sau tối đa 24 giờ.
   Phiên nằm trong RAM: khởi động lại server thì mọi người đăng nhập lại.
 - Lệnh `login-code` lấy mã từ server đang chạy qua Unix socket `SCS_CONTROL_SOCKET` (mặc định
@@ -369,8 +371,8 @@ Ngoài mã lấy qua SSH, người dùng có thể đăng ký tài khoản bằn
 
 | Mức | Quyền | Thao tác trên web / API |
 |---|---|---|
-| 0 | Quản trị gốc | Chỉ khi đăng nhập bằng mã **Admin** lấy qua SSH (hoặc Bearer `SCS_ADMIN_TOKEN`). Duyệt tài khoản, đặt / đổi mức quyền, khóa, xóa; xem và thu hồi phiên |
-| 1 | Duyệt cụm server | Duyệt / rút xác nhận quyết định cụm, duyệt server xin vào cụm, cô lập tại chỗ |
+| 0 | Quản trị gốc | Chỉ khi đăng nhập bằng mã **Admin** lấy qua SSH (hoặc Bearer `SCS_ADMIN_TOKEN`). Duyệt tài khoản mọi mức, đặt / đổi mức quyền, khóa, xóa, giới hạn phiên; xem và thu hồi phiên |
+| 1 | Duyệt cụm server | Duyệt / rút xác nhận quyết định cụm, duyệt server xin vào cụm, cô lập tại chỗ; **quản lý tài khoản mức 5–7** (duyệt, đổi mức, khóa, từ chối đăng ký) và gỡ khóa đăng nhập |
 | 2 | Duyệt và phát hành rule | Thêm, ký duyệt, xóa bộ rule; gán bộ rule cho máy |
 | 3 | Duyệt agent, phát hành bản cập nhật | Duyệt / từ chối / thu hồi máy; phát hành bản agent |
 | 4 | Địa chỉ server gửi cho agent | Thêm / gỡ / sắp xếp địa chỉ server |
@@ -382,12 +384,26 @@ Số nhỏ hơn là quyền cao hơn, và mức trên làm được mọi việc
 
 - **Đăng ký:** tab **Đăng ký** → tên đăng nhập (**chỉ chữ số 0–9**, 3–32 số; không chữ cái, không ký tự đặc biệt) + email
   → mã xác minh gửi về email → nhập mã → tài khoản **chờ duyệt**.
-  Quản trị gốc vào trang **Tài khoản**, chọn mức 1–7 rồi **Duyệt** (người đăng ký nhận mail báo).
+  Quản trị gốc (chọn mức 1–7) hoặc người mức 1 (chọn mức 5–7) vào trang **Tài khoản** rồi **Duyệt** (người đăng ký nhận mail báo).
 - **Đăng nhập:** tab **Email** → tên đăng nhập → **Gửi mã về email** → nhập mã.
 - Mã hạn **5 phút** và **chỉ nhập được một lần**: nhập sai là mã bị hủy, phải xin mã mới. Mã chỉ nằm trong RAM
   (lưu dạng băm), không ghi vào DB hay log.
-- Tài khoản không cấp quyền cho tài khoản khác được, kể cả mức 1. Đổi mức, khóa hay xóa tài khoản thì
-  mọi phiên đang mở của tài khoản đó bị cắt ngay.
+- **Khóa đăng nhập theo IP / thiết bị** (migration 0015, bảng `login_blocks`): nhập sai mã **5 lần liên tiếp cho cùng
+  một tài khoản** (mã gửi qua email, mã xác minh đăng ký, cả mã SSH của quản trị gốc) → khóa IP đó **24 giờ**; nhập đúng
+  thì đếm lại. Xin mã cho tên không có / không hoạt động, hoặc đăng ký sai định dạng, **quá 10 lần trong 24 giờ** → khóa
+  IP **7 ngày**. IP của siêu thị (IP WAN đã nạp ở thông tin siêu thị, hoặc IP mà máy đã duyệt đang gửi về) nhiều người
+  dùng chung nên **khóa theo mã thiết bị**: mỗi trình duyệt được cấp một cookie ngẫu nhiên `scs_dev` (HttpOnly, 1 năm,
+  chỉ gửi cho `/auth`); xóa cookie để lách thì đụng trần — **quá 3 thiết bị bị khóa trong 24 giờ thì khóa cả IP 24 giờ**.
+  Khi bị khóa chỉ chặn đăng nhập / đăng ký / xin mã, phiên đang mở vẫn dùng tiếp. Khóa lưu DB (khởi động lại vẫn còn),
+  bộ đếm lần sai chỉ trong RAM. Gỡ khóa: trang **Tài khoản** → "Khóa đăng nhập" (quản trị gốc và mức 1), hoặc trên máy
+  server `scs-login-code -unlock` (gỡ mọi khóa). Nhật ký thao tác ghi `login.block`, `login.unblock`.
+  Giới hạn cũ vẫn giữ: mã SSH sai 20 lần / 5 phút trên toàn hệ thống thì khóa đăng nhập bằng mã SSH 5 → 60 phút.
+- **Mức 1 quản lý tài khoản trong phạm vi mức 5–7**: thấy tài khoản chờ duyệt và tài khoản mức 5–7 (không thấy mức 1–4,
+  không thấy chính mình); duyệt / đổi mức chỉ chọn được **5, 6, 7** (cao nhất là Xác nhận sự cố); khóa / mở khóa tài
+  khoản 5–7; từ chối (xóa) tài khoản đang chờ; gỡ khóa đăng nhập. **Không** xóa tài khoản đang dùng, không đặt giới hạn
+  phiên, không xem / thu hồi phiên, không đụng tới tài khoản mức 1–4, không tự sửa tài khoản của mình. Mọi kiểm tra ở
+  server (403 kèm lý do, ghi log); giao diện chỉ ẩn bớt lựa chọn.
+- Đổi mức, khóa hay xóa tài khoản thì mọi phiên đang mở của tài khoản đó bị cắt ngay.
 - **Giới hạn phiên theo tài khoản** (chỉ quản trị gốc đặt, trang **Tài khoản**, cột "Phiên đăng nhập"; migration 0013):
   thời gian sống mỗi phiên **1 giờ – 15 ngày** (mặc định 24 giờ, tính từ lúc đăng nhập, không gia hạn) và số phiên mở
   cùng lúc **1 – 20** (mặc định 4); đăng nhập thêm khi đã đủ thì **phiên cũ nhất bị cắt**. Đổi giới hạn áp ngay cho phiên

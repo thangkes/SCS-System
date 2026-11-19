@@ -173,8 +173,9 @@ ask_allow() {
 			;;
 		4) ;;
 		5) echo "  ${C_RED}Web quản trị sẽ mở cho mọi IP trên Internet.${C_0}"
-			echo "  - Chỉ có mã 6 số bảo vệ; ai cũng gửi mã sai được để khóa đăng nhập"
-			echo "    (mở khóa trên máy server: sudo scs-login-code -unlock)."
+			echo "  - Chỉ có mã 6 số bảo vệ; nhập sai 5 lần cho một tài khoản thì khóa IP đó 24 giờ,"
+			echo "    dò tên quá 10 lần / 24 giờ thì khóa 7 ngày (IP siêu thị: khóa theo trình duyệt)."
+			echo "    Gỡ khóa trên web (trang Tài khoản) hoặc trên máy server: sudo scs-login-code -unlock."
 			echo "  - Chứng chỉ tự ký: trình duyệt luôn cảnh báo; chỉ bỏ qua khi chắc chắn đúng server."
 			echo "  - Router phải chuyển tiếp cổng 7222 tới máy này thì ngoài Internet mới vào được."
 			ask "Gõ INTERNET để xác nhận" ""

@@ -44,7 +44,7 @@ Lệnh:
   worker      xử lý hàng đợi
   all         chạy tất cả trong một tiến trình (dùng khi dev)
   login-code  xem mã đăng nhập web quản trị (chạy trên máy server; -watch để tự cập nhật,
-              -unlock để mở khóa khi bị khóa do nhập sai nhiều)
+              -unlock để mở khóa khi bị khóa do nhập sai nhiều, gỡ luôn mọi khóa IP / thiết bị)
   pki         tạo CA nội bộ + chứng chỉ server ghi IP WAN: pki init -ip <IP WAN> [-ip <IP VPN>]
               cấp lại chứng chỉ server (đổi IP): pki server -ip ...
   rules       viết rule quét log: rules check | test | build (scs-server rules -h)
@@ -117,7 +117,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 				fmt.Fprintf(stderr, "Không mở khóa được qua %s: %v\n", cfg.ControlSocket, err)
 				return 1
 			}
-			fmt.Fprintln(stdout, "Đã mở khóa đăng nhập web quản trị và xóa các lần nhập sai đã đếm.")
+			fmt.Fprintln(stdout, "Đã mở khóa đăng nhập web quản trị, gỡ mọi khóa IP / thiết bị và xóa các lần nhập sai đã đếm.")
 		}
 		return loginCode(cfg.ControlSocket, *watch, stdout, stderr)
 	}
@@ -275,6 +275,22 @@ func build(cmd string, cfg *config.Config, log *slog.Logger, base app.Deps) ([]r
 			am.Accounts = as
 		}
 		am.EmailDomains = cfg.AccountDomains
+		// Khóa đăng nhập theo IP / thiết bị: lưu DB, IP siêu thị khóa theo mã thiết bị.
+		if bs, ok := base.Registry.(auth.BlockStore); ok {
+			am.Blocks = bs
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := am.LoadBlocks(ctx); err != nil {
+				al.Error("không nạp được danh sách khóa đăng nhập từ DB", "err", err)
+			} else if n := len(am.ListBlocks()); n > 0 {
+				al.Warn("đang có khóa đăng nhập web quản trị", "so_khoa", n)
+			}
+			cancel()
+		}
+		if s, ok := base.Registry.(interface {
+			IsSiteIP(ctx context.Context, ip string) (bool, error)
+		}); ok {
+			am.SiteIP = s.IsSiteIP
+		}
 		if cfg.SMTPHost != "" {
 			am.Mail = &auth.SMTP{Host: cfg.SMTPHost, Port: cfg.SMTPPort, User: cfg.SMTPUser,
 				Password: cfg.SMTPPassword.Value(), From: cfg.SMTPFrom}

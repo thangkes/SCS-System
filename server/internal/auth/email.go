@@ -169,13 +169,15 @@ func (m *Manager) mountEmail(mux *http.ServeMux) {
 	mux.HandleFunc("POST /auth/register/verify", m.registerVerify)
 	mux.HandleFunc("POST /auth/email/code", m.emailCodeReq)
 	mux.HandleFunc("POST /auth/email/login", m.emailLogin)
-	root := m.RequireLevel(LevelRoot)
-	mux.Handle("GET /admin/v1/accounts", root(http.HandlerFunc(m.listAccounts)))
-	mux.Handle("POST /admin/v1/accounts/{username}", root(http.HandlerFunc(m.changeAccount)))
+	// Quản trị gốc và mức 1 (mức 1 bị giới hạn trong delegateAllowed / delegateSees).
+	mgr := m.RequireLevel(LevelAccountManager)
+	mux.Handle("GET /admin/v1/accounts", mgr(http.HandlerFunc(m.listAccounts)))
+	mux.Handle("POST /admin/v1/accounts/{username}", mgr(http.HandlerFunc(m.changeAccount)))
 }
 
 // options: trang đăng nhập biết có đăng nhập / đăng ký bằng email không.
 func (m *Manager) options(w http.ResponseWriter, r *http.Request) {
+	ensureDevice(w, r)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "email": m.EmailEnabled(), "domains": m.EmailDomains})
 }
 
@@ -221,16 +223,22 @@ func (m *Manager) registerStart(w http.ResponseWriter, r *http.Request) {
 	if m.emailOff(w) {
 		return
 	}
+	who := m.subjectOf(r)
+	if m.checkBlocked(w, r, who) {
+		return
+	}
 	var req accountReq
 	if !jsonPost(w, r, &req) {
 		return
 	}
 	user, email := normUsername(req.Username), strings.ToLower(strings.TrimSpace(req.Email))
 	if !registerNameRe.MatchString(user) {
+		m.userMissed(who, "đăng ký tên sai định dạng")
 		httpx.WriteError(w, http.StatusBadRequest, "tên đăng nhập chỉ gồm chữ số 0–9, từ 3 tới 32 số (không chữ cái, không ký tự đặc biệt)")
 		return
 	}
 	if !emailRe.MatchString(email) || !m.emailAllowed(email) {
+		m.userMissed(who, "đăng ký email sai định dạng / tên miền")
 		msg := "email không hợp lệ"
 		if len(m.EmailDomains) > 0 {
 			msg += " (chỉ nhận @" + strings.Join(m.EmailDomains, ", @") + ")"
@@ -290,6 +298,10 @@ func (m *Manager) registerVerify(w http.ResponseWriter, r *http.Request) {
 	if m.emailOff(w) {
 		return
 	}
+	who := m.subjectOf(r)
+	if m.checkBlocked(w, r, who) {
+		return
+	}
 	var req accountReq
 	if !jsonPost(w, r, &req) {
 		return
@@ -301,6 +313,7 @@ func (m *Manager) registerVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	c, ok := takeCode(&m.email.mu, m.email.register, user, cleanCode(req.Code), now)
 	if !ok {
+		m.codeFailed(who, user)
 		httpx.WriteError(w, http.StatusUnauthorized, "mã không đúng hoặc đã hết hạn: mỗi mã chỉ nhập được một lần, hãy đăng ký lại")
 		return
 	}
@@ -314,6 +327,7 @@ func (m *Manager) registerVerify(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
 		return
 	}
+	m.codeOK(who, user)
 	m.log.Warn("tài khoản mới chờ duyệt", "user", user, "ip", ip)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true,
 		"message": "Đã xác minh email. Tài khoản đang chờ quản trị duyệt và đặt quyền; duyệt xong bạn đăng nhập bằng tên đăng nhập."})
@@ -324,6 +338,10 @@ func (m *Manager) emailCodeReq(w http.ResponseWriter, r *http.Request) {
 	if m.emailOff(w) {
 		return
 	}
+	who := m.subjectOf(r)
+	if m.checkBlocked(w, r, who) {
+		return
+	}
 	var req accountReq
 	if !jsonPost(w, r, &req) {
 		return
@@ -331,6 +349,7 @@ func (m *Manager) emailCodeReq(w http.ResponseWriter, r *http.Request) {
 	user, ip, now := normUsername(req.Username), clientIP(r), time.Now()
 	reply := map[string]any{"ok": true, "message": genericCodeReply}
 	if !usernameRe.MatchString(user) {
+		m.userMissed(who, "tên đăng nhập sai định dạng")
 		httpx.WriteJSON(w, http.StatusOK, reply)
 		return
 	}
@@ -342,6 +361,8 @@ func (m *Manager) emailCodeReq(w http.ResponseWriter, r *http.Request) {
 	if err != nil || a.Status != AccountActive || !ValidAccountLevel(a.Level) {
 		if err != nil && !errors.Is(err, ErrNoAccount) {
 			m.log.Error("đọc tài khoản thất bại", "err", err)
+		} else {
+			m.userMissed(who, "tên không có hoặc không hoạt động: "+user)
 		}
 		httpx.WriteJSON(w, http.StatusOK, reply)
 		return
@@ -366,6 +387,10 @@ func (m *Manager) emailLogin(w http.ResponseWriter, r *http.Request) {
 	if m.emailOff(w) {
 		return
 	}
+	who := m.subjectOf(r)
+	if m.checkBlocked(w, r, who) {
+		return
+	}
 	var req accountReq
 	if !jsonPost(w, r, &req) {
 		return
@@ -377,6 +402,7 @@ func (m *Manager) emailLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := takeCode(&m.email.mu, m.email.login, user, cleanCode(req.Code), now); !ok {
 		m.log.Warn("đăng nhập bằng mã email sai", "user", user, "ip", ip)
+		m.codeFailed(who, user)
 		httpx.WriteError(w, http.StatusUnauthorized, "mã không đúng hoặc đã hết hạn: mỗi mã chỉ nhập được một lần, hãy xin mã mới")
 		return
 	}
@@ -385,6 +411,7 @@ func (m *Manager) emailLogin(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusForbidden, "tài khoản không còn hoạt động")
 		return
 	}
+	m.codeOK(who, user)
 	_ = m.Accounts.TouchLogin(r.Context(), user)
 	ttl, maxSess := a.sessionLimits()
 	cookie, s, evicted := m.sess.createLevel(user, user, a.Level, ip, truncate(r.UserAgent(), 160), ttl, maxSess)
@@ -394,7 +421,7 @@ func (m *Manager) emailLogin(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "name": s.Name, "level": s.Level, "expires": s.Expires})
 }
 
-// listAccounts: GET /admin/v1/accounts (chỉ quản trị gốc).
+// listAccounts: GET /admin/v1/accounts (quản trị gốc: tất cả; mức 1: chờ duyệt + mức 5–7).
 func (m *Manager) listAccounts(w http.ResponseWriter, r *http.Request) {
 	if m.Accounts == nil {
 		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "accounts": []Account{}, "email": false})
@@ -406,6 +433,18 @@ func (m *Manager) listAccounts(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
 		return
 	}
+	me, _ := FromContext(r.Context())
+	minLevel := LevelCluster
+	if me.Level != LevelRoot {
+		minLevel = DelegateMinLevel
+		out := []Account{}
+		for _, a := range list {
+			if delegateSees(a) && a.Username != me.Account {
+				out = append(out, a)
+			}
+		}
+		list = out
+	}
 	if list == nil {
 		list = []Account{}
 	}
@@ -413,7 +452,8 @@ func (m *Manager) listAccounts(w http.ResponseWriter, r *http.Request) {
 	for l, n := range LevelNames {
 		names[int(l)] = n
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "accounts": list, "levels": names, "email": m.EmailEnabled()})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "accounts": list, "levels": names, "email": m.EmailEnabled(),
+		"assign_min": minLevel})
 }
 
 // changeAccount: POST /admin/v1/accounts/{username} {action: approve|level|disable|enable|delete, level}.
@@ -441,6 +481,12 @@ func (m *Manager) changeAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
+		return
+	}
+	if why := delegateAllowed(me, a, req.Action, req.Level); why != "" {
+		m.log.Warn("từ chối thao tác tài khoản ngoài phạm vi quyền", "thao_tac", req.Action, "user", user,
+			"muc_muon_dat", int(req.Level), "by", me.Name, "muc", int(me.Level))
+		httpx.WriteError(w, http.StatusForbidden, why)
 		return
 	}
 	switch req.Action {
@@ -497,8 +543,8 @@ func (m *Manager) changeAccount(w http.ResponseWriter, r *http.Request) {
 	}
 	// Đổi quyền / khóa / xóa: cắt mọi phiên đang mở của tài khoản đó (đăng nhập lại để nhận quyền mới).
 	n := m.sess.revokeAccount(user)
-	m.log.Warn("quản trị gốc đổi tài khoản", "thao_tac", req.Action, "user", user, "muc", int(req.Level),
-		"by", me.Name, "phien_bi_cat", n)
+	m.log.Warn("đổi tài khoản", "thao_tac", req.Action, "user", user, "muc", int(req.Level),
+		"by", me.Name, "muc_nguoi_lam", int(me.Level), "phien_bi_cat", n)
 	if req.Action == "approve" && m.Mail != nil {
 		m.sendAsync(a.Email, "SCS-System: tài khoản đã được duyệt",
 			fmt.Sprintf("Tài khoản \"%s\" đã được duyệt với quyền: %s.\nĐăng nhập web quản trị bằng tên đăng nhập, mã sẽ được gửi về email này.\n",

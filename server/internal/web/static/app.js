@@ -17,6 +17,7 @@
   const myLevel = () => (me && Number.isInteger(me.level) ? me.level : LV.view);
   const can = (need) => !!me && myLevel() <= need;
   const isAdmin = () => can(LV.root); // quản trị gốc
+  const canAccounts = () => can(LV.cluster); // trang Tài khoản: gốc (tất cả) và mức 1 (chỉ mức 5–7)
 
   // ---------------------------------------------------------------- tiện ích
   const $ = (sel, el = document) => el.querySelector(sel);
@@ -1617,11 +1618,11 @@
     return `<span class="pill ${cls} no-dot">${esc(l)} · ${esc(LEVEL_NAMES[l] ?? '?')}</span>`;
   }
 
-  // ---------------------------------------------------------------- tài khoản (chỉ quản trị gốc)
+  // ---------------------------------------------------------------- tài khoản (quản trị gốc; mức 1 trong phạm vi 5–7)
   async function refreshAccountCount() {
     const nav = $('#nav-accounts');
-    nav.hidden = !isAdmin();
-    if (!isAdmin()) return;
+    nav.hidden = !canAccounts();
+    if (!canAccounts()) return;
     try {
       const j = await getJSON('/admin/v1/accounts');
       const n = (j.accounts || []).filter((a) => a.status === 'pending').length;
@@ -1631,25 +1632,50 @@
     } catch { /* bỏ qua */ }
   }
 
-  function levelSelect(id, cur) {
-    return `<select id="${esc(id)}" aria-label="Mức quyền">${LEVEL_NAMES.map((n, i) => (i === 0 ? '' :
+  // levelSelect: chỉ hiện các mức người đang xem được cấp (gốc: 1–7; mức 1: 5–7). Server vẫn kiểm lại.
+  function levelSelect(id, cur, min = LV.cluster) {
+    return `<select id="${esc(id)}" aria-label="Mức quyền">${LEVEL_NAMES.map((n, i) => (i < Math.max(min, 1) ? '' :
       `<option value="${i}"${i === (cur || LV.view) ? ' selected' : ''}>${i} · ${esc(n)}</option>`)).join('')}</select>`;
+  }
+
+  // Khóa đăng nhập (IP / thiết bị) — gốc và mức 1 xem và gỡ.
+  function blocksCard(blocks) {
+    const rows = blocks.map((b) => `<tr>
+        <td>${b.kind === 'ip' ? '<span class="pill pill-bad no-dot">IP</span>' : '<span class="pill pill-warn no-dot">Thiết bị</span>'}</td>
+        <td class="mono">${esc(b.kind === 'ip' ? b.key : `${b.key.slice(0, 8)}… · ${b.ip}`)}</td>
+        <td>${esc(b.reason)}</td>
+        <td class="hide-sm">${esc(fmtFull(b.created))}</td>
+        <td>${esc(fmtFull(b.until))}<span class="sub">còn ${esc(fmtDur(new Date(b.until) - Date.now()))}</span></td>
+        <td class="actions"><button class="btn btn-sm" data-unblock="${esc(b.kind)}" data-key="${esc(b.key)}">Gỡ khóa</button></td></tr>`).join('');
+    return `<div class="card">
+        <div class="card-head"><h2>Khóa đăng nhập</h2><span class="sub">IP / thiết bị bị chặn đăng nhập, đăng ký và xin mã</span></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Loại</th><th>IP / thiết bị</th><th>Lý do</th><th class="hide-sm">Khóa lúc</th><th>Tới</th><th></th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="6" class="empty">Không có khóa nào.</td></tr>'}</tbody>
+        </table></div>
+        <p class="hint">Sai mã 5 lần liên tiếp cho một tài khoản (cả mã SSH) → khóa 24 giờ. Sai tên / đăng ký sai quá 10 lần trong 24 giờ → khóa 7 ngày.
+          IP của siêu thị (IP WAN đã nạp, IP máy đã duyệt gửi về) khóa theo từng trình duyệt; quá 3 trình duyệt bị khóa trong 24 giờ thì khóa cả IP 24 giờ.
+          Phiên đang mở không bị ảnh hưởng. Trên máy server: <code>sudo scs-login-code -unlock</code> gỡ mọi khóa.</p>
+      </div>`;
   }
 
   async function pageAccounts(soft) {
     setTitle('Tài khoản');
     soft = soft === true;
-    if (!isAdmin()) {
-      view.innerHTML = `<div class="card soon">${ICON.warn}<h2>Cần quyền quản trị gốc</h2><p>Chỉ người đăng nhập bằng mã lấy qua SSH trên máy server mới duyệt và đặt quyền tài khoản.</p></div>`;
+    if (!canAccounts()) {
+      view.innerHTML = `<div class="card soon">${ICON.warn}<h2>Cần quyền quản trị gốc hoặc mức 1</h2><p>Quản trị gốc (mã lấy qua SSH) duyệt và đặt mọi mức quyền; mức 1 duyệt tài khoản mức 5–7.</p></div>`;
       return;
     }
+    const root = isAdmin();
     if (!soft) view.innerHTML = '<p class="hint">Đang tải…</p>';
-    let j, sess = [];
+    let j, sess = [], blocks = [];
     try {
-      [j, sess] = await Promise.all([getJSON('/admin/v1/accounts'),
-        getJSON('/admin/v1/sessions').then((x) => x.sessions || []).catch(() => [])]);
+      [j, sess, blocks] = await Promise.all([getJSON('/admin/v1/accounts'),
+        root ? getJSON('/admin/v1/sessions').then((x) => x.sessions || []).catch(() => []) : [],
+        getJSON('/admin/v1/login-blocks').then((x) => x.blocks || []).catch(() => [])]);
     } catch (err) { showLoadError(view, err); return; }
     const list = j.accounts || [];
+    const minLv = root ? LV.cluster : (j.assign_min || LV.incidents);
     const openOf = (u) => sess.filter((x) => x.account === u);
     const sessCell = (a) => {
       const h = a.session_hours || 24, n = a.max_sessions || 4, open = openOf(a.username);
@@ -1674,35 +1700,40 @@
           <thead><tr><th>Tên đăng nhập</th><th>Email</th><th class="hide-sm">Đăng ký lúc</th><th>Mức quyền</th><th></th></tr></thead>
           <tbody id="acct-pending">${pending.map((a) => `<tr>
             <td class="strong">${esc(a.username)}</td><td class="mono">${esc(a.email)}</td><td class="hide-sm">${t(a.created_at)}</td>
-            <td>${levelSelect(`lv-${a.username}`, LV.view)}</td>
+            <td>${levelSelect(`lv-${a.username}`, LV.view, minLv)}</td>
             <td class="actions"><button class="btn btn-sm btn-danger" data-acct="delete" data-user="${esc(a.username)}">Từ chối</button>
               <button class="btn btn-sm btn-primary" data-acct="approve" data-user="${esc(a.username)}">Duyệt</button></td></tr>`).join('')
               || '<tr><td colspan="5" class="empty">Không có tài khoản chờ duyệt.</td></tr>'}</tbody>
         </table></div>
       </div>
       <div class="card">
-        <div class="card-head"><h2>Tài khoản</h2><span class="sub">Đổi quyền, khóa hay xóa đều cắt ngay các phiên đang mở của tài khoản đó</span></div>
+        <div class="card-head"><h2>Tài khoản</h2><span class="sub">${root ? 'Đổi quyền, khóa hay xóa đều cắt ngay các phiên đang mở của tài khoản đó'
+          : 'Mức 1: chỉ thấy và quản lý tài khoản mức 5–7; đổi quyền / khóa cắt ngay phiên đang mở'}</span></div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Tên đăng nhập</th><th class="hide-sm">Email</th><th>Trạng thái</th><th>Mức quyền</th><th>Phiên đăng nhập</th><th class="hide-sm">Đăng nhập cuối</th><th></th></tr></thead>
+          <thead><tr><th>Tên đăng nhập</th><th class="hide-sm">Email</th><th>Trạng thái</th><th>Mức quyền</th>${root ? '<th>Phiên đăng nhập</th>' : ''}<th class="hide-sm">Đăng nhập cuối</th><th></th></tr></thead>
           <tbody>${others.map((a) => `<tr>
             <td class="strong">${esc(a.username)}<span class="sub">duyệt bởi ${esc(a.approved_by || '—')}</span></td>
             <td class="hide-sm mono">${esc(a.email)}</td>
             <td>${a.status === 'active' ? '<span class="pill pill-ok no-dot">Hoạt động</span>' : '<span class="pill pill-bad no-dot">Đã khóa</span>'}</td>
-            <td>${levelSelect(`lv-${a.username}`, a.level)} <button class="btn btn-sm" data-acct="level" data-user="${esc(a.username)}">Đổi</button></td>
-            <td>${sessCell(a)}</td>
+            <td>${levelSelect(`lv-${a.username}`, a.level, minLv)} <button class="btn btn-sm" data-acct="level" data-user="${esc(a.username)}">Đổi</button></td>
+            ${root ? `<td>${sessCell(a)}</td>` : ''}
             <td class="hide-sm">${t(a.last_login)}</td>
             <td class="actions">${a.status === 'active'
               ? `<button class="btn btn-sm" data-acct="disable" data-user="${esc(a.username)}">Khóa</button>`
               : `<button class="btn btn-sm" data-acct="enable" data-user="${esc(a.username)}">Mở khóa</button>`}
-              <button class="btn btn-sm btn-danger" data-acct="delete" data-user="${esc(a.username)}">Xóa</button></td></tr>`).join('')
-              || '<tr><td colspan="7" class="empty">Chưa có tài khoản nào.</td></tr>'}</tbody>
+              ${root ? `<button class="btn btn-sm btn-danger" data-acct="delete" data-user="${esc(a.username)}">Xóa</button>` : ''}</td></tr>`).join('')
+              || `<tr><td colspan="${root ? 7 : 6}" class="empty">Chưa có tài khoản nào.</td></tr>`}</tbody>
         </table></div>
-        <p class="hint">Phiên đăng nhập: mỗi phiên sống 1 giờ – 15 ngày tính từ lúc đăng nhập (mặc định 24 giờ, không gia hạn); mỗi tài khoản 1 – 20 phiên cùng lúc (mặc định 4) — đăng nhập thêm thì phiên cũ nhất bị cắt. Đổi giới hạn áp ngay cho phiên đang mở, không đăng xuất phiên còn trong giới hạn.</p>
+        ${root ? '' : '<p class="hint">Xóa tài khoản đang dùng, đặt giới hạn phiên và quản lý tài khoản mức 1–4 cần quản trị gốc.</p>'}
+        <p class="hint"${root ? '' : ' hidden'}>Phiên đăng nhập: mỗi phiên sống 1 giờ – 15 ngày tính từ lúc đăng nhập (mặc định 24 giờ, không gia hạn); mỗi tài khoản 1 – 20 phiên cùng lúc (mặc định 4) — đăng nhập thêm thì phiên cũ nhất bị cắt. Đổi giới hạn áp ngay cho phiên đang mở, không đăng xuất phiên còn trong giới hạn.</p>
       </div>
       <div class="card"><div class="card-head"><h2>Các mức quyền</h2><span class="sub">Số nhỏ = quyền cao; mức trên làm được mọi việc của mức dưới</span></div>
-        <ol class="level-list" start="0">${LEVEL_NAMES.map((n, i) => `<li><strong>${esc(n)}</strong>${i === 0 ? ' — chỉ khi đăng nhập bằng mã SSH; duyệt tài khoản, đặt quyền, thu hồi phiên' : ''}</li>`).join('')}</ol>
-        <p class="hint">Tài khoản không cấp quyền cho tài khoản khác được: chỉ quản trị gốc duyệt và đặt quyền.</p></div>`;
+        <ol class="level-list" start="0">${LEVEL_NAMES.map((n, i) => `<li><strong>${esc(n)}</strong>${i === 0 ? ' — chỉ khi đăng nhập bằng mã SSH; duyệt tài khoản mọi mức, đặt quyền, giới hạn phiên, thu hồi phiên'
+          : i === 1 ? ' — thêm: duyệt / đổi mức / khóa tài khoản mức 5–7, từ chối đăng ký, gỡ khóa đăng nhập' : ''}</li>`).join('')}</ol>
+        <p class="hint">Mức 1 chỉ cấp được tối đa mức 5 (Xác nhận sự cố), không đụng tới tài khoản mức 1–4 và không tự sửa tài khoản của mình; server kiểm lại mọi thao tác.</p></div>
+      ${blocksCard(blocks)}`;
     view.addEventListener('click', onAccountClick);
+    view.addEventListener('click', onUnblockClick);
     refreshAccountCount();
   }
 
@@ -1739,6 +1770,20 @@
       toast('Đã lưu.');
     } catch (err) {
       toast(`Không lưu được: ${err.message}`);
+    }
+    pageAccounts(true);
+  }
+
+  async function onUnblockClick(e) {
+    const b = e.target.closest('[data-unblock]'); if (!b) return;
+    const what = b.dataset.unblock === 'ip' ? `IP <strong>${esc(b.dataset.key)}</strong>` : 'thiết bị này';
+    if (!(await confirmBox('Gỡ khóa đăng nhập?', `<p>${what} đăng nhập / đăng ký lại được ngay; các lần nhập sai đã đếm được xóa.</p>`, 'Gỡ khóa', false))) return;
+    b.disabled = true;
+    try {
+      await postJSON('/admin/v1/login-blocks/remove', { kind: b.dataset.unblock, key: b.dataset.key });
+      toast('Đã gỡ khóa.');
+    } catch (err) {
+      toast(`Không gỡ được: ${err.message}`);
     }
     pageAccounts(true);
   }
