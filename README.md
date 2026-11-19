@@ -11,7 +11,7 @@ và sự kiện log về **SCS-Server**; admin duyệt máy và theo dõi trên 
 and matched log events to SCS-Server, where admins approve machines and watch alerts on a web console.
 Code comments and docs are in Vietnamese.*
 
-> Trạng thái: giai đoạn 1, **đang chạy thật** từ 11/2026 (khoảng 150 máy, xem [số đo thực tế](#số-đo-thực-tế)).
+> Trạng thái: giai đoạn 1, **đang chạy thật** từ 11/2026 (hơn 220 máy, xem [số đo thực tế](#số-đo-thực-tế)).
 > Vẫn đang phát triển tiếp.
 > Đang chuyển sang **cụm nhiều server ngang hàng**: thiết kế đã chốt ở
 > [docs/thiet-ke-cum-server.md](docs/thiet-ke-cum-server.md). Đã có mốc C1 (khóa node, cổng 5222,
@@ -102,6 +102,8 @@ rule, phân lượt tải (bản agent và bộ rule đúng 4 lượt, ≤ 20 Mb
 | RAM `scs-server` | 25–35 MB | |
 | Dung lượng DB | 13 MB | nhờ lưu theo giai đoạn (chỉ ghi khi có thay đổi) |
 | Phân lượt tải | đúng 4 lượt, ≤ 20 Mbit/s | quan sát khi phát bản agent và bộ rule; chỉ số không biến động lớn |
+
+Nay đã hơn 220 máy (chưa đo lại); theo cùng cách tính, heartbeat khoảng 220 ÷ 17,5 ≈ 12–13 lần / phút.
 
 ## Định hướng tương lai (chưa triển khai)
 
