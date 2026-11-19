@@ -207,6 +207,20 @@ lại bảng nên chỉ chạy trên DB có chữ "test" trong tên (tự từ c
   `SELECT timescaledb_post_restore();` → bật lại `scs-server`. Chưa diễn tập khôi phục trên máy thật: nên thử một lần
   trên máy / DB thử trước khi cần dùng.
 
+## Thông báo bản server mới (chỉ đề xuất)
+
+- `scs-server-update-check.timer` chạy **10 phút sau khi bật máy rồi 6 giờ một lần**, gọi `/opt/scs-server/check-update.sh`:
+  `git fetch` repo (chạy git **bằng user sở hữu repo**, không bằng root), chọn bản mới giống `update.sh` (tag `v*` mới
+  nhất, chưa có tag thì `origin/main`), liệt kê các commit từ **bản đang chạy** (`scs-server version`) tới bản mới (tối đa
+  60), ghi vào `/var/lib/scs-update/update-check.txt` (thư mục root:scs 750 — dịch vụ đọc được, không sửa được).
+  **Không tự cài gì.**
+- Tiến trình `scs-server` không gọi mạng ra ngoài và không đụng repo: chỉ đọc file đó (`SCS_UPDATE_CHECK_FILE`), API
+  `GET /admin/v1/update` cho **quản trị gốc và mức 1**. Web hiện nhãn **"Có bản mới · N thay đổi"** trên thanh trên (mỗi bản
+  báo một lần bằng thông báo góc màn hình) và thẻ **"Bản cập nhật SCS-Server"** ở trang **Hệ thống**: tiêu đề + nội dung
+  từng thay đổi, bản mới có đổi cấu trúc DB không, lần kiểm cuối, lỗi nếu có. Quá 2 ngày chưa kiểm thì báo timer có vấn đề.
+- Cài bản mới vẫn bằng menu **mục 4** / `scripts/update.sh` (test, sao lưu DB khi cần, lỗi thì quay về bản cũ). Cài xong
+  `install.sh` tự chạy kiểm tra lại nên thông báo cũ biến mất. Kiểm ngay: `sudo systemctl start scs-server-update-check`.
+
 ## Lưu theo giai đoạn
 
 Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-giai-doan.md). Không lưu từng sự kiện, từng heartbeat:
@@ -405,9 +419,9 @@ Số nhỏ hơn là quyền cao hơn, và mức trên làm được mọi việc
   server (403 kèm lý do, ghi log); giao diện chỉ ẩn bớt lựa chọn.
 - Đổi mức, khóa hay xóa tài khoản thì mọi phiên đang mở của tài khoản đó bị cắt ngay.
 - **Giới hạn phiên theo tài khoản** (chỉ quản trị gốc đặt, trang **Tài khoản**, cột "Phiên đăng nhập"; migration 0013):
-  thời gian sống mỗi phiên **1 giờ – 15 ngày** (mặc định 24 giờ, tính từ lúc đăng nhập, không gia hạn) và số phiên mở
+  thời gian sống mỗi phiên **1 giờ – 15 ngày** (mặc định 24 giờ, tính từ lúc đăng nhập, không tự gia hạn khi dùng) và số phiên mở
   cùng lúc **1 – 20** (mặc định 4); đăng nhập thêm khi đã đủ thì **phiên cũ nhất bị cắt**. Đổi giới hạn áp ngay cho phiên
-  đang mở (rút hạn, cắt phiên thừa cũ nhất) nhưng không đăng xuất phiên còn trong giới hạn — dùng cho BOT lấy dữ liệu
+  đang mở (hạn = lúc đăng nhập + thời gian mới: nới thì kéo dài, rút thì phiên quá hạn mới hết; cắt phiên thừa cũ nhất) nhưng không đăng xuất phiên còn trong giới hạn — dùng cho BOT lấy dữ liệu
   cần phiên dài. Trang **Hệ thống** hiện thời gian còn sống của từng phiên; phiên đăng nhập bằng mã SSH vẫn 24 giờ.
   Nhật ký thao tác ghi `account.session_limits`.
 - **Phiên gắn với máy và trình duyệt lúc đăng nhập** (IP + User-Agent): cookie bị đánh cắp đem dùng từ IP hay trình

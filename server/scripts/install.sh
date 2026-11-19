@@ -28,6 +28,7 @@
 #   - chưa có CA: tạo CA nội bộ + chứng chỉ server vào /etc/scs-server/pki và điền SCS_TLS_*, SCS_CA_*
 #   - cài deploy/systemd/scs-server.service, bật tự chạy khi khởi động, khởi động ngay
 #   - cài timer sao lưu DB định kỳ (scs-server-backup.timer: ngày 1 và 16 hằng tháng, scripts/backup-db.sh)
+#   - cài timer kiểm tra bản mới (scs-server-update-check.timer: 6 giờ / lần, chỉ thông báo trên web, không tự cài)
 #   - cài lệnh scs-login-code để lấy mã đăng nhập web
 # Chạy lại nhiều lần được.
 
@@ -118,8 +119,8 @@ fi
 
 if [[ $MODE == uninstall ]]; then
 	systemctl disable --now scs-server 2>/dev/null || true
-	systemctl disable --now scs-server-backup.timer 2>/dev/null || true
-	rm -f "$UNIT_DST" "$LOGIN_CMD" /etc/systemd/system/scs-server-backup.service /etc/systemd/system/scs-server-backup.timer
+	systemctl disable --now scs-server-backup.timer scs-server-update-check.timer 2>/dev/null || true
+	rm -f "$UNIT_DST" "$LOGIN_CMD" /etc/systemd/system/scs-server-backup.service /etc/systemd/system/scs-server-backup.timer 		/etc/systemd/system/scs-server-update-check.service /etc/systemd/system/scs-server-update-check.timer
 	systemctl daemon-reload
 	ok "Đã gỡ dịch vụ scs-server. Giữ lại: $ETC_DIR (cấu hình, CA), $DATA_DIR (dữ liệu), $OPT_DIR (binary), user $SVC_USER"
 	exit 0
@@ -423,6 +424,20 @@ done
 systemctl daemon-reload
 systemctl enable --now scs-server-backup.timer >/dev/null
 ok "Sao lưu DB định kỳ: ngày 1 và 16 hằng tháng (02:30), lưu ở $SERVER_DIR/data/backup — lần tới: $(systemctl show scs-server-backup.timer -p NextElapseUSecRealtime --value 2>/dev/null || echo '?')"
+
+# ---- kiểm tra bản mới 6 giờ / lần (chỉ ghi kết quả cho web quản trị mức 0–1, KHÔNG tự cài)
+install -o root -g root -m 755 "$SERVER_DIR/scripts/check-update.sh" "$OPT_DIR/check-update.sh"
+install -d -o root -g "$SVC_USER" -m 750 /var/lib/scs-update
+for u in scs-server-update-check.service scs-server-update-check.timer; do
+	sed "s|@SERVER_DIR@|$SERVER_DIR|g" "$SERVER_DIR/deploy/systemd/$u" >"/etc/systemd/system/$u.new"
+	chmod 644 "/etc/systemd/system/$u.new"
+	mv -f "/etc/systemd/system/$u.new" "/etc/systemd/system/$u"
+done
+systemctl daemon-reload
+systemctl enable --now scs-server-update-check.timer >/dev/null
+# Kiểm ngay một lần (chạy nền): vừa cài / cập nhật xong thì thông báo cũ trên web được làm mới.
+systemctl start --no-block scs-server-update-check.service 2>/dev/null || true
+ok "Kiểm tra bản mới: 6 giờ một lần, kết quả hiện trên web (mức 0–1); cài vẫn bằng menu mục 4"
 
 sleep 3
 if systemctl is-active --quiet scs-server; then

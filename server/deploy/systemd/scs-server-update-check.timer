@@ -1,0 +1,10 @@
+[Unit]
+Description=SCS-Server: kiểm tra bản mới 6 giờ một lần (chỉ thông báo trên web, không tự cài)
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=6h
+RandomizedDelaySec=15min
+
+[Install]
+WantedBy=timers.target

@@ -110,16 +110,15 @@ func (s *sessions) trimAccount(account string, keep int) int {
 	return len(mine) - keep
 }
 
-// applyLimits áp giới hạn mới cho các phiên đang mở của tài khoản: hạn không vượt lúc đăng nhập + ttl, chỉ
-// giữ max phiên mới nhất. Không cắt hết (máy đang dùng, BOT đang chạy vẫn tiếp tục). Trả số phiên bị cắt.
+// applyLimits áp giới hạn mới cho các phiên đang mở của tài khoản: hạn = lúc đăng nhập + ttl (rút ngắn khi
+// giảm, KÉO DÀI khi nới — trước đây chỉ rút nên nới 24 giờ → 15 ngày mà phiên đang mở vẫn hết sau 24 giờ),
+// chỉ giữ max phiên mới nhất. Không cắt hết (máy đang dùng, BOT đang chạy vẫn tiếp tục). Trả số phiên bị cắt.
 func (s *sessions) applyLimits(account string, ttl time.Duration, max int) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, ss := range s.m {
 		if ss.Account == account {
-			if e := ss.Created.Add(ttl); e.Before(ss.Expires) {
-				ss.Expires = e
-			}
+			ss.Expires = ss.Created.Add(ttl)
 		}
 	}
 	s.sweep(s.now())

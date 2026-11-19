@@ -88,6 +88,9 @@ type Config struct {
 	OfflineAfter   time.Duration
 	// MetricsKeep (SCS_METRICS_KEEP): giữ lịch sử thông số server (trang Báo cáo server) bao lâu, mặc định 90 ngày.
 	MetricsKeep time.Duration
+	// UpdateCheckFile (SCS_UPDATE_CHECK_FILE): file kết quả kiểm tra bản mới do timer scs-server-update-check
+	// ghi (scripts/check-update.sh); web quản trị mức 0–1 hiện thông báo. Rỗng = tắt.
+	UpdateCheckFile string
 	// DownloadSlots (SCS_DOWNLOAD_SLOTS): số máy được tải bản agent cùng lúc (mặc định 4); máy khác chờ
 	// heartbeat sau. DownloadMbps (SCS_DOWNLOAD_MBPS): tổng băng thông tải bản agent + bộ rule (mặc định 20).
 	DownloadSlots int
@@ -173,6 +176,7 @@ func Load() (*Config, error) {
 		AlertAutoClose:   getDuration("SCS_ALERT_AUTOCLOSE", 24*time.Hour, time.Hour, 30*24*time.Hour, &errs),
 		OfflineAfter:     getDuration("SCS_OFFLINE_AFTER", 60*time.Minute, 10*time.Minute, 24*time.Hour, &errs),
 		MetricsKeep:      getDuration("SCS_METRICS_KEEP", 90*24*time.Hour, 24*time.Hour, 400*24*time.Hour, &errs),
+		UpdateCheckFile:  get("SCS_UPDATE_CHECK_FILE", "/var/lib/scs-update/update-check.txt"),
 		DownloadSlots:    getInt("SCS_DOWNLOAD_SLOTS", 4, &errs),
 		DownloadMbps:     getInt("SCS_DOWNLOAD_MBPS", 20, &errs),
 	}

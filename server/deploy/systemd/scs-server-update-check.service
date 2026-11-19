@@ -1,0 +1,14 @@
+[Unit]
+Description=SCS-Server: kiểm tra bản mới trên GitHub (chỉ kiểm, không cài)
+Documentation=file:@SERVER_DIR@/README.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# Bản ở /opt (root sở hữu). Script chạy git bằng user sở hữu repo, chỉ ghi kết quả vào /var/lib/scs-update.
+ExecStart=/bin/bash /opt/scs-server/check-update.sh --server-dir @SERVER_DIR@
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=5min
+PrivateTmp=yes

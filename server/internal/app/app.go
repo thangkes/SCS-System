@@ -165,6 +165,7 @@ func AdminHandler(d Deps) http.Handler {
 		mux.Handle("GET /admin/v1/stream", view(httpx.NotImplemented("thông báo tức thời")))
 	}
 	mux.Handle("GET /admin/v1/server/stats", view(http.HandlerFunc(statsAPI(d))))
+	mux.Handle("GET /admin/v1/update", cluster(updateAPI(d))) // thông báo bản server mới: mức 0–1
 	rp := reportAPI{d}
 	mux.Handle("GET /admin/v1/server/report", view(http.HandlerFunc(rp.report)))
 	mux.Handle("GET /admin/v1/server/report.csv", view(http.HandlerFunc(rp.reportCSV)))

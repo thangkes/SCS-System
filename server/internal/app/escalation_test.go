@@ -114,6 +114,7 @@ func TestNoPrivilegeEscalation(t *testing.T) {
 		{"POST", "/admin/v1/accounts/19999", auth.LevelCluster},
 		{"GET", "/admin/v1/accounts", auth.LevelCluster},
 		{"GET", "/admin/v1/login-blocks", auth.LevelCluster},
+		{"GET", "/admin/v1/update", auth.LevelCluster},
 		{"POST", "/admin/v1/login-blocks/remove", auth.LevelCluster},
 		{"GET", "/admin/v1/sessions", auth.LevelRoot},
 		{"POST", "/admin/v1/sessions/abc/revoke", auth.LevelRoot},

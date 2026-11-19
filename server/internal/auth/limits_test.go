@@ -42,9 +42,39 @@ func TestSessionTTLAndCap(t *testing.T) {
 	if _, ok, _ := s.get(other, "", ""); !ok {
 		t.Fatal("không được đụng phiên tài khoản khác")
 	}
-	now = now.Add(2 * time.Hour)
+	// Nới lên 15 ngày: phiên đang mở được kéo dài tới lúc đăng nhập + 15 ngày (không còn đếm ngược 24 giờ cũ).
+	if n := s.applyLimits("10123", MaxSessionHours*time.Hour, 4); n != 0 {
+		t.Fatalf("nới giới hạn không được cắt phiên: %d", n)
+	}
+	ss, ok, _ = s.get(cookies[2], "1.2.3.4", "")
+	if !ok || !ss.Expires.Equal(ss.Created.Add(15*24*time.Hour)) {
+		t.Fatalf("nới thời gian sống phải kéo dài phiên đang mở: %+v %v", ss, ok)
+	}
+	now = now.Add(14 * 24 * time.Hour)
+	if _, ok, _ := s.get(cookies[2], "1.2.3.4", ""); !ok {
+		t.Fatal("ngày 14 phiên vẫn phải còn")
+	}
+	// Rút lại 1 giờ khi phiên đã sống quá 1 giờ: hết ngay.
+	s.applyLimits("10123", time.Hour, 4)
 	if _, ok, _ := s.get(cookies[2], "1.2.3.4", ""); ok {
-		t.Fatal("quá hạn phải hết phiên")
+		t.Fatal("rút hạn về quá khứ phải hết phiên")
+	}
+}
+
+// Đăng nhập sau khi quản trị gốc đặt 15 ngày: phiên mới sống đúng 15 ngày (qua API thật).
+func TestLoginUsesAccountTTL(t *testing.T) {
+	m, h, st, mail := emailSetup(t)
+	st.m["10123"] = Account{Username: "10123", Email: "a@gmail.com", Status: AccountActive, Level: LevelView,
+		SessionHours: DefaultSessionHours, MaxSessions: DefaultMaxSessions}
+	root := rootCookie(t, m, h)
+	if code, _, _ := post(h, "/admin/v1/accounts/10123", map[string]any{"action": "session", "session_hours": 360, "max_sessions": 4}, root); code != 200 {
+		t.Fatalf("đặt 15 ngày: %d", code)
+	}
+	post(h, "/auth/email/code", accountReq{Username: "10123"})
+	_, j, _ := post(h, "/auth/email/login", accountReq{Username: "10123", Code: codeOf(mail.next(t))})
+	exp, _ := time.Parse(time.RFC3339Nano, j["expires"].(string))
+	if d := time.Until(exp); d < 359*time.Hour || d > 360*time.Hour {
+		t.Fatalf("phiên mới phải sống 15 ngày, còn %s", d)
 	}
 }
 

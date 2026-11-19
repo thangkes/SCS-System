@@ -1532,9 +1532,61 @@
   }
 
   // ---------------------------------------------------------------- trang: Hệ thống
+  // ---------------------------------------------------------------- bản server mới (mức 0–1, chỉ đề xuất)
+  const UPDATE_SEEN_KEY = 'scs-update-seen';
+  let updateInfo = null;
+  let updateTimer = 0;
+
+  async function refreshUpdate(notify) {
+    const pill = $('#update-pill');
+    if (!can(LV.cluster)) { pill.hidden = true; return; }
+    try { updateInfo = (await getJSON('/admin/v1/update')).update; } catch { return; }
+    const u = updateInfo;
+    pill.hidden = !u.available;
+    if (!u.available) return;
+    pill.textContent = `Có bản mới · ${u.behind} thay đổi`;
+    pill.title = `Bản mới ${u.target_desc || u.target}; đang chạy ${u.running}. Bấm để xem danh sách thay đổi.`;
+    const key = u.target_desc || String(u.behind);
+    if (notify && local.get(UPDATE_SEEN_KEY) !== key) {
+      local.set(UPDATE_SEEN_KEY, key);
+      toast(`Có bản SCS-Server mới (${u.behind} thay đổi). Xem ở trang Hệ thống.`);
+    }
+  }
+
+  function updateCard(u) {
+    if (!u) return '';
+    const when = u.checked ? `kiểm lúc ${esc(fmtFull(u.checked))}` : 'chưa kiểm lần nào';
+    let body;
+    if (!u.configured) {
+      body = `<p class="hint">Chưa có kết quả kiểm tra: timer <code>scs-server-update-check</code> chưa cài hoặc chưa chạy lần nào (cập nhật server bằng menu mục 4 sẽ cài).</p>`;
+    } else if (u.outdated) {
+      body = `<p class="hint">Server vừa được cập nhật lên <strong>${esc(u.running)}</strong>; đang chờ lần kiểm tra mới (${when}).</p>`;
+    } else if (!u.available) {
+      body = `<p class="hint">Đang dùng bản mới nhất <strong>${esc(u.running)}</strong> (${when}).</p>`;
+    } else {
+      const items = u.commits.map((c) => `<li><strong>${esc(c.subject)}</strong>
+          <span class="sub">${esc(c.hash)}${c.date ? ` · ${esc(fmtFull(c.date))}` : ''}</span>
+          ${c.body && c.body.length ? `<ul>${c.body.map((l) => `<li>${esc(l.replace(/^[-*•]\s*/, ''))}</li>`).join('')}</ul>` : ''}</li>`).join('');
+      body = `<p class="hint">Đang chạy <strong>${esc(u.running)}</strong> → bản mới <strong>${esc(u.target_desc || u.target)}</strong>: ${esc(u.behind)} thay đổi (${when}).
+          ${u.migrations ? '<strong>Bản mới đổi cấu trúc DB</strong> — lúc cập nhật script tự sao lưu DB trước.' : ''}</p>
+        <ul class="update-list">${items}</ul>
+        ${u.behind > u.commits.length ? `<p class="hint">… và ${esc(u.behind - u.commits.length)} thay đổi cũ hơn.</p>` : ''}`;
+    }
+    return `<div class="card" id="update-card">
+        <div class="card-head"><h2>Bản cập nhật SCS-Server</h2><span class="sub">Chỉ đề xuất — server không tự cài</span></div>
+        ${body}
+        ${u.error ? `<p class="hint">Lỗi lần kiểm tra cuối: ${esc(u.error)}</p>` : ''}
+        ${u.configured && u.stale ? '<p class="hint">Lần kiểm tra cuối đã quá 2 ngày: xem <code>systemctl status scs-server-update-check.timer</code>.</p>' : ''}
+        <p class="hint">Cài bản mới trên máy server: <code>bash server/menu.sh</code> → mục 4 (hoặc <code>bash server/scripts/update.sh</code>) — tự chạy test, sao lưu DB khi cần, lỗi thì quay về bản cũ.
+          Kiểm tra lại ngay: <code>sudo systemctl start scs-server-update-check</code>.</p>
+      </div>`;
+  }
+
   async function pageSystem() {
     setTitle('Hệ thống');
+    if (can(LV.cluster)) await refreshUpdate(false);
     view.innerHTML = `
+      ${can(LV.cluster) ? updateCard(updateInfo) : ''}
       <div class="status-grid" id="sys-grid"><div class="card status"><p>Đang kiểm tra…</p></div></div>
       <div class="card">
         <div class="card-head"><h2>Cổng dịch vụ</h2></div>
@@ -1725,7 +1777,7 @@
               || `<tr><td colspan="${root ? 7 : 6}" class="empty">Chưa có tài khoản nào.</td></tr>`}</tbody>
         </table></div>
         ${root ? '' : '<p class="hint">Xóa tài khoản đang dùng, đặt giới hạn phiên và quản lý tài khoản mức 1–4 cần quản trị gốc.</p>'}
-        <p class="hint"${root ? '' : ' hidden'}>Phiên đăng nhập: mỗi phiên sống 1 giờ – 15 ngày tính từ lúc đăng nhập (mặc định 24 giờ, không gia hạn); mỗi tài khoản 1 – 20 phiên cùng lúc (mặc định 4) — đăng nhập thêm thì phiên cũ nhất bị cắt. Đổi giới hạn áp ngay cho phiên đang mở, không đăng xuất phiên còn trong giới hạn.</p>
+        <p class="hint"${root ? '' : ' hidden'}>Phiên đăng nhập: mỗi phiên sống 1 giờ – 15 ngày tính từ lúc đăng nhập (mặc định 24 giờ, không gia hạn); mỗi tài khoản 1 – 20 phiên cùng lúc (mặc định 4) — đăng nhập thêm thì phiên cũ nhất bị cắt. Đổi giới hạn áp ngay cho phiên đang mở: hạn = lúc đăng nhập + thời gian mới (nới thì phiên đang mở được kéo dài, rút thì phiên quá thời gian mới hết ngay); phiên đăng nhập bằng mã SSH luôn 24 giờ.</p>
       </div>
       <div class="card"><div class="card-head"><h2>Các mức quyền</h2><span class="sub">Số nhỏ = quyền cao; mức trên làm được mọi việc của mức dưới</span></div>
         <ol class="level-list" start="0">${LEVEL_NAMES.map((n, i) => `<li><strong>${esc(n)}</strong>${i === 0 ? ' — chỉ khi đăng nhập bằng mã SSH; duyệt tài khoản mọi mức, đặt quyền, giới hạn phiên, thu hồi phiên'
@@ -1761,7 +1813,7 @@
       enable: ['Mở khóa tài khoản?', `<p><strong>${esc(user)}</strong> đăng nhập lại được với mức quyền cũ.</p>`, 'Mở khóa', false],
       delete: ['Xóa tài khoản?', `<p>Xóa hẳn <strong>${esc(user)}</strong>. Muốn dùng lại thì phải đăng ký lại.</p>`, 'Xóa', true],
       session: ['Đổi giới hạn phiên?', limits ? `<p><strong>${esc(user)}</strong>: mỗi phiên sống <strong>${esc(fmtDur(limits.session_hours * 3600e3))}</strong>, tối đa <strong>${esc(limits.max_sessions)}</strong> phiên cùng lúc.
-        Áp ngay cho phiên đang mở: phiên nào quá thời gian mới thì hết, thừa phiên thì cắt phiên cũ nhất. Phiên còn lại không bị đăng xuất.</p>` : '', 'Lưu', false],
+        Áp ngay cho phiên đang mở: hạn tính lại từ lúc đăng nhập (nới thì được kéo dài, phiên nào quá thời gian mới thì hết), thừa phiên thì cắt phiên cũ nhất. Phiên còn lại không bị đăng xuất.</p>` : '', 'Lưu', false],
     }[act];
     if (!titles || !(await confirmBox(...titles))) return;
     b.disabled = true;
@@ -2870,6 +2922,8 @@
       const h = await (await api('/healthz')).json();
       $('#server-version').textContent = `SCS-Server ${h.version}`;
     } catch { /* bỏ qua */ }
+    refreshUpdate(true);
+    if (!updateTimer) updateTimer = setInterval(() => refreshUpdate(true), 30 * 60e3); // timer server kiểm 6 giờ / lần
     try { setHealthDot((await api('/readyz')).status === 200); } catch { setHealthDot(false); }
     route();
   }
