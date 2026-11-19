@@ -446,7 +446,7 @@ Có **hai hướng vận hành**, khác nhau ở cách giữ dữ liệu về sa
 
 | | Hướng A — chuyển nguyên server | Hướng B — server chủ + bản sao |
 |---|---|---|
-| Dùng khi | Dời server sang nơi khác (ví dụ từ máy thử bên ngoài về trụ sở), máy cũ bỏ đi | Chạy **nhiều server lâu dài**, một server (thường ở trụ sở) giữ dữ liệu gốc |
+| Dùng khi | Chuyển **dữ liệu** sang một server khác **qua mạng** (ví dụ từ máy thử bên ngoài về server ở trụ sở), máy cũ không cần dời, chỉ thôi dùng | Chạy **nhiều server lâu dài**, một server (thường ở trụ sở) giữ dữ liệu gốc |
 | Dữ liệu mang theo | **Toàn bộ**: máy, chứng chỉ, CA, khóa phát hành, siêu thị, tài khoản, lịch sử | Siêu thị + tài khoản (D1). Máy / chứng chỉ cần thêm C2 + C4 |
 | Cần cụm | Không | Có (mục 5–6) |
 | Code mới | Không (đã có: sao lưu DB, danh sách địa chỉ cho agent) | Có — mục 17.2 trở đi |
@@ -454,8 +454,9 @@ Có **hai hướng vận hành**, khác nhau ở cách giữ dữ liệu về sa
 **Nguyên tắc chung cho cả hai: bảo vệ dữ liệu đặt trên tốc độ và tiện lợi.** Hai bảng có dữ liệu cá nhân (email, tên
 người phụ trách) và dữ liệu ảnh hưởng bảo mật (mức quyền; IP WAN siêu thị — điều kiện duyệt tự động máy).
 
-### 17.1 Hướng A — chuyển nguyên server sang địa điểm mới (đã làm được)
+### 17.1 Hướng A — chép nguyên dữ liệu server sang server khác qua mạng (đã làm được)
 
+Không dời máy: máy cũ để nguyên chỗ, dữ liệu được chép qua SSH sang server mới. 
 Giữ **đúng CA và khóa phát hành** thì agent đang chạy vẫn tin server mới, không cài lại máy nào.
 
 1. **Chuẩn bị máy mới** (trụ sở): menu mục 1 → 2 (Docker, Go, PostgreSQL, test). **Chưa** chạy mục 3.
