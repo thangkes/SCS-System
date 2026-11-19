@@ -121,6 +121,10 @@ func (f *fakeRegistry) AddEvents(_ context.Context, id int64, evs []periods.Even
 	return nil
 }
 
+func (f *fakeRegistry) CertTick(context.Context, time.Time, time.Duration) (int, int, error) {
+	return 0, 0, nil
+}
+
 func (f *fakeRegistry) PeriodTick(_ context.Context, now time.Time) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

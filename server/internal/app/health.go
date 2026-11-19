@@ -27,6 +27,7 @@ var (
 	HealthMemLowPct    = 5.0 // RAM còn dưới bấy nhiêu %…
 	HealthMemLowStreak = 3   // …liên tiếp bấy nhiêu heartbeat
 	HealthTempHigh     = 90  // °C
+	HealthWearPct      = 90  // SSD đã dùng ≥ bấy nhiêu % tuổi thọ (SMART)
 )
 
 // Mức của máy: chỉ có hoặc không có ghi nhận.
@@ -122,6 +123,41 @@ func evalHealth(st *protocol.MachineStatus, memLow int) Health {
 	if st.TempC >= HealthTempHigh {
 		add("temp", "Nhiệt độ máy %d°C", st.TempC)
 	}
+	if sm := st.Smart; sm != nil {
+		for _, d := range sm.Disks {
+			if !d.OK {
+				continue
+			}
+			ata := ""
+			if d.Kind == "ata" {
+				ata = " (ước tính theo thuộc tính hãng)"
+			}
+			if d.Passed != nil && !*d.Passed {
+				add("smart_fail:"+d.Name, "Ổ %s tự báo sắp hỏng (SMART): %s", d.Name, strings.Join(d.Failing, "; "))
+			}
+			if d.PercentUsed != nil && *d.PercentUsed >= HealthWearPct {
+				add("smart_wear:"+d.Name, "Ổ %s đã dùng %d%% tuổi thọ%s", d.Name, *d.PercentUsed, ata)
+			}
+			if d.MediaErrors != nil && *d.MediaErrors > 0 {
+				add("smart_media:"+d.Name, "Ổ %s có %d lỗi media (NVMe)", d.Name, *d.MediaErrors)
+			}
+			var parts []string
+			for _, x := range []struct {
+				v    *int64
+				name string
+			}{{d.Reallocated, "sector đã thay"}, {d.Pending, "sector chờ thay"}, {d.Uncorrectable, "sector không đọc được"}, {d.ReportedUncor, "lỗi không sửa được"}} {
+				if x.v != nil && *x.v > 0 {
+					parts = append(parts, fmt.Sprintf("%d %s", *x.v, x.name))
+				}
+			}
+			if len(parts) > 0 {
+				add("smart_sector:"+d.Name, "Ổ %s: %s (SMART)", d.Name, strings.Join(parts, ", "))
+			}
+			if d.CRCErrors != nil && *d.CRCErrors > 0 {
+				add("smart_crc:"+d.Name, "Ổ %s có %d lỗi đường truyền (CRC, cộng dồn cả đời ổ): kiểm tra cáp / cổng SATA nếu số này tăng", d.Name, *d.CRCErrors)
+			}
+		}
+	}
 	if len(h.Issues) > 0 {
 		h.Level = HealthNote
 	}
@@ -216,6 +252,32 @@ func cleanStatus(st *protocol.MachineStatus) *protocol.MachineStatus {
 	c.Errors = clipList(c.Errors, protocol.MaxErrors)
 	for i := range c.Errors {
 		c.Errors[i] = str(c.Errors[i], 200)
+	}
+	if c.Smart != nil {
+		sm := *c.Smart
+		sm.Error = str(sm.Error, 300)
+		sm.Disks = append([]protocol.SmartDisk(nil), clipList(sm.Disks, protocol.MaxSmart)...)
+		for i := range sm.Disks {
+			d := &sm.Disks[i]
+			d.Name, d.Kind, d.Note = str(d.Name, 32), str(d.Kind, 8), str(d.Note, 300)
+			d.TempC = min(max(d.TempC, -40), 200)
+			d.Failing = clipList(d.Failing, 30)
+			for j := range d.Failing {
+				d.Failing[j] = str(d.Failing[j], 120)
+			}
+			for _, p := range []*int64{d.PowerOnHours, d.PowerCycles, d.MediaErrors, d.UnsafeShutdowns, d.Reallocated, d.Pending,
+				d.Uncorrectable, d.ReportedUncor, d.CRCErrors} {
+				if p != nil {
+					*p = min(max(*p, 0), 1<<50)
+				}
+			}
+			for _, p := range []*int{d.PercentUsed, d.AvailSpare} {
+				if p != nil {
+					*p = min(max(*p, 0), 255)
+				}
+			}
+		}
+		c.Smart = &sm
 	}
 	return &c
 }

@@ -6,6 +6,8 @@
 #   sudo bash scripts/install.sh --check --server ... --ca ...   chỉ kiểm tra, không cài gì
 #   sudo bash scripts/install.sh --uninstall                     gỡ dịch vụ, GIỮ khóa máy và trạng thái
 #   sudo bash scripts/install.sh --uninstall --purge             gỡ hết (máy phải đăng ký và duyệt lại)
+#   sudo bash scripts/install.sh --smart-only                    máy đang chạy: chỉ cài thêm tác vụ đọc SMART
+#                                                                (không đụng cấu hình, khóa máy, đăng ký)
 #
 # Tùy chọn:
 #   --server URL        địa chỉ cổng agent của server, ví dụ https://203.0.113.10:16222
@@ -32,6 +34,7 @@ ETC_DIR=/etc/scs-agent
 DATA_DIR=/var/lib/scs-agent
 UNIT_DST=/etc/systemd/system/scs-agent.service
 LINK=/usr/local/bin/scs-agent
+SMART_DIR=/var/lib/scs-agent-smart
 
 SERVER="" CA_FILE="" WATCH="" BIN_SRC="$AGENT_DIR/bin/scs-agent"
 MODE=install PURGE=0 YES=0
@@ -61,6 +64,7 @@ while [[ $# -gt 0 ]]; do
 		--watch) WATCH="${2:-}"; shift 2 ;;
 		--binary) BIN_SRC="${2:-}"; shift 2 ;;
 		--check) MODE=check; shift ;;
+		--smart-only) MODE=smart; shift ;;
 		--uninstall) MODE=uninstall; shift ;;
 		--purge) PURGE=1; shift ;;
 		--yes|-y) YES=1; shift ;;
@@ -72,11 +76,56 @@ done
 [[ $EUID -eq 0 ]] || die "Cần chạy bằng root" "sudo bash $0 ..."
 command -v systemctl >/dev/null || die "Máy không dùng systemd" "Chỉ hỗ trợ Ubuntu có systemd"
 
+# has_smart: binary có lệnh smart không (bản cũ không liệt kê lệnh này trong trợ giúp).
+has_smart() { "$1" help 2>/dev/null | grep -q '^  smart '; }
+
+# install_smart: tác vụ đọc SMART (root, chỉ CAP_SYS_RAWIO + CAP_SYS_ADMIN, ổ chỉ đọc, không mạng) ghi kết quả vào
+# $SMART_DIR (root:scs-agent 750: agent đọc được, không ghi / thay được). Chạy ngay một lần, sau đó mỗi ngày.
+install_smart() {
+	local src
+	src="$(dirname "$UNIT_SRC")"
+	if [[ ! -f "$src/scs-agent-smart.service" || ! -f "$src/scs-agent-smart.timer" ]]; then
+		warn "Gói không có tác vụ đọc SMART (gói cũ): đóng gói lại ở server (menu mục 11)"
+		return 0
+	fi
+	if ! has_smart "$OPT_DIR/scs-agent"; then
+		warn "Bản agent đang cài chưa có lệnh smart: cài lại cả agent bằng gói mới (không dùng --smart-only)"
+		return 0
+	fi
+	install -d -o root -g "$SVC_USER" -m 750 "$SMART_DIR"
+	install -o root -g root -m 644 "$src/scs-agent-smart.service" /etc/systemd/system/scs-agent-smart.service
+	install -o root -g root -m 644 "$src/scs-agent-smart.timer" /etc/systemd/system/scs-agent-smart.timer
+	systemctl daemon-reload
+	systemctl enable --now scs-agent-smart.timer >/dev/null
+	systemctl start --no-block scs-agent-smart.service || true
+	ok "Tác vụ đọc SMART: mỗi ngày (scs-agent-smart.timer), kết quả gửi lên server ở heartbeat sau; xem: journalctl -u scs-agent-smart"
+}
+
+# ---------------------------------------------------------------- chỉ cài tác vụ SMART (máy đang chạy)
+if [[ $MODE == smart ]]; then
+	step "Cài tác vụ đọc SMART"
+	[[ -x "$OPT_DIR/scs-agent" ]] || die "Máy chưa cài SCS-Agent" "Cài đủ: sudo bash $0 --server ... --ca ..."
+	id "$SVC_USER" >/dev/null 2>&1 || die "Không có user $SVC_USER" "Cài đủ agent trước"
+	if ! has_smart "$OPT_DIR/scs-agent"; then
+		# Bản khung đang cài là bản cũ (chưa có lệnh smart): thay bằng binary trong gói này, giống lúc cài.
+		[[ -x "$BIN_SRC" ]] || die "Bản agent đang cài chưa có lệnh smart và gói không có binary" "Dùng gói agent mới (menu mục 11 trên server)"
+		has_smart "$BIN_SRC" || die "Binary trong gói cũng chưa có lệnh smart" "Dùng gói agent mới"
+		install -o root -g root -m 755 "$BIN_SRC" "$OPT_DIR/scs-agent.new"
+		mv -f "$OPT_DIR/scs-agent.new" "$OPT_DIR/scs-agent"
+		rm -f "$OPT_DIR/bootstrap.json" "$OPT_DIR/scs-agent.prev"
+		systemctl restart scs-agent
+		ok "Đã thay bản khung bằng bản trong gói (có lệnh smart); cấu hình, khóa máy, đăng ký giữ nguyên"
+	fi
+	install_smart
+	exit 0
+fi
+
 # ---------------------------------------------------------------- gỡ cài
 if [[ $MODE == uninstall ]]; then
 	step "Gỡ SCS-Agent"
-	systemctl disable --now scs-agent scs-agent-promote.timer 2>/dev/null || true
-	rm -f "$UNIT_DST" "$LINK" /etc/systemd/system/scs-agent-promote.service /etc/systemd/system/scs-agent-promote.timer
+	systemctl disable --now scs-agent scs-agent-promote.timer scs-agent-smart.timer 2>/dev/null || true
+	rm -f "$UNIT_DST" "$LINK" /etc/systemd/system/scs-agent-promote.service /etc/systemd/system/scs-agent-promote.timer \
+		/etc/systemd/system/scs-agent-smart.service /etc/systemd/system/scs-agent-smart.timer
 	systemctl daemon-reload
 	ok "Đã dừng và gỡ dịch vụ scs-agent"
 	if [[ $PURGE -eq 1 ]]; then
@@ -84,7 +133,7 @@ if [[ $MODE == uninstall ]]; then
 			read -r -p "  Xóa luôn khóa máy, chứng chỉ, trạng thái và user $SVC_USER? Máy sẽ phải đăng ký và duyệt lại. [y/N] " a
 			[[ "$a" =~ ^[yY]$ ]] || { echo "  Giữ lại dữ liệu."; exit 0; }
 		fi
-		rm -rf "$ETC_DIR" "$DATA_DIR" "$OPT_DIR"
+		rm -rf "$ETC_DIR" "$DATA_DIR" "$OPT_DIR" "$SMART_DIR"
 		id "$SVC_USER" >/dev/null 2>&1 && userdel "$SVC_USER"
 		ok "Đã xóa $ETC_DIR, $DATA_DIR, $OPT_DIR và user $SVC_USER"
 	else
@@ -270,6 +319,7 @@ if [[ $PROMOTE -eq 1 ]]; then
 else
 	warn "Gói không có tác vụ thay bản khung hoặc không có khóa phát hành: bản khung chỉ đổi khi cài lại"
 fi
+install_smart
 
 # ---------------------------------------------------------------- 3. kết quả
 step "3. Kết quả"

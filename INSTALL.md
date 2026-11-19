@@ -112,7 +112,10 @@ Xem dòng thời gian của máy: web, trang **Máy** → bấm mã siêu thị 
 
 Thông tin siêu thị (tên, tổ chức, IP, người phụ trách, ghi chú): trang **Máy** → bấm mã siêu thị → **Sửa thông tin siêu
 thị** (mức 6), hoặc nạp hàng loạt bằng **Nạp thông tin từ file** (.xlsx / .csv, có ghép cột, chế độ Bổ sung / Ghi đè, xem
-trước; mức 2 trở lên). Báo cáo vận hành server (CPU, RAM, ổ đĩa, băng thông, heartbeat theo giờ / ngày, xuất Excel / CSV,
+trước; mức 2 trở lên). Người phụ trách nên nạp dạng **"mã user - Tên"** (ví dụ `100001 - Nguyễn Văn A`): mã user trùng
+tên đăng nhập tài khoản web, nên trang **Tài khoản** hiện tên thật và vai trò của người đăng ký, trang **Máy** lọc được theo
+mã kho / quản lý / trưởng nhóm và "Siêu thị của tôi". Báo cáo sự cố (sự cố log và mất liên lạc theo kỳ, xuất Excel / CSV,
+in PDF): trang **Báo cáo sự cố**. Báo cáo vận hành server (CPU, RAM, ổ đĩa, băng thông, heartbeat theo giờ / ngày, xuất Excel / CSV,
 in PDF): trang **Báo cáo server**; giữ số liệu `SCS_METRICS_KEEP` (mặc định 90 ngày, ví dụ `SCS_METRICS_KEEP=4320h` = 180
 ngày).
 
@@ -250,6 +253,10 @@ Admin vào web quản trị → trang **Chờ duyệt** → đối chiếu **mã
 trên máy) → **Duyệt**. Hostname sai quy ước thì phải nhập mã điểm bán khi duyệt. Agent hỏi lại khoảng 5 phút một lần
 và nhận chứng chỉ sau khi được duyệt.
 
+**Cài lại máy** (khóa mới, cùng hostname / vị trí TN với máy đang hoạt động): thẻ chờ duyệt hiện "Cài lại máy" kèm so
+sánh phần cứng; bấm **Duyệt và thay thế** — máy cũ bị thu hồi, máy mới nhận nhóm thử và cấu hình riêng, lịch sử máy cũ
+xem được từ chi tiết máy mới.
+
 ### 2.7 Sau khi cài
 
 ```bash
@@ -257,6 +264,8 @@ scs-agent status                   # trạng thái đăng ký và thông tin má
 sudo scs-agent fingerprint         # hostname, thành phần nhận dạng máy, mã khóa
 journalctl -u scs-agent -f         # xem log
 scs-agent ping                     # kiểm kết nối và chứng chỉ server
+sudo -u scs-agent scs-agent renew  # xin cấp lại chứng chỉ máy ngay (bị báo sắp / đã hết hạn)
+sudo bash agent/scripts/install.sh --smart-only        # máy đang chạy: cài thêm tác vụ đọc SMART (menu agent mục 9)
 sudo bash agent/scripts/install.sh --uninstall          # gỡ dịch vụ, GIỮ khóa máy (cài lại không phải duyệt lại)
 sudo bash agent/scripts/install.sh --uninstall --purge  # gỡ hết, máy phải đăng ký và duyệt lại
 ```

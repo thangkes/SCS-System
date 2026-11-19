@@ -1,0 +1,11 @@
+# Đọc SMART mỗi ngày một lần (và 20 phút sau khi máy bật), rải ngẫu nhiên để không mọi máy cùng lúc.
+[Unit]
+Description=SCS-Agent: đọc SMART các ổ mỗi ngày
+
+[Timer]
+OnBootSec=20min
+OnUnitActiveSec=24h
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

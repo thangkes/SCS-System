@@ -156,6 +156,8 @@
     position_conflict: 'Trùng vị trí TN trong siêu thị',
     offline: 'Mất liên lạc',
     event: 'Sự cố (log mức cao)',
+    cert_expiring: 'Chứng chỉ máy sắp hết hạn',
+    cert_expired: 'Chứng chỉ máy đã hết hạn',
   };
 
   // alertText: diễn giải phần chi tiết của cảnh báo thành một câu.
@@ -172,6 +174,8 @@
         }
         return (d.rules || []).slice(0, 4).map((r) => `${r.rule} ×${r.count}`).join(', ');
       case 'offline': return 'Không nghe máy gửi gì; tự đóng khi máy gửi lại';
+      case 'cert_expiring': return `Hết hạn ${d.expires ? fmtFull(d.expires) : '?'}, máy chưa tự gia hạn (agent ${d.agent || '?'}; agent bản cũ không tự gia hạn: phát hành bản mới, hoặc chạy "sudo -u scs-agent scs-agent renew" trên máy). Tự đóng khi gia hạn xong`;
+      case 'cert_expired': return `Đã hết hạn ${d.expires ? fmtFull(d.expires) : '?'}: máy không gửi được dữ liệu. Thử "sudo -u scs-agent scs-agent renew" trên máy; không được thì cài lại agent (giữ khóa máy). Tự đóng khi gia hạn xong`;
       default: return Object.entries(d).map(([k, v]) => `${k}: ${v}`).join(', ');
     }
   }
@@ -580,6 +584,128 @@
       <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opt.title)}">${grid}${ticks}${lines}</svg></div>`;
   }
 
+  // ---------------------------------------------------------------- trang: Báo cáo sự cố
+  // Sự cố (giai đoạn cảnh báo từ log) và mất liên lạc BẮT ĐẦU trong kỳ: số lượng theo ngày / giờ, mức, cách đóng,
+  // thời gian xử lý, siêu thị / máy / rule gặp nhiều nhất. Xuất Excel / CSV (đủ mọi sự cố), in / lưu PDF.
+  const INC_KIND = { alert: 'Sự cố (log)', offline: 'Mất liên lạc' };
+  const fmtMin = (m) => (m == null ? '—' : fmtDur(m * 60000));
+
+  async function pageIncidents() {
+    setTitle('Báo cáo sự cố');
+    const page = view;
+    const now = new Date();
+    const st = { preset: '7d', from: '', to: '' };
+    page.innerHTML = `
+      <div class="card report-ctl no-print">
+        <div class="toolbar">
+          <div class="seg" id="ir-preset">
+            <button type="button" data-p="24h">24 giờ</button><button type="button" data-p="7d" class="on">7 ngày</button>
+            <button type="button" data-p="30d">30 ngày</button><button type="button" data-p="90d">90 ngày</button></div>
+          <label class="inline">Từ <input type="date" id="ir-from"></label>
+          <label class="inline">Đến <input type="date" id="ir-to" value="${dayStr(now)}"></label>
+          <div class="right">
+            <a class="btn btn-sm" id="ir-xlsx" download>Xuất Excel (.xlsx)</a>
+            <a class="btn btn-sm" id="ir-csv" download>Xuất CSV</a>
+            <button type="button" class="btn btn-sm btn-primary" id="ir-print">In / Lưu PDF</button></div>
+        </div>
+        <p class="hint rp-pad">Tính các sự cố (cảnh báo từ log) và lần mất liên lạc <b>bắt đầu</b> trong kỳ. Sức khỏe máy không tính (chỉ để tham khảo).
+          Giờ theo giờ của máy server. Bảng chi tiết hiện 20 sự cố mới nhất; file Excel / CSV có đủ.</p>
+      </div>
+      <div id="ir-body"><p class="hint">Đang tải…</p></div>`;
+
+    const query = () => {
+      const p = new URLSearchParams();
+      if (st.preset) {
+        const h = { '24h': 24, '7d': 168, '30d': 720, '90d': 2160 }[st.preset];
+        const to = new Date(), from = new Date(to.getTime() - h * 3600000);
+        p.set('from', from.toISOString()); p.set('to', to.toISOString());
+      } else {
+        if (st.from) p.set('from', st.from);
+        if (st.to) p.set('to', st.to);
+      }
+      return p.toString();
+    };
+    const topTable = (title, items, keyLabel, labelFn) => `<div class="card">
+        <div class="card-head"><h2>${esc(title)}</h2></div>
+        <div class="table-wrap"><table class="rp-table"><thead><tr><th>${esc(keyLabel)}</th><th class="num">Số sự cố</th><th class="num">Số sự kiện</th></tr></thead>
+          <tbody>${items.map((x) => `<tr><td>${labelFn(x)}</td><td class="num">${fmtNum(x.count)}</td><td class="num">${x.events ? fmtNum(x.events) : '—'}</td></tr>`).join('')
+            || '<tr><td colspan="3" class="empty">Không có.</td></tr>'}</tbody></table></div></div>`;
+
+    const load = async () => {
+      const q = query();
+      $('#ir-csv').href = `/admin/v1/incidents/report.csv?${q}`;
+      $('#ir-xlsx').href = `/admin/v1/incidents/report.xlsx?${q}`;
+      let j;
+      try { j = await getJSON(`/admin/v1/incidents/report?${q}`); } catch (err) { if (page === view) showLoadError($('#ir-body'), err); return; }
+      if (page !== view) return;
+      const sm = j.summary, from = new Date(j.from), to = new Date(j.to);
+      const fmtD = (d) => d.toLocaleString('vi-VN', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit', year: 'numeric' });
+      const sev = sm.severity || {}, closed = sm.closed || {};
+      const pts = (f) => (j.series || []).map((b) => [new Date(b.at).getTime(), f(b)]);
+      const unit = j.step_s >= 86400 ? 'ngày' : 'giờ';
+      const ruleLabel = (r) => `<span class="mono">${esc(r.key)}</span>${r.label ? ` <span class="sub">${esc(r.label)}</span>` : ''}`;
+      $('#ir-body').innerHTML = `
+        <div class="card report-head">
+          <h2>Báo cáo sự cố</h2>
+          <p>Từ <b>${esc(fmtD(from))}</b> đến <b>${esc(fmtD(to))}</b> · ${fmtNum(sm.total)} sự cố ở ${fmtNum(sm.devices)} máy, ${fmtNum(sm.stores)} siêu thị
+            ${j.truncated ? ' · <b>quá nhiều, chỉ tính 20.000 sự cố mới nhất</b>' : ''}</p>
+        </div>
+        <div class="grid-kpi rp-kpi">
+          ${kpi('Sự cố', fmtNum(sm.total), `${fmtNum(sm.alerts)} sự cố log · ${fmtNum(sm.offline)} mất liên lạc`)}
+          ${kpi('Nghiêm trọng', fmtNum(sev.critical || 0), `${fmtNum(sev.high || 0)} mức cao · ${fmtNum(sev.medium || 0)} trung bình`, sev.critical ? 'is-bad' : sev.high ? 'is-warn' : '')}
+          ${kpi('Đang mở', fmtNum(sm.open), 'chưa đóng tới lúc xem', sm.open ? 'is-warn' : '')}
+          ${kpi('Cách đóng', fmtNum(closed.admin || 0), `admin xử lý · ${fmtNum(closed.auto || 0)} tự đóng · ${fmtNum(closed.system || 0)} hệ thống đóng`)}
+          ${kpi('Thời gian tới khi đóng', fmtMin(sm.avg_minutes), `trung bình · trung vị ${fmtMin(sm.median_minutes)} · lâu nhất ${fmtMin(sm.max_minutes)}`)}
+        </div>
+        ${sm.total ? `<div class="card rp-charts rp-one">
+          ${lineChart([{ label: 'Sự cố (log)', cls: 's2', pts: pts((b) => b.alerts) }, { label: 'Mất liên lạc', cls: 's1', pts: pts((b) => b.offline) }],
+            { title: `Số sự cố bắt đầu mỗi ${unit}`, from: from.getTime(), to: to.getTime(), fmt: (v) => fmtNum(Math.round(v)) })}
+        </div>
+        <div class="grid-2">
+          ${topTable('Siêu thị nhiều sự cố nhất', j.top_stores || [], 'Siêu thị', (x) => esc(storeLabel(x.key)))}
+          ${topTable('Máy nhiều sự cố nhất', j.top_devices || [], 'Máy', (x) => `<span class="mono">${esc(x.key)}</span>`)}
+        </div>
+        ${topTable('Rule gây sự cố nhiều nhất', j.top_rules || [], 'Rule', ruleLabel)}
+        <div class="card">
+          <div class="card-head"><h2>Chi tiết</h2><span class="sub">${sm.total > j.rows.length ? `${j.rows.length} / ${fmtNum(sm.total)} sự cố mới nhất — đủ trong file Excel / CSV` : `${fmtNum(sm.total)} sự cố`}</span></div>
+          <div class="table-wrap"><table class="rp-table">
+            <thead><tr><th>Bắt đầu</th><th>Máy</th><th>Loại / mức</th><th>Rule chính</th><th class="num">Sự kiện</th><th>Kết thúc</th><th class="hide-sm">Đóng bởi</th></tr></thead>
+            <tbody>${j.rows.map((r) => {
+              const main = Object.entries(r.rules || {}).sort((a, b) => b[1].count - a[1].count)[0];
+              return `<tr class="clickable" data-dev="${esc(r.device_id)}">
+                <td class="mono">${esc(fmtD(new Date(r.started_at)))}</td>
+                <td><span class="mono">${esc(r.hostname)}</span><span class="sub">${esc(r.store_code ? storeLabel(r.store_code) : '')}</span></td>
+                <td>${esc(INC_KIND[r.kind] || r.kind)}${r.severity ? ` ${pill(SEV[r.severity] || SEV.low)}` : ''}</td>
+                <td>${main ? `<span class="mono">${esc(main[0])}</span>${(r.titles || {})[main[0]] ? `<span class="sub">${esc(r.titles[main[0]])}</span>` : ''}` : '—'}</td>
+                <td class="num">${fmtNum(r.events)}</td>
+                <td>${r.ended_at ? `${esc(fmtD(new Date(r.ended_at)))}<span class="sub">sau ${esc(fmtDur(new Date(r.ended_at) - new Date(r.started_at)))}</span>` : '<strong>đang mở</strong>'}</td>
+                <td class="hide-sm">${esc(closedText(r.closed_by || ''))}${r.note ? `<span class="sub">${esc(r.note)}</span>` : ''}</td></tr>`;
+            }).join('')}</tbody></table></div>
+        </div>` : '<div class="card soon"><p>Không có sự cố nào bắt đầu trong khoảng này.</p></div>'}
+        <p class="hint print-only">In lúc ${esc(fmtD(new Date()))} từ web quản trị SCS-System.</p>`;
+      $$('tr[data-dev]', $('#ir-body')).forEach((tr) => tr.addEventListener('click', () => openDeviceById(tr.dataset.dev, load)));
+    };
+
+    $('#ir-preset').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-p]'); if (!b) return;
+      st.preset = b.dataset.p;
+      $$('#ir-preset button').forEach((x) => x.classList.toggle('on', x === b));
+      load();
+    });
+    const custom = () => {
+      st.preset = '';
+      st.from = $('#ir-from').value; st.to = $('#ir-to').value;
+      $$('#ir-preset button').forEach((x) => x.classList.remove('on'));
+      if (st.from && st.to) load();
+    };
+    $('#ir-from').addEventListener('change', custom);
+    $('#ir-to').addEventListener('change', custom);
+    $('#ir-print').addEventListener('click', () => window.print());
+    await loadStoreCache();
+    await load();
+    liveReload = () => { if (st.preset) load(); };
+  }
+
   async function pageReport() {
     setTitle('Báo cáo server');
     const page = view;
@@ -723,6 +849,32 @@
       mem: 'RAM thấp kéo dài', temp: 'Nhiệt độ máy cao' })[kind] || 'Sức khỏe máy';
   }
 
+  // SMART các ổ (tác vụ root riêng đọc mỗi ngày; agent gửi kèm trạng thái máy).
+  function smartSection(sm) {
+    if (!sm) return '';
+    const when = sm.at ? `đọc lúc ${esc(fmtFull(sm.at))}${(Date.now() - new Date(sm.at)) > 3 * 86400e3 ? ' — <strong>đã cũ hơn 3 ngày</strong> (tác vụ không chạy?)' : ''}` : '';
+    const num = (v) => (v === undefined || v === null ? null : fmtNum(v));
+    const rows = (sm.disks || []).map((d) => {
+      if (!d.ok) return `<li><span class="mono">${esc(d.name)}</span> <span class="sub">${esc(d.kind.toUpperCase())} · không đọc được: ${esc(d.note || '')}</span></li>`;
+      const bits = [];
+      if (d.passed === false) bits.push(`<strong class="txt-bad">ổ tự báo sắp hỏng</strong>${(d.failing || []).length ? ` (${esc(d.failing.join('; '))})` : ''}`);
+      else if (d.passed === true) bits.push('ổ tự đánh giá: đạt');
+      if (d.percent_used != null) bits.push(`đã dùng ${esc(d.percent_used)}% tuổi thọ${d.kind === 'ata' ? ` (ước tính, thuộc tính ${esc(d.wear_attr)})` : ''}`);
+      if (d.temp_c) bits.push(`${esc(d.temp_c)}°C`);
+      if (d.power_on_hours != null) bits.push(`${num(d.power_on_hours)} giờ chạy`);
+      if (d.media_errors != null) bits.push(`${num(d.media_errors)} lỗi media`);
+      if (d.reallocated != null) bits.push(`${num(d.reallocated)} sector đã thay`);
+      if (d.pending != null) bits.push(`${num(d.pending)} chờ thay`);
+      if (d.uncorrectable != null) bits.push(`${num(d.uncorrectable)} không đọc được`);
+      if (d.crc_errors != null) bits.push(`${num(d.crc_errors)} lỗi CRC (cáp)`);
+      if (d.unsafe_shutdowns != null) bits.push(`${num(d.unsafe_shutdowns)} lần tắt đột ngột`);
+      return `<li><span class="mono">${esc(d.name)}</span> <span class="sub">${esc(d.kind.toUpperCase())} · ${bits.join(' · ')}</span></li>`;
+    }).join('');
+    return `<h4>SMART <span class="sub">${when}</span></h4>
+      ${sm.error ? `<p class="hint">${esc(sm.error)}</p>` : ''}
+      ${rows ? `<ul class="health-list">${rows}</ul>` : ''}`;
+  }
+
   // Thẻ "Tình trạng máy" trong chi tiết máy.
   function healthSection(st, h) {
     if (!st) return `<h3>Tình trạng máy</h3><p class="hint">Agent chưa gửi trạng thái máy (agent bản cũ: phát hành bản agent mới).</p>`;
@@ -758,6 +910,7 @@
         ${disks}
       </div>
       ${block ? `<h4>Ổ vật lý</h4><ul class="health-list">${block}</ul>` : ''}
+      ${smartSection(st.smart)}
       ${raid ? `<h4>RAID</h4><ul class="health-list">${raid}</ul>` : ''}
       ${svcs ? `<h4>Dịch vụ theo dõi</h4><ul class="health-list">${svcs}</ul>` : ''}
       ${(st.errors || []).length ? `<details><summary class="sub">${fmtNum(st.errors.length)} phần agent không đọc được</summary><ul class="health-list">${st.errors.map((e) => `<li class="sub">${esc(e)}</li>`).join('')}</ul></details>` : ''}`;
@@ -777,7 +930,11 @@
     setTitle('Máy');
     const page = view;
     const state = { q: params.get('q') || '', status: params.get('status') || 'approved', page: 0, list: [],
-      alerts: [], pending: [], stores: {}, open: new Set() };
+      alerts: [], pending: [], stores: {}, open: new Set(),
+      fCode: params.get('store') || '', fMgr: params.get('manager') || '', fLead: params.get('leader') || '',
+      mine: params.get('mine') === '1' };
+    // Bỏ dấu tiếng Việt + chữ thường: gõ "nguyen van a" vẫn khớp "Nguyễn Văn A".
+    const fold = (v) => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'D').toLowerCase().trim();
     const PAGE = 20; // siêu thị mỗi trang
 
     page.innerHTML = `
@@ -795,11 +952,50 @@
             <span class="lg lg-bad">Cần xử lý</span><span class="lg lg-warn">Đang chờ xử lý</span><span class="lg lg-ok">OK</span>
           </div>
         </div>
+        <div class="toolbar dev-filters">
+          <span class="sub">Lọc theo thông tin siêu thị đã nạp:</span>
+          <label class="inline">Mã kho <input id="f-code" list="dl-code" placeholder="vd: 13645, 14390" value="${esc(state.fCode)}" autocomplete="off"></label>
+          <label class="inline">Quản lý <input id="f-mgr" list="dl-mgr" placeholder="mã hoặc tên" value="${esc(state.fMgr)}" autocomplete="off"></label>
+          <label class="inline">Trưởng nhóm <input id="f-lead" list="dl-lead" placeholder="mã hoặc tên" value="${esc(state.fLead)}" autocomplete="off"></label>
+          ${me && me.account ? `<label class="chk"><input type="checkbox" id="f-mine"${state.mine ? ' checked' : ''}> Siêu thị của tôi (${esc(me.account)})</label>` : ''}
+          <button type="button" class="btn btn-sm" id="f-clear">Xóa lọc</button>
+          <datalist id="dl-code"></datalist><datalist id="dl-mgr"></datalist><datalist id="dl-lead"></datalist>
+        </div>
         <div id="dev-groups" class="store-groups"><p class="empty">Đang tải…</p></div>
         <div class="pager"><span id="dev-range"></span><div class="btns">
           <button class="btn btn-sm" id="dev-prev">Trước</button><button class="btn btn-sm" id="dev-next">Sau</button></div></div>
       </div>`;
     $('#dev-status').value = state.status;
+
+    // storeMatch: siêu thị qua bộ lọc mã kho (nhiều mã, cách nhau dấu phẩy / khoảng trắng, khớp đầu mã), quản lý, trưởng nhóm
+    // (khớp một phần, không phân biệt dấu). Lọc quản lý / trưởng nhóm thì máy chưa có thông tin siêu thị bị ẩn.
+    const storeMatch = (code, info) => {
+      const codes = state.fCode.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+      if (codes.length && !codes.some((c) => code.startsWith(c))) return false;
+      // Gõ đúng mã user (chỉ chữ số) thì so khớp chính xác mã trong "mã - Tên"; gõ chữ thì khớp một phần tên.
+      const person = (field, want) => {
+        if (!want) return true;
+        if (!info) return false;
+        if (/^\d+$/.test(want)) { const p = personCode(info[field]); return !!p && p.code === want; }
+        return fold(info[field]).includes(want);
+      };
+      if (!person('manager', fold(state.fMgr)) || !person('leader', fold(state.fLead))) return false;
+      if (state.mine && me && me.account) {
+        if (!info || !STORE_PEOPLE.some(([f]) => { const p = personCode(info[f]); return p && p.code === me.account; })) return false;
+      }
+      return true;
+    };
+    // Gợi ý cho ô lọc: lấy từ thông tin siêu thị đã nạp, kèm số siêu thị.
+    const fillFilterLists = () => {
+      const count = (field) => {
+        const m = new Map();
+        Object.values(state.stores).forEach((x) => { const v = (x[field] || '').trim(); if (v) m.set(v, (m.get(v) || 0) + 1); });
+        return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+      };
+      $('#dl-code').innerHTML = Object.values(state.stores).map((x) => `<option value="${esc(x.code)}">${esc(x.name || '')}</option>`).join('');
+      $('#dl-mgr').innerHTML = count('manager').map(([v, n]) => `<option value="${esc(v)}">${n} siêu thị</option>`).join('');
+      $('#dl-lead').innerHTML = count('leader').map(([v, n]) => `<option value="${esc(v)}">${n} siêu thị</option>`).join('');
+    };
 
     const devRow = (d, lvl) => `
       <tr class="clickable" data-id="${d.id}">
@@ -847,6 +1043,7 @@
         const infoHit = g.info && [g.info.name, g.info.organization, g.info.manager, g.info.deputy, g.info.leader,
           g.info.deputy_department, ...(g.info.ips || [])].some((v) => (v || '').toLowerCase().includes(q));
         g.show = !q || g.code.toLowerCase().includes(q) || infoHit ? g.devs : g.devs.filter(hit);
+        if (!storeMatch(g.code, g.info)) g.show = [];
         return g;
       }).filter((g) => g.show.length);
       // Đỏ trước, rồi vàng, rồi xanh; cùng màu thì theo mã, máy chưa có mã siêu thị xếp cuối.
@@ -875,7 +1072,7 @@
           <button type="button" class="store-head" data-store="${esc(g.code)}" aria-expanded="${open}">
             <span class="chev" aria-hidden="true"></span>
             <span class="store-code"><span class="mono">${esc(g.code || 'Chưa có mã siêu thị')}</span>${g.info && g.info.name ? ` - ${esc(g.info.name)}` : ''}</span>
-            <span class="store-meta">${fmtNum(g.devs.length)} máy${pos ? ` · ${esc(pos)}` : ''}${g.info && g.info.manager ? ` · QL: ${esc(g.info.manager)}` : ''}</span>
+            <span class="store-meta">${fmtNum(g.devs.length)} máy${pos ? ` · ${esc(pos)}` : ''}${g.info && g.info.manager ? ` · QL: ${esc(g.info.manager)}` : ''}${g.info && g.info.leader ? ` · Trưởng nhóm: ${esc(g.info.leader)}` : ''}</span>
             <span class="store-badges">${badges}${g.level !== 'none' && !badges ? `<span class="pill pill-ok no-dot">OK</span>` : ''}</span>
             <span class="store-last hide-sm">${g.last ? esc(ago(new Date(g.last))) : '—'}</span>
           </button>
@@ -901,6 +1098,7 @@
         stores.forEach((x) => { byCode[x.code] = x; });
         storeCache = byCode;
         Object.assign(state, { sig, list, alerts, pending, stores: byCode });
+        fillFilterLists();
       } catch (err) {
         if (page === view) showLoadError(page, err);
         return;
@@ -911,6 +1109,18 @@
     $('#dev-import').addEventListener('click', () => importStores(() => { state.sig = ''; load(); }));
     $('#dev-q').addEventListener('input', (e) => { state.q = e.target.value; state.page = 0; render(); });
     $('#dev-sick').addEventListener('change', (e) => { state.sick = e.target.checked; state.page = 0; render(); });
+    // Bộ lọc mã kho / quản lý / trưởng nhóm: lọc tức thời theo dữ liệu siêu thị đã nạp (không tải lại).
+    const onFilter = () => {
+      state.fCode = $('#f-code').value; state.fMgr = $('#f-mgr').value; state.fLead = $('#f-lead').value;
+      state.page = 0; render();
+    };
+    ['#f-code', '#f-mgr', '#f-lead'].forEach((id) => $(id).addEventListener('input', onFilter));
+    if ($('#f-mine')) $('#f-mine').addEventListener('change', (e) => { state.mine = e.target.checked; state.page = 0; render(); });
+    $('#f-clear').addEventListener('click', () => {
+      ['#f-code', '#f-mgr', '#f-lead'].forEach((id) => { $(id).value = ''; });
+      if ($('#f-mine')) { $('#f-mine').checked = false; state.mine = false; }
+      onFilter();
+    });
     $('#dev-status').addEventListener('change', (e) => { state.status = e.target.value; state.page = 0; state.open.clear(); load(); });
     $('#dev-prev').addEventListener('click', () => { state.page--; render(); });
     $('#dev-next').addEventListener('click', () => { state.page++; render(); });
@@ -935,7 +1145,8 @@
   // ---------------------------------------------------------------- trang: Sức khỏe máy (tham khảo)
   // Tách hoàn toàn với Cảnh báo: chỉ đọc trạng thái agent gửi gần nhất, không mở / đóng gì. Bấm máy để xem chi tiết.
   const HEALTH_KINDS = { disk_full: 'Ổ đầy', fs_ro: 'Phân vùng chỉ đọc', io_err: 'Lỗi I/O ổ', raid: 'RAID hỏng', svc: 'Dịch vụ dừng',
-    inode_full: 'Hết inode', temp: 'Nhiệt độ cao', time: 'Đồng hồ lệch', mem: 'RAM thấp' };
+    inode_full: 'Hết inode', temp: 'Nhiệt độ cao', time: 'Đồng hồ lệch', mem: 'RAM thấp',
+    smart_fail: 'SMART báo hỏng', smart_wear: 'SSD mòn', smart_sector: 'Sector hỏng', smart_media: 'Lỗi media NVMe', smart_crc: 'Lỗi cáp (CRC)' };
   const healthKind = (code) => String(code).split(':')[0];
 
   async function pageHealth(params) {
@@ -1063,6 +1274,35 @@
     const n = storeCache[code] && storeCache[code].name;
     return n ? `${code} - ${n}` : code;
   };
+
+  // Người trong thông tin siêu thị ghi dạng "mã user - Tên" (ví dụ "100001 - Nguyễn Văn A"). Mã user trùng tên đăng nhập
+  // tài khoản web (đăng ký chỉ chữ số) → ghép tài khoản với tên thật và các siêu thị người đó phụ trách.
+  const personCode = (v) => {
+    const m = /^\s*(\d{3,32})\s*[-–—:]\s*(.*)$/.exec(v || '');
+    return m ? { code: m[1], name: m[2].trim() } : null;
+  };
+  function peopleIndex() {
+    const idx = {};
+    Object.values(storeCache).forEach((s) => STORE_PEOPLE.forEach(([f]) => {
+      const p = personCode(s[f]);
+      if (!p) return;
+      const e = idx[p.code] || (idx[p.code] = { name: p.name, roles: {} });
+      if (!e.name && p.name) e.name = p.name;
+      (e.roles[f] || (e.roles[f] = [])).push(s.code);
+    }));
+    return idx;
+  }
+  // personInfo: tên thật + vai trò ở các siêu thị (bấm để mở trang Máy đã lọc) của tài khoản / mã user.
+  function personInfo(user, idx) {
+    const e = idx[user];
+    if (!e) return '<span class="sub">không có trong thông tin siêu thị đã nạp</span>';
+    const roles = STORE_PEOPLE.filter(([f]) => e.roles[f]).map(([f, label]) => {
+      const txt = `${label} ${e.roles[f].length} siêu thị`;
+      const param = { manager: 'manager', leader: 'leader' }[f];
+      return param ? `<a href="#/may?${param}=${encodeURIComponent(user)}">${esc(txt)}</a>` : esc(txt);
+    });
+    return `<span class="sub person"><strong>${esc(e.name || '')}</strong>${roles.length ? ` · ${roles.join(' · ')}` : ''}</span>`;
+  }
 
   function storeSummary(code, info) {
     const i = info || {};
@@ -1410,6 +1650,9 @@
         <dt>Hệ điều hành</dt><dd>${esc(d.os_version || '—')}</dd>
         <dt>Agent</dt><dd class="mono">${esc(d.agent_version || '—')}</dd>
         <dt>Liên lạc lần cuối</dt><dd>${esc(when(d.last_seen))}</dd>
+        ${d.replaces_device ? `<dt>Thay thế cho</dt><dd><button type="button" class="btn btn-sm" data-open-dev="${esc(d.replaces_device)}">Xem lịch sử máy cũ</button>
+          <span class="sub">cài lại máy</span></dd>` : ''}
+        ${d.replaced_by ? `<dt>Đã được thay bằng</dt><dd><button type="button" class="btn btn-sm" data-open-dev="${esc(d.replaced_by)}">Mở máy mới</button></dd>` : ''}
       </dl></section>
       <section><h3>Bộ rule</h3>${!d.rules ? '<p class="hint">Agent chưa báo (máy chưa gửi heartbeat hoặc agent bản cũ: cập nhật agent).</p>'
         : `<dl class="kv">
@@ -1441,6 +1684,9 @@
       </div><p class="hint">${d.test_ring ? 'Máy đang trong nhóm thử: nhận bản agent mới trước các máy khác.' : 'Máy trong nhóm thử nhận bản agent mới trước để kiểm tra.'}</p></section>` : ''}`);
 
     loadTimeline(d);
+
+    // Cài lại máy: mở máy cũ (đã thu hồi) / máy mới thay thế.
+    $('#drawer-body').querySelectorAll('[data-open-dev]').forEach((b) => b.addEventListener('click', () => openDeviceById(b.dataset.openDev, reload)));
 
     $('#drawer-body').querySelectorAll('[data-dev-action="test-ring"]').forEach((b) => b.addEventListener('click', async () => {
       b.disabled = true;
@@ -1622,6 +1868,25 @@
         : check('warn', `IP ${d.enroll_ip} khác IP WAN của siêu thị (${d.store_wan_ip})`);
     };
     const position = (d) => (d.tn ? `TN${d.tn}${d.role ? ' · ' + d.role : ''}` : '—');
+    // Máy chờ trùng hostname / vị trí TN với máy đang hoạt động (cài lại máy): gợi ý thay thế, kèm so sánh phần cứng.
+    const HW = {
+      same: ['ok', 'Cùng phần cứng (serial / MAC khớp): đúng là cài lại máy'],
+      partial: ['warn', 'Phần cứng khớp một phần: có thể đã thay linh kiện — kiểm tra trước khi thay'],
+      different: ['warn', 'Phần cứng KHÁC: có thể là máy khác hoặc máy mới thay — chỉ thay khi chắc chắn'],
+      unknown: ['warn', 'Không so được phần cứng (máy không đọc được serial / MAC)'],
+    };
+    const replaceBox = (d) => {
+      const r = d.replace;
+      const [st, txt] = HW[r.hardware] || HW.unknown;
+      return `<div class="replace-box">
+          <p><strong>Trùng với máy đang hoạt động <span class="mono">${esc(r.hostname)}</span></strong>
+            <span class="sub">liên lạc lần cuối ${r.last_seen ? esc(ago(new Date(r.last_seen))) : '—'}</span></p>
+          <ul class="checks">${check(st, txt)}
+            ${(r.same || []).length ? check('ok', `Giống: ${r.same.join(', ')}`) : ''}
+            ${(r.diff || []).length ? check('warn', `Khác: ${r.diff.join(', ')}`) : ''}</ul>
+          <p class="sub">Duyệt thường sẽ bị báo trùng. "Duyệt và thay thế" thu hồi máy cũ, duyệt máy này, chuyển nhóm thử và cấu hình riêng;
+            lịch sử máy cũ vẫn xem được từ chi tiết máy mới.</p></div>`;
+    };
     const autoOn = !!(auto && auto.setting && auto.setting.on);
     const autoCard = auto ? `<div class="card auto-card">
         <div class="card-head"><h2>Duyệt tự động</h2>
@@ -1640,7 +1905,7 @@
         const ipOk = d.store_code && (!d.store_wan_ip || d.store_wan_ip === d.enroll_ip);
         return `<div class="card req">
           <div class="req-head"><div><h3 class="mono">${esc(d.hostname)}</h3><span class="sub">${esc(ago(new Date(d.requested_at)))}</span></div>
-            ${!d.hostname_ok ? '<span class="pill pill-bad">Hostname sai</span>' : ipOk ? '<span class="pill pill-ok">Đủ điều kiện</span>' : '<span class="pill pill-warn">Cần kiểm tra</span>'}</div>
+            ${d.replace ? '<span class="pill pill-warn">Cài lại máy</span>' : !d.hostname_ok ? '<span class="pill pill-bad">Hostname sai</span>' : ipOk ? '<span class="pill pill-ok">Đủ điều kiện</span>' : '<span class="pill pill-warn">Cần kiểm tra</span>'}</div>
           <dl class="kv">
             <dt>Siêu thị</dt><dd>${esc(d.store_code ? storeLabel(d.store_code) : '—')}</dd>
             <dt>Vị trí</dt><dd>${esc(position(d))}</dd>
@@ -1654,11 +1919,13 @@
             ${ipCheck(d)}
             ${autoOn && d.auto_note ? check('warn', `Chưa duyệt tự động: ${d.auto_note}`) : ''}
           </ul>
+          ${d.replace ? replaceBox(d) : ''}
           ${d.hostname_ok ? '' : `<label class="store-field">Mã siêu thị (bắt buộc khi hostname sai)
             <input class="store-input" id="store-${d.id}" data-store-for="${d.id}" inputmode="numeric" maxlength="10" placeholder="12345" autocomplete="off"${adminOnly(LV.agents)}></label>`}
           <div class="req-actions">
             <button class="btn btn-danger" data-req="reject" data-id="${d.id}"${adminOnly(LV.agents)}>Từ chối</button>
-            <button class="btn btn-primary" data-req="approve" data-id="${d.id}"${adminOnly(LV.agents)}>Duyệt</button>
+            ${d.replace ? `<button class="btn btn-primary" data-req="replace" data-id="${d.id}"${adminOnly(LV.agents)}>Duyệt và thay thế</button>`
+              : `<button class="btn btn-primary" data-req="approve" data-id="${d.id}"${adminOnly(LV.agents)}>Duyệt</button>`}
           </div></div>`;
       }).join('')}</div>` : `<div class="card soon">${ICON.check}<h2>Không có yêu cầu nào</h2><p>Không có máy nào đang chờ duyệt.</p></div>`}`;
 
@@ -1688,28 +1955,33 @@
     page.addEventListener('click', async (e) => {
       const b = e.target.closest('[data-req]'); if (!b || b.disabled) return;
       const d = list.find((x) => String(x.id) === b.dataset.id); if (!d) return;
-      const approve = b.dataset.req === 'approve';
+      const approve = b.dataset.req === 'approve' || b.dataset.req === 'replace';
+      const replace = b.dataset.req === 'replace';
       let store = '';
-      if (approve && !d.hostname_ok) {
+      if (approve && !d.hostname_ok && !replace) {
         store = (page.querySelector(`[data-store-for="${d.id}"]`)?.value || '').trim();
         if (!/^[0-9]{1,10}$/.test(store)) { toast('Nhập mã siêu thị (chỉ gồm chữ số) trước khi duyệt'); return; }
       }
-      const ok = await confirmBox(approve ? 'Duyệt máy này?' : 'Từ chối yêu cầu?',
-        approve
+      const ok = await confirmBox(replace ? 'Duyệt và thay thế máy cũ?' : approve ? 'Duyệt máy này?' : 'Từ chối yêu cầu?',
+        replace
+          ? `<p>Máy cũ <strong class="mono">${esc(d.replace.hostname)}</strong> bị <strong>thu hồi</strong> (chứng chỉ cũ hết dùng được), máy mới
+              <strong class="mono">${esc(d.hostname)}</strong> (mã khóa ${esc(d.key_id)}) được duyệt và nhận nhóm thử, cấu hình riêng của máy cũ.</p>
+             <p>${esc((HW[d.replace.hardware] || HW.unknown)[1])}.</p>`
+          : approve
           ? `<p>Máy <strong class="mono">${esc(d.hostname)}</strong>${store ? ` (siêu thị ${esc(store)})` : ''} sẽ được cấp chứng chỉ ở lần hỏi lại tiếp theo (tối đa khoảng 5 phút) và bắt đầu gửi dữ liệu.</p>`
           : `<p>Yêu cầu của <strong class="mono">${esc(d.hostname)}</strong> bị từ chối; máy sẽ dừng gửi. Muốn dùng lại máy này phải cài lại agent (khóa mới) và duyệt lại.</p>`,
         approve ? 'Duyệt' : 'Từ chối', !approve);
       if (!ok) return;
       b.disabled = true;
       try {
-        const r = await api(`/admin/v1/devices/${d.id}/${approve ? 'approve' : 'reject'}`, {
+        const r = await api(`/admin/v1/devices/${d.id}/${replace ? 'replace' : approve ? 'approve' : 'reject'}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: approve && store ? JSON.stringify({ store_code: store }) : '',
+          body: replace ? JSON.stringify({ old_id: d.replace.id }) : approve && store ? JSON.stringify({ store_code: store }) : '',
         });
         const j = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(j.error || `lỗi ${r.status}`);
-        toast(approve ? `Đã duyệt ${d.hostname}` : `Đã từ chối ${d.hostname}`);
+        toast(replace ? `Đã duyệt ${d.hostname}, thu hồi máy cũ` : approve ? `Đã duyệt ${d.hostname}` : `Đã từ chối ${d.hostname}`);
         delete softSig.pending;
         pagePending(true);
       } catch (err) {
@@ -1910,12 +2182,13 @@
     if (!soft) view.innerHTML = '<p class="hint">Đang tải…</p>';
     let j, sess = [], blocks = [];
     try {
-      [j, sess, blocks] = await Promise.all([getJSON('/admin/v1/accounts'),
+      [j, sess, blocks] = await Promise.all([getJSON('/admin/v1/accounts').then(async (x) => { await loadStoreCache(); return x; }),
         root ? getJSON('/admin/v1/sessions').then((x) => x.sessions || []).catch(() => []) : [],
         getJSON('/admin/v1/login-blocks').then((x) => x.blocks || []).catch(() => [])]);
     } catch (err) { showLoadError(view, err); return; }
     const list = j.accounts || [];
     const minLv = root ? LV.cluster : (j.assign_min || LV.incidents);
+    const people = peopleIndex(); // tên đăng nhập (mã user) → tên thật, siêu thị phụ trách
     const openOf = (u) => sess.filter((x) => x.account === u);
     const sessCell = (a) => {
       const h = a.session_hours || 24, n = a.max_sessions || 4, open = openOf(a.username);
@@ -1939,7 +2212,7 @@
         <div class="table-wrap"><table>
           <thead><tr><th>Tên đăng nhập</th><th>Email</th><th class="hide-sm">Đăng ký lúc</th><th>Mức quyền</th><th></th></tr></thead>
           <tbody id="acct-pending">${pending.map((a) => `<tr>
-            <td class="strong">${esc(a.username)}</td><td class="mono">${esc(a.email)}</td><td class="hide-sm">${t(a.created_at)}</td>
+            <td class="strong">${esc(a.username)}${personInfo(a.username, people)}</td><td class="mono">${esc(a.email)}</td><td class="hide-sm">${t(a.created_at)}</td>
             <td>${levelSelect(`lv-${a.username}`, LV.view, minLv)}</td>
             <td class="actions"><button class="btn btn-sm btn-danger" data-acct="delete" data-user="${esc(a.username)}">Từ chối</button>
               <button class="btn btn-sm btn-primary" data-acct="approve" data-user="${esc(a.username)}">Duyệt</button></td></tr>`).join('')
@@ -1952,7 +2225,7 @@
         <div class="table-wrap"><table>
           <thead><tr><th>Tên đăng nhập</th><th class="hide-sm">Email</th><th>Trạng thái</th><th>Mức quyền</th>${root ? '<th>Phiên đăng nhập</th>' : ''}<th class="hide-sm">Đăng nhập cuối</th><th></th></tr></thead>
           <tbody>${others.map((a) => `<tr>
-            <td class="strong">${esc(a.username)}<span class="sub">duyệt bởi ${esc(a.approved_by || '—')}</span></td>
+            <td class="strong">${esc(a.username)}${personInfo(a.username, people)}<span class="sub">duyệt bởi ${esc(a.approved_by || '—')}</span></td>
             <td class="hide-sm mono">${esc(a.email)}</td>
             <td>${a.status === 'active' ? '<span class="pill pill-ok no-dot">Hoạt động</span>' : '<span class="pill pill-bad no-dot">Đã khóa</span>'}</td>
             <td>${levelSelect(`lv-${a.username}`, a.level, minLv)} <button class="btn btn-sm" data-acct="level" data-user="${esc(a.username)}">Đổi</button></td>
@@ -2916,6 +3189,7 @@
     '': pageOverview,
     may: pageDevices,
     'canh-bao': pageAlerts,
+    'bao-cao-su-co': pageIncidents,
     'suc-khoe': pageHealth,
     'cho-duyet': pagePending,
     'he-thong': pageSystem,

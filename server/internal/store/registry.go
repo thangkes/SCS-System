@@ -6,12 +6,15 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/thangkes/SCS-System/common/fingerprint"
 	"github.com/thangkes/SCS-System/common/protocol"
 	"github.com/thangkes/SCS-System/server/internal/app"
 	"github.com/thangkes/SCS-System/server/internal/periods"
@@ -186,9 +189,19 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		       coalesce(d.tn_no, 0), coalesce(d.tn_role, ''), d.status, d.public_key, d.fingerprint,
 		       d.os_version, d.agent_version, host(d.enroll_ip), coalesce(host(s.wan_ip), ''),
 		       d.requested_at, d.decided_at, coalesce(d.decided_by, ''), d.last_seen, coalesce(host(d.last_ip), ''), d.test_ring,
-		       st.rules, coalesce(d.auto_note, ''), d.cert_expires, st.health
+		       st.rules, coalesce(d.auto_note, ''), d.cert_expires, st.health,
+		       coalesce(d.replaces_device, 0), coalesce(rb.id, 0),
+		       c.id, coalesce(c.hostname, ''), c.last_seen, c.fp_components, d.fp_components
 		FROM devices d LEFT JOIN stores s ON s.code = d.store_code
 		LEFT JOIN device_status st ON st.device_id = d.id
+		LEFT JOIN LATERAL (SELECT n.id FROM devices n WHERE n.replaces_device = d.id ORDER BY n.id DESC LIMIT 1) rb ON true
+		-- Máy chờ duyệt trùng hostname / vị trí TN với máy đang hoạt động: gợi ý thay thế (cài lại máy).
+		LEFT JOIN LATERAL (
+			SELECT o.id, o.hostname, o.last_seen, o.fp_components FROM devices o
+			WHERE d.status = 'pending' AND o.status = 'approved' AND o.id <> d.id
+			  AND (upper(o.hostname) = upper(d.hostname)
+			       OR (d.store_code IS NOT NULL AND d.tn_no IS NOT NULL AND o.store_code = d.store_code AND o.tn_no = d.tn_no))
+			ORDER BY (upper(o.hostname) = upper(d.hostname)) DESC, o.id DESC LIMIT 1) c ON true
 		WHERE d.status = $1
 		ORDER BY d.requested_at DESC
 		LIMIT 1000`, status)
@@ -204,10 +217,26 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		var rules []byte
 		var certExp *time.Time
 		var health []byte
+		var candID *int64
+		var candHost string
+		var candSeen *time.Time
+		var candFP, myFP []byte
 		if err := rows.Scan(&dv.ID, &dv.Hostname, &dv.HostnameOK, &dv.HostnameError, &dv.StoreCode, &dv.TN, &dv.Role,
 			&dv.Status, &pub, &dv.Fingerprint, &dv.OSVersion, &dv.AgentVersion, &dv.EnrollIP, &dv.StoreWANIP,
-			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing, &rules, &dv.AutoNote, &certExp, &health); err != nil {
+			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing, &rules, &dv.AutoNote, &certExp, &health,
+			&dv.ReplacesDevice, &dv.ReplacedBy, &candID, &candHost, &candSeen, &candFP, &myFP); err != nil {
 			return nil, err
+		}
+		if candID != nil {
+			var oldC, newC fingerprint.Components
+			_ = json.Unmarshal(candFP, &oldC)
+			_ = json.Unmarshal(myFP, &newC)
+			rc := &app.ReplaceCandidate{ID: *candID, Hostname: candHost}
+			rc.Hardware, rc.Same, rc.Diff = app.CompareHardware(newC, oldC)
+			if candSeen != nil {
+				rc.LastSeen = candSeen.UTC().Format(time.RFC3339)
+			}
+			dv.Replace = rc
 		}
 		if len(rules) > 0 {
 			var r protocol.RuleSetReport
@@ -231,6 +260,78 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		out = append(out, dv)
 	}
 	return out, rows.Err()
+}
+
+// ReplaceApprove: thu hồi máy cũ đang hoạt động, duyệt máy mới (cài lại máy) trong một transaction.
+func (g *Registry) ReplaceApprove(ctx context.Context, newID, oldID int64, by, storeOverride string) (app.Device, error) {
+	err := g.tx(ctx, func(tx pgx.Tx) error {
+		var oStatus, oHost string
+		var oStore *string
+		var oTN *int16
+		var oRing bool
+		e := tx.QueryRow(ctx, `SELECT status, hostname, store_code, tn_no, test_ring FROM devices WHERE id = $1 FOR UPDATE`, oldID).
+			Scan(&oStatus, &oHost, &oStore, &oTN, &oRing)
+		switch {
+		case errors.Is(e, pgx.ErrNoRows):
+			return app.ErrNotFound
+		case e != nil:
+			return e
+		case oStatus != app.DeviceApproved:
+			return fmt.Errorf("%w (máy cũ không còn hoạt động)", app.ErrWrongState)
+		}
+		var nStatus, nHost string
+		var nStore *string
+		var nTN *int16
+		e = tx.QueryRow(ctx, `SELECT status, hostname, store_code, tn_no FROM devices WHERE id = $1 FOR UPDATE`, newID).
+			Scan(&nStatus, &nHost, &nStore, &nTN)
+		switch {
+		case errors.Is(e, pgx.ErrNoRows):
+			return app.ErrNotFound
+		case e != nil:
+			return e
+		case nStatus != app.DevicePending:
+			return app.ErrWrongState
+		}
+		samePos := oStore != nil && nStore != nil && oTN != nil && nTN != nil && *oStore == *nStore && *oTN == *nTN
+		if !strings.EqualFold(oHost, nHost) && !samePos {
+			return fmt.Errorf("%w: máy cũ không trùng hostname hay vị trí TN với máy mới", app.ErrWrongState)
+		}
+		if _, err := tx.Exec(ctx, `UPDATE devices SET status = 'revoked', decided_at = now(), decided_by = $2 WHERE id = $1`,
+			oldID, by); err != nil {
+			return err
+		}
+		if err := audit(ctx, tx, by, "device.revoke", oldID, deref(oStore), map[string]any{"replaced_by": newID, "ly_do": "cài lại máy"}); err != nil {
+			return err
+		}
+		if storeOverride == "" && nStore == nil && oStore != nil {
+			storeOverride = *oStore // hostname mới sai quy ước: dùng siêu thị của máy cũ
+		}
+		if _, err := approveTx(ctx, tx, newID, by, storeOverride, map[string]any{"replaces": oldID}); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE devices SET replaces_device = $2, test_ring = $3 WHERE id = $1`, newID, oldID, oRing); err != nil {
+			return err
+		}
+		// Cấu hình riêng theo máy (dịch vụ theo dõi, nhãn, bộ rule gán riêng) chuyển sang máy mới.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO agent_config (scope, scope_key, watch_services, labels, rule_set, updated_at, updated_by)
+			SELECT 'device', $2, watch_services, labels, rule_set, now(), $3 FROM agent_config WHERE scope = 'device' AND scope_key = $1
+			ON CONFLICT (scope, scope_key) DO NOTHING`, strconv.FormatInt(oldID, 10), strconv.FormatInt(newID, 10), by); err != nil {
+			return err
+		}
+		return audit(ctx, tx, by, "device.replace", newID, deref(nStore), map[string]any{"old": oldID, "new": newID})
+	})
+	if err != nil {
+		return app.Device{}, err
+	}
+	return g.approvedDevice(ctx, newID)
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 func (g *Registry) Approve(ctx context.Context, id int64, by, storeOverride string) (dev app.Device, err error) {

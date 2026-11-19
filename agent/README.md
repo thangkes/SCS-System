@@ -47,7 +47,28 @@ scs-agent fingerprint   # kiểm hostname, xem thành phần nhận dạng máy 
 scs-agent status        # cấu hình, trạng thái đăng ký, trạng thái máy sẽ gửi trong heartbeat
 scs-agent run           # dịch vụ systemd gọi lệnh này
 scs-agent version
+sudo -u scs-agent scs-agent renew   # xin server cấp lại chứng chỉ máy ngay (khi bị báo sắp / đã hết hạn)
+sudo scs-agent smart -out /tmp/smart.json   # đọc SMART tay (tác vụ scs-agent-smart.timer tự chạy mỗi ngày)
 ```
+
+## SMART ổ cứng
+
+Đọc SMART phải gửi lệnh thẳng tới ổ (SATA: ioctl SG_IO cần `CAP_SYS_RAWIO`; NVMe: lệnh admin cần `CAP_SYS_ADMIN`), nên
+**không** chạy trong tiến trình agent (user thường). Bộ cài thêm tác vụ riêng `scs-agent-smart.service` + `.timer`:
+chạy `scs-agent smart` mỗi ngày (và 20 phút sau khi bật máy) bằng root nhưng chỉ giữ hai quyền đó, chỉ mở thiết bị ổ
+(`sd*`, `nvme`) ở chế độ **chỉ đọc**, không có mạng, chỉ ghi được `/var/lib/scs-agent-smart/` (root:scs-agent 750 — agent
+đọc được, không ghi / thay được). Agent đọc `smart.json` và gửi kèm trạng thái máy. Không cần cài `smartmontools`.
+
+- **NVMe**: log SMART chuẩn — cờ cảnh báo nghiêm trọng, % tuổi thọ đã dùng, dự phòng còn lại, lỗi media, nhiệt độ, giờ
+  chạy, số lần tắt đột ngột.
+- **SATA**: bảng thuộc tính — 5 sector đã thay, 197 chờ thay, 198 không đọc được, 187, 199 lỗi CRC (cáp / cổng), 9 giờ
+  chạy, 194 nhiệt độ; độ mòn SSD theo thuộc tính hãng (231 / 233 / 177 / 169 / 202, chỉ là ước tính, có hãng không có);
+  "ổ tự đánh giá" = không thuộc tính pre-fail nào chạm ngưỡng.
+- **Không đọc được** (ghi lý do, không lỗi): ổ ảo của card RAID phần cứng (LSI / MegaRAID / PERC / HP Smart Array…: Linux
+  chỉ thấy ổ ảo; xem bằng công cụ của hãng card), phần lớn ổ USB, ổ SAS / SCSI. RAID phần mềm (`mdadm`) vẫn đọc được từng ổ.
+- **Máy đang chạy**: tác vụ root thay bản khung bị sandbox, không cài thêm dịch vụ được, nên mỗi máy chạy bộ cài **một lần**:
+  `sudo bash scripts/install.sh --smart-only` (menu agent mục 9) — không đụng cấu hình, khóa máy, đăng ký; bản khung cũ
+  chưa có lệnh `smart` thì được thay bằng binary trong gói. Chưa cài thì web hiện "chưa có kết quả SMART".
 
 Serial phần cứng chỉ root đọc được: chạy `sudo scs-agent fingerprint` để xem đủ.
 

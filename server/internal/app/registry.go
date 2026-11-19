@@ -24,6 +24,9 @@ type Registry interface {
 
 	ListDevices(ctx context.Context, status string) ([]Device, error)
 	Approve(ctx context.Context, deviceID int64, by, storeCode string) (Device, error)
+	// ReplaceApprove: duyệt máy chờ newID và thu hồi máy đang hoạt động oldID trùng hostname / vị trí TN (cài lại máy)
+	// trong một transaction; chuyển nhóm thử, cấu hình riêng theo máy; ghi newID thay thế cho oldID.
+	ReplaceApprove(ctx context.Context, newID, oldID int64, by, storeCode string) (Device, error)
 	Reject(ctx context.Context, deviceID int64, by string) error
 	// AutoApprove: máy đang chờ duyệt vừa hỏi lại từ IP ip. Công tắc duyệt tự động bật và máy đủ điều
 	// kiện (AutoApproveRules) thì duyệt luôn (người duyệt = AutoApprover); chưa đủ thì ghi lý do vào máy.
@@ -51,6 +54,8 @@ type Registry interface {
 	// PeriodTick kiểm mọi máy (gọi định kỳ): mất liên lạc, tự đóng cảnh báo high, đóng giai đoạn của
 	// máy không còn được duyệt. Trả số máy có thay đổi.
 	PeriodTick(ctx context.Context, now time.Time) (int, error)
+	// CertTick: mở / đóng cảnh báo chứng chỉ máy sắp hết hạn mà chưa gia hạn (dưới warn) và đã hết hạn.
+	CertTick(ctx context.Context, now time.Time, warn time.Duration) (opened, closed int, err error)
 	// ListPeriods: dòng thời gian của một máy, mới nhất trước. LastSeen: lần cuối nghe máy.
 	ListPeriods(ctx context.Context, deviceID int64, limit int) (Timeline, error)
 	// ResolvePeriod: admin "Đã xử lý" một cảnh báo đang mở (đóng cảnh báo trong alerts luôn).
@@ -291,6 +296,11 @@ type Device struct {
 	Rules *protocol.RuleSetReport `json:"rules,omitempty"`
 	// Health: sức khỏe máy (Health) theo heartbeat gần nhất; nil = agent chưa gửi trạng thái máy.
 	Health json.RawMessage `json:"health,omitempty"`
+	// Replace: máy chờ duyệt trùng hostname / vị trí TN với máy đang hoạt động (cài lại máy) — gợi ý thay thế.
+	Replace *ReplaceCandidate `json:"replace,omitempty"`
+	// ReplacesDevice / ReplacedBy: máy này thay thế cho máy nào / đã được máy nào thay (0 = không).
+	ReplacesDevice int64 `json:"replaces_device,omitempty"`
+	ReplacedBy     int64 `json:"replaced_by,omitempty"`
 }
 
 // RuleUsage: số máy (đã duyệt) đang cài một bộ rule, theo tên, phiên bản, SHA-256.

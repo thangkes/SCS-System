@@ -221,6 +221,8 @@ label { font-weight: 600; font-size: 13px; }
 .txt-bad { color: var(--bad); }
 .callout.callout-info { background: var(--info-soft); color: var(--text); margin-bottom: 16px; }
 .hl-kinds { padding: 12px 18px 16px; }
+.replace-box { margin: 10px 0; padding: 10px 12px; border-radius: 8px; background: var(--warn-soft); font-size: 13px; }
+.replace-box p { margin: 0 0 6px; }
 .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; }
 .update-list { margin: 0; padding: 4px 18px 8px 18px; list-style: none; display: grid; gap: 10px; }
 .update-list li { border-left: 3px solid var(--warn); padding: 2px 0 2px 10px; }
@@ -467,6 +469,10 @@ td select { height: 30px; font-size: 13px; max-width: 190px; }
 
 /* ---------- Máy: gom theo mã siêu thị, viền màu theo trạng thái ---------- */
 .toolbar .right { margin-left: auto; }
+.dev-filters { padding-top: 10px; padding-bottom: 10px; }
+.sub.person { display: block; font-weight: 400; }
+.sub.person strong { color: var(--text); }
+.dev-filters input { width: 170px; }
 .store-legend { display: flex; gap: 12px; font-size: 12px; color: var(--muted); }
 .store-legend .lg::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
 .lg-ok::before { background: var(--ok); }
@@ -667,3 +673,4 @@ label.inline input, label.inline select { height: 32px; }
 .sess-cfg { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .sess-cfg input[type=number] { width: 64px; height: 30px; font-size: 13px; }
 .sess-cfg select { height: 30px; font-size: 13px; }
+.rp-charts.rp-one { grid-template-columns: 1fr; }

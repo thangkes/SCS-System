@@ -230,7 +230,30 @@ liệt kê các **ghi nhận** — **không chấm mức** (không có Nguy hi�
   gửi, các loại ghi nhận đang có (bấm để lọc), bảng máy kèm ghi nhận, tìm theo mã siêu thị / hostname / nội dung, bấm
   máy mở chi tiết. Chi tiết máy có thẻ **Tình trạng máy** (ghi nhận, RAM / swap / từng phân vùng, ổ vật lý + lỗi I/O,
   RAID, dịch vụ, NTP, phần không đọc được); trang **Máy** có cột **Sức khỏe** và ô "Chỉ máy có ghi nhận sức khỏe".
-- Chưa đọc **SMART** (cần quyền raw với ổ, agent chạy user thường).
+- **SMART** (agent bản mới + tác vụ `scs-agent-smart` trên máy, xem `agent/README.md`): thẻ Tình trạng máy có mục SMART
+  từng ổ; ghi nhận tham khảo khi ổ tự báo hỏng, SSD dùng ≥ 90% tuổi thọ, có sector đã thay / chờ thay / không đọc được,
+  lỗi media NVMe, lỗi CRC (cáp — số cộng dồn cả đời ổ). Ổ không đọc được SMART (card RAID phần cứng, USB, SAS) chỉ hiện lý do.
+
+## Chứng chỉ máy: server tự kiểm
+
+Worker kiểm 10 phút một lần (migration 0018 thêm hai loại cảnh báo):
+
+- chứng chỉ còn **dưới 14 ngày** mà máy chưa gia hạn (agent bản mới tự gia hạn từ 30 ngày) → **"Chứng chỉ máy sắp hết
+  hạn"** (cao); đã **hết hạn** → **"đã hết hạn"** (nghiêm trọng, máy không gửi được gì nữa);
+- gia hạn xong, hoặc máy bị thu hồi → tự đóng.
+
+Agent tự xin lại chứng chỉ khi server không nhận chứng chỉ còn hạn (tối đa mỗi giờ một lần; máy bị thu hồi thì server không
+cấp). Trên máy: `sudo -u scs-agent scs-agent renew` xin cấp lại ngay; `scs-agent status` hiện hạn chứng chỉ.
+
+## Cài lại máy: duyệt và thay thế máy cũ
+
+Cài lại Ubuntu thì khóa máy mới → yêu cầu đăng ký mới. Máy chờ duyệt trùng hostname hoặc vị trí TN với máy đang hoạt
+động: thẻ chờ duyệt hiện **"Cài lại máy"**, so sánh phần cứng (serial mainboard, serial hệ thống, MAC — machine-id luôn đổi
+khi cài lại nên không xét): giống = đúng là cài lại; khác = có thể là máy khác. Nút **"Duyệt và thay thế"** (mức 3 trở lên,
+`POST /admin/v1/devices/{id}/replace {"old_id"}`) trong một transaction: thu hồi máy cũ (chứng chỉ cũ hết dùng được), duyệt
+máy mới, chuyển nhóm thử và cấu hình riêng theo máy (dịch vụ theo dõi, nhãn, bộ rule gán riêng), ghi `replaces_device`
+(migration 0019) để chi tiết máy mới có nút "Xem lịch sử máy cũ". Nhật ký thao tác: `device.replace`, `device.revoke`.
+Duyệt tự động không bao giờ tự thay thế. Duyệt thường máy trùng vẫn báo 409 như trước.
 
 ## Thông báo bản server mới (chỉ đề xuất)
 
@@ -308,6 +331,30 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
   tình trạng bộ rule (đang quét / đã cài chưa quét / chưa có / agent cũ không báo), bảng theo trạng thái máy (mới chờ
   duyệt / đang hoạt động / mất liên lạc / từ chối, thu hồi × bản mới / chưa cập nhật / có rule / chưa có rule).
   Lượt tải và lỗi chỉ thấy khi web và cổng agent chạy chung tiến trình (lệnh `all`, cách cài mặc định).
+
+## Trang Máy: lọc theo người phụ trách, ghép tài khoản
+
+- Bộ lọc **Mã kho** (nhiều mã, cách nhau dấu phẩy, khớp đầu mã), **Quản lý**, **Trưởng nhóm** lọc tức thời theo thông tin
+  siêu thị đã nạp, có gợi ý sẵn; gõ chữ thì khớp một phần, không phân biệt dấu; gõ đúng mã user (chỉ chữ số) thì khớp chính xác.
+- Người phụ trách trong thông tin siêu thị ghi dạng **"mã user - Tên"** (ví dụ `100001 - Nguyễn Văn A`). Mã user trùng tên
+  đăng nhập tài khoản web (đăng ký chỉ chữ số), nên web ghép được: trang **Tài khoản** (cả mục chờ duyệt) hiện tên thật và
+  vai trò ở bao nhiêu siêu thị — giúp đối chiếu người đăng ký trước khi duyệt; bấm để mở trang Máy đã lọc. Tài khoản đăng
+  nhập bằng email có ô **"Siêu thị của tôi"** (siêu thị mình là quản lý / phó / trưởng nhóm / phó phòng).
+- Chỉ ghép trên web cho người đã đăng nhập; trang đăng ký (chưa đăng nhập) không lộ thông tin siêu thị.
+
+## Báo cáo sự cố
+
+Menu **Báo cáo sự cố** (ngay trên Báo cáo server, mức Chỉ xem). Tính các giai đoạn **cảnh báo** (sự cố từ log) và **mất
+liên lạc** **bắt đầu** trong kỳ — chọn 24 giờ / 7 / 30 / 90 ngày hoặc khoảng ngày (tối đa 400 ngày, giờ của máy server):
+
+- Tổng số, sự cố log / mất liên lạc, theo mức (nghiêm trọng / cao / trung bình), đang mở, cách đóng (admin xử lý / tự đóng
+  / hệ thống), thời gian tới khi đóng (trung bình, trung vị, lâu nhất).
+- Biểu đồ số sự cố bắt đầu mỗi giờ (kỳ ≤ 48 giờ) hoặc mỗi ngày; 10 siêu thị, 10 máy, 10 rule gặp nhiều nhất.
+- Bảng chi tiết 20 sự cố mới nhất (bấm mở chi tiết máy); **Xuất Excel (.xlsx)** / **CSV** có đủ mọi sự cố (tối đa 20.000
+  mới nhất): mã, loại, mức, bắt đầu / kết thúc, thời lượng, máy, siêu thị, số sự kiện, rule chính + tiêu đề, các rule,
+  đóng bởi, ghi chú. CSV chặn chèn công thức (ô bắt đầu bằng `=`, `+`, `-`, `@`); Excel ghi chữ dạng chữ. **In / Lưu PDF**.
+- API: `GET /admin/v1/incidents/report?from=&to=` (JSON), `.csv`, `.xlsx`. Chỉ mục `device_periods_incidents` (migration 0020).
+- Không tính sức khỏe máy (chỉ để tham khảo) và các cảnh báo không có giai đoạn (IP lạ, chứng chỉ, máy chờ duyệt).
 
 ## Báo cáo server (lịch sử thông số)
 

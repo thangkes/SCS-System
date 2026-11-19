@@ -80,6 +80,7 @@ const (
 	MaxServices = 32
 	MaxBlock    = 16 // ổ vật lý
 	MaxErrors   = 16
+	MaxSmart    = 16 // ổ đọc SMART
 )
 
 // MachineStatus: trạng thái máy agent đọc được ở mỗi heartbeat. Trường nào không đọc được
@@ -105,6 +106,43 @@ type MachineStatus struct {
 	TimeSync TimeSyncStatus  `json:"time_sync"`
 	Services []ServiceStatus `json:"services,omitempty"`
 	Errors   []string        `json:"errors,omitempty"` // phần không đọc được và vì sao
+	// Smart: kết quả đọc SMART gần nhất (tác vụ root scs-agent-smart.timer ghi file, agent chỉ đọc); nil = agent bản cũ.
+	Smart *SmartReport `json:"smart,omitempty"`
+}
+
+// SmartReport: kết quả một lần đọc SMART các ổ vật lý.
+type SmartReport struct {
+	At    time.Time   `json:"at,omitzero"`     // lúc đọc (zero = chưa có lần đọc nào)
+	Disks []SmartDisk `json:"disks,omitempty"` //
+	Error string      `json:"error,omitempty"` // cả lần đọc không làm được (chưa cài tác vụ, file hỏng…)
+}
+
+// SmartDisk: SMART của một ổ. Con trỏ nil = ổ không có thông số đó.
+type SmartDisk struct {
+	Name   string `json:"name"`           // sda, nvme0n1
+	Kind   string `json:"kind"`           // ata | nvme
+	OK     bool   `json:"ok"`             // đọc được SMART
+	Note   string `json:"note,omitempty"` // không đọc được vì sao (sau card RAID, ổ USB, ổ SAS…)
+	Passed *bool  `json:"passed,omitempty"`
+	// Passed: ổ tự đánh giá — NVMe: không có cờ cảnh báo nghiêm trọng; ATA: không thuộc tính "pre-fail" nào chạm ngưỡng.
+	TempC        int    `json:"temp_c,omitempty"`
+	PowerOnHours *int64 `json:"power_on_hours,omitempty"`
+	PowerCycles  *int64 `json:"power_cycles,omitempty"`
+	// PercentUsed: % tuổi thọ đã dùng. NVMe: trường chuẩn. SSD SATA: suy từ thuộc tính hãng (WearAttr), chỉ ước tính.
+	PercentUsed *int `json:"percent_used,omitempty"`
+	WearAttr    int  `json:"wear_attr,omitempty"`
+	// NVMe
+	CriticalWarning int    `json:"critical_warning,omitempty"`
+	AvailSpare      *int   `json:"avail_spare,omitempty"`
+	MediaErrors     *int64 `json:"media_errors,omitempty"`
+	UnsafeShutdowns *int64 `json:"unsafe_shutdowns,omitempty"`
+	// ATA (giá trị thô)
+	Reallocated   *int64   `json:"reallocated,omitempty"`        // 5: sector đã thay
+	Pending       *int64   `json:"pending,omitempty"`            // 197: sector chờ thay
+	Uncorrectable *int64   `json:"uncorrectable,omitempty"`      // 198: sector không đọc được khi tự kiểm
+	ReportedUncor *int64   `json:"reported_uncorrect,omitempty"` // 187
+	CRCErrors     *int64   `json:"crc_errors,omitempty"`         // 199: lỗi đường truyền (cáp / cổng SATA)
+	Failing       []string `json:"failing,omitempty"`            // thuộc tính đang dưới ngưỡng
 }
 
 // DiskStatus: một phân vùng đang mount (bỏ qua tmpfs, squashfs...).

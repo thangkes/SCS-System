@@ -1,0 +1,41 @@
+# Đọc SMART các ổ (NVMe, SATA) bằng chính binary agent, ghi kết quả cho agent gửi lên server.
+# Chạy bằng root nhưng chỉ giữ đúng hai quyền cần cho lệnh SMART: CAP_SYS_RAWIO (SATA, SG_IO) và CAP_SYS_ADMIN
+# (NVMe admin). Chỉ được mở thiết bị ổ (sd*, nvme) ở chế độ CHỈ ĐỌC, không có mạng, chỉ ghi được thư mục kết quả.
+# Agent thường (user scs-agent) không có quyền nào với ổ: chỉ đọc file kết quả.
+[Unit]
+Description=SCS-Agent: đọc SMART các ổ (quyền hẹp, không mạng)
+ConditionPathIsDirectory=/var/lib/scs-agent-smart
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/scs-agent/scs-agent smart -out /var/lib/scs-agent-smart/smart.json
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=5min
+
+CapabilityBoundingSet=CAP_SYS_RAWIO CAP_SYS_ADMIN
+AmbientCapabilities=
+NoNewPrivileges=yes
+DevicePolicy=closed
+DeviceAllow=block-sd r
+DeviceAllow=char-nvme r
+ProtectSystem=strict
+ReadWritePaths=/var/lib/scs-agent-smart
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+UMask=0027

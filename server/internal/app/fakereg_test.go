@@ -153,6 +153,30 @@ func (f *fakeRegistry) Approve(_ context.Context, id int64, by, store string) (D
 	return d.Device, nil
 }
 
+// ReplaceApprove (giả): thu hồi máy cũ trùng hostname / vị trí, duyệt máy mới.
+func (f *fakeRegistry) ReplaceApprove(ctx context.Context, newID, oldID int64, by, store string) (Device, error) {
+	f.mu.Lock()
+	o, n := f.find(oldID), f.find(newID)
+	switch {
+	case o == nil || n == nil:
+		f.mu.Unlock()
+		return Device{}, ErrNotFound
+	case o.Status != DeviceApproved || n.Status != DevicePending:
+		f.mu.Unlock()
+		return Device{}, ErrWrongState
+	case o.Hostname != n.Hostname && !(o.StoreCode == n.StoreCode && o.TN != 0 && o.TN == n.TN):
+		f.mu.Unlock()
+		return Device{}, ErrWrongState
+	}
+	o.Status, o.DecidedBy = DeviceRevoked, by
+	if store == "" && n.StoreCode == "" {
+		store = o.StoreCode
+	}
+	n.ReplacesDevice, n.TestRing = oldID, o.TestRing
+	f.mu.Unlock()
+	return f.Approve(ctx, newID, by, store)
+}
+
 func (f *fakeRegistry) setStatus(id int64, by, from, to string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

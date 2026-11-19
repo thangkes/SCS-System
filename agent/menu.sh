@@ -122,6 +122,15 @@ do_fingerprint() {
 	fi
 }
 
+do_smart() {
+	echo "  Cài thêm tác vụ đọc SMART (mỗi ngày, quyền hẹp, không đụng cấu hình / khóa máy / đăng ký)."
+	confirm "Tiếp tục?" || return 0
+	bash "$INSTALL" --smart-only
+	echo
+	[[ -r /var/lib/scs-agent-smart/smart.json ]] && echo "  Kết quả đọc gần nhất: $(stat -c %y /var/lib/scs-agent-smart/smart.json 2>/dev/null | cut -c1-19)"
+	echo "  Đọc ngay và xem kết quả: sudo systemctl start scs-agent-smart && journalctl -u scs-agent-smart -n 20 -o cat"
+}
+
 do_log() { journalctl -u scs-agent -n 40 --no-pager -o cat 2>/dev/null | cut -c1-220; }
 
 do_restart() {
@@ -149,6 +158,7 @@ while true; do
   ${C_B}Cài đặt${C_0}
    1) Kiểm tra trước khi cài (hostname, đồng hồ, kết nối tới server)
    2) Cài / cài lại agent
+   9) Cài thêm tác vụ đọc SMART (máy đang chạy)
 
   ${C_B}Theo dõi${C_0}
    3) Trạng thái đăng ký và thông tin máy sẽ gửi
@@ -174,6 +184,7 @@ EOF
 		6) do_restart ;;
 		7) do_uninstall ;;
 		8) do_purge ;;
+		9) do_smart ;;
 		0 | q | Q | "") exit 0 ;;
 		*) echo "  Không có mục \"$choice\"." ;;
 	esac

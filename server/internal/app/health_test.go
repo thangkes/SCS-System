@@ -147,3 +147,41 @@ func TestHeartbeatComputesHealth(t *testing.T) {
 		t.Fatalf("health: %+v", h)
 	}
 }
+
+// SMART: ghi nhận tham khảo khi ổ tự báo hỏng, SSD mòn ≥ 90%, lỗi media, sector hỏng, lỗi CRC; ổ không đọc được
+// SMART thì không ghi nhận gì.
+func TestHealthSmart(t *testing.T) {
+	no, yes := false, true
+	n := func(v int64) *int64 { return &v }
+	p := func(v int) *int { return &v }
+	st := &protocol.MachineStatus{Smart: &protocol.SmartReport{Disks: []protocol.SmartDisk{
+		{Name: "sda", Kind: "ata", OK: true, Passed: &no, Failing: []string{"sector đã thay (5) 9 ≤ ngưỡng 10"},
+			Reallocated: n(4000), Pending: n(3), CRCErrors: n(41), PercentUsed: p(92), WearAttr: 231},
+		{Name: "nvme0n1", Kind: "nvme", OK: true, Passed: &yes, PercentUsed: p(12), MediaErrors: n(2)},
+		{Name: "sdb", Kind: "ata", OK: false, Note: "ổ ảo của card RAID phần cứng"},
+		{Name: "sdc", Kind: "ata", OK: true, Passed: &yes, Reallocated: n(0), CRCErrors: n(0), PercentUsed: p(40)},
+	}}}
+	h := evalHealth(st, 0)
+	got := codes(h)
+	for _, c := range []string{"smart_fail:sda", "smart_wear:sda", "smart_sector:sda", "smart_crc:sda", "smart_media:nvme0n1"} {
+		if !got[c] {
+			t.Errorf("thiếu ghi nhận %s: %v", c, got)
+		}
+	}
+	if len(got) != 5 || h.Level != HealthNote {
+		t.Fatalf("chỉ 5 ghi nhận (ổ RAID / ổ khỏe không ghi gì): %v", got)
+	}
+	if !strings.Contains(codesText(h, "smart_wear:sda"), "ước tính") || !strings.Contains(codesText(h, "smart_sector:sda"), "4000 sector đã thay, 3 sector chờ thay") {
+		t.Fatalf("nội dung: %+v", h.Issues)
+	}
+	// Làm sạch: cắt số ổ, chặn số âm, bỏ ký tự điều khiển.
+	bad := &protocol.MachineStatus{Smart: &protocol.SmartReport{Error: "x\x00y"}}
+	for i := 0; i < 40; i++ {
+		bad.Smart.Disks = append(bad.Smart.Disks, protocol.SmartDisk{Name: "sd\x1b", Reallocated: n(-5), PercentUsed: p(999)})
+	}
+	c := cleanStatus(bad)
+	if len(c.Smart.Disks) != protocol.MaxSmart || c.Smart.Error != "xy" || c.Smart.Disks[0].Name != "sd" ||
+		*c.Smart.Disks[0].Reallocated != 0 || *c.Smart.Disks[0].PercentUsed != 255 {
+		t.Fatalf("làm sạch SMART: %+v", c.Smart)
+	}
+}

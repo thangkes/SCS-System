@@ -94,6 +94,8 @@ install -m 755 "$AGENT_SRC/menu.sh" "$pkg/menu.sh"
 install -m 644 "$AGENT_SRC/deploy/systemd/scs-agent.service" "$pkg/deploy/systemd/scs-agent.service"
 install -m 644 "$AGENT_SRC/deploy/systemd/scs-agent-promote.service" "$pkg/deploy/systemd/scs-agent-promote.service"
 install -m 644 "$AGENT_SRC/deploy/systemd/scs-agent-promote.timer" "$pkg/deploy/systemd/scs-agent-promote.timer"
+install -m 644 "$AGENT_SRC/deploy/systemd/scs-agent-smart.service" "$pkg/deploy/systemd/scs-agent-smart.service"
+install -m 644 "$AGENT_SRC/deploy/systemd/scs-agent-smart.timer" "$pkg/deploy/systemd/scs-agent-smart.timer"
 install -m 644 "$CA_FILE" "$pkg/agent-ca.pem"
 if [[ -r "$RELEASE_PUB" ]] && grep -q "BEGIN PUBLIC KEY" "$RELEASE_PUB"; then
 	install -m 644 "$RELEASE_PUB" "$pkg/release.pub"

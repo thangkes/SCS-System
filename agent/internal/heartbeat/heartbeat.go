@@ -98,6 +98,7 @@ func Run(ctx context.Context, d Deps) error {
 	failedUpdate, failedAt := "", time.Time{}     // bản tải / kiểm lỗi lần trước và lúc lỗi
 	failedMsg := ""                               // lỗi đó (báo lên server, hiện trên web)
 	var renewAt time.Time                         // lần thử gia hạn chứng chỉ gần nhất
+	var rejectRenewAt time.Time                   // lần xin lại chứng chỉ khi server từ chối chứng chỉ còn hạn
 	failedRules, failedRulesAt := "", time.Time{} // bộ rule tải / kiểm lỗi lần trước
 	for {
 		expired := false
@@ -150,6 +151,18 @@ func Run(ctx context.Context, d Deps) error {
 			// Chứng chỉ đã hết hạn và chưa gia hạn được (server hết lượt): thử lại sớm, không giãn tối đa.
 			d.Log.Warn("chứng chỉ máy đã hết hạn, đang chờ server cấp chứng chỉ mới")
 			wait, backoff = Every, BackoffMin
+		case errors.As(err, &he) && he.Status == http.StatusUnauthorized && d.Renew != nil && time.Since(rejectRenewAt) >= RenewRetry:
+			// Chứng chỉ còn hạn mà server không nhận (server đã cấp chứng chỉ khác, đổi CA…): xin lại bằng chính khóa
+			// máy, tối đa mỗi giờ một lần. Máy bị thu hồi thì server từ chối cấp, rơi về chờ tối đa như cũ.
+			rejectRenewAt = time.Now()
+			switch ok, rerr := d.Renew(ctx); {
+			case ok:
+				d.Log.Warn("server không nhận chứng chỉ cũ: đã xin và nhận chứng chỉ mới, gọi lại ngay")
+				wait, backoff = MinEvery, BackoffMin
+			default:
+				d.Log.Error("server từ chối heartbeat và chưa cấp lại chứng chỉ (máy bị thu hồi?)", "err", err, "xin_lai", rerr)
+				wait, backoff = BackoffMax, BackoffMin
+			}
 		case errors.As(err, &he) && (he.Status == http.StatusForbidden || he.Status == http.StatusUnauthorized):
 			d.Log.Error("server từ chối heartbeat (máy bị thu hồi hoặc chứng chỉ không còn hiệu lực)", "err", err)
 			wait, backoff = BackoffMax, BackoffMin

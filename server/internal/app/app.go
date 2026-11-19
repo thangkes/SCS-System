@@ -136,6 +136,7 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("GET /admin/v1/devices/{id}/periods", view(http.HandlerFunc(dev.timeline)))
 	mux.Handle("POST /admin/v1/periods/{id}/resolve", incidents(http.HandlerFunc(dev.resolve)))
 	mux.Handle("POST /admin/v1/devices/{id}/approve", agents(http.HandlerFunc(dev.approve)))
+	mux.Handle("POST /admin/v1/devices/{id}/replace", agents(http.HandlerFunc(dev.replace)))
 	mux.Handle("POST /admin/v1/devices/{id}/reject", agents(http.HandlerFunc(dev.reject)))
 	mux.Handle("POST /admin/v1/devices/{id}/revoke", agents(http.HandlerFunc(dev.revoke)))
 	mux.Handle("GET /admin/v1/auto-approve", view(http.HandlerFunc(dev.autoApprove)))
@@ -170,6 +171,10 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("GET /admin/v1/server/report", view(http.HandlerFunc(rp.report)))
 	mux.Handle("GET /admin/v1/server/report.csv", view(http.HandlerFunc(rp.reportCSV)))
 	mux.Handle("GET /admin/v1/server/report.xlsx", view(http.HandlerFunc(rp.reportXLSX)))
+	ia := incidentAPI{d}
+	mux.Handle("GET /admin/v1/incidents/report", view(http.HandlerFunc(ia.report)))
+	mux.Handle("GET /admin/v1/incidents/report.csv", view(http.HandlerFunc(ia.reportCSV)))
+	mux.Handle("GET /admin/v1/incidents/report.xlsx", view(http.HandlerFunc(ia.reportXLSX)))
 	st := storesAPI{d}
 	mux.Handle("GET /admin/v1/stores", view(http.HandlerFunc(st.list)))
 	mux.Handle("GET /admin/v1/stores/template.csv", view(http.HandlerFunc(st.template)))
@@ -190,6 +195,12 @@ func AdminHandler(d Deps) http.Handler {
 // periodTickEvery: nhịp kiểm mất liên lạc / tự đóng cảnh báo high.
 const periodTickEvery = time.Minute
 
+// Kiểm chứng chỉ máy: mỗi 10 phút; cảnh báo khi còn dưới certWarn mà chưa gia hạn (agent tự gia hạn từ 30 ngày).
+const (
+	certTickEvery = 10 * time.Minute
+	certWarn      = 14 * 24 * time.Hour
+)
+
 // Worker: việc định kỳ. Hiện có: kiểm giai đoạn của mọi máy (mất liên lạc sau SCS_OFFLINE_AFTER, tự
 // đóng cảnh báo high sau SCS_ALERT_AUTOCLOSE, đóng giai đoạn của máy bị thu hồi) mỗi phút.
 func Worker(d Deps) func(context.Context) error {
@@ -199,14 +210,23 @@ func Worker(d Deps) func(context.Context) error {
 			<-ctx.Done()
 			return nil
 		}
-		d.Log.Info("worker đang chạy: kiểm mất liên lạc và tự đóng cảnh báo mỗi phút")
+		d.Log.Info("worker đang chạy: kiểm mất liên lạc và tự đóng cảnh báo mỗi phút, chứng chỉ máy mỗi 10 phút")
 		t := time.NewTicker(periodTickEvery)
 		defer t.Stop()
+		var lastCert time.Time
 		for {
 			select {
 			case <-ctx.Done():
 				return nil
 			case now := <-t.C:
+				if now.Sub(lastCert) >= certTickEvery {
+					lastCert = now
+					if o, c, err := d.Registry.CertTick(ctx, now, certWarn); err != nil && ctx.Err() == nil {
+						d.Log.Error("kiểm chứng chỉ máy thất bại", "err", err)
+					} else if o > 0 || c > 0 {
+						d.Log.Warn("cảnh báo chứng chỉ máy", "mo", o, "dong", c)
+					}
+				}
 				n, err := d.Registry.PeriodTick(ctx, now)
 				if err != nil && ctx.Err() == nil {
 					d.Log.Error("kiểm giai đoạn thất bại", "err", err)

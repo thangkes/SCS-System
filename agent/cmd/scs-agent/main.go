@@ -23,10 +23,12 @@ import (
 	"github.com/thangkes/SCS-System/agent/internal/enroll"
 	"github.com/thangkes/SCS-System/agent/internal/heartbeat"
 	"github.com/thangkes/SCS-System/agent/internal/identity"
+	"github.com/thangkes/SCS-System/agent/internal/smart"
 	"github.com/thangkes/SCS-System/agent/internal/sysinfo"
 	"github.com/thangkes/SCS-System/agent/internal/update"
 	"github.com/thangkes/SCS-System/agent/internal/watch"
 	"github.com/thangkes/SCS-System/common/fleet"
+	"github.com/thangkes/SCS-System/common/protocol"
 )
 
 // version được gán lúc build: -ldflags "-X main.version=1.0.0"
@@ -44,6 +46,8 @@ Lệnh:
   ping         kiểm tra kết nối và chứng chỉ server (-server URL -ca FILE: thử trước khi cài)
   rules        xem bộ rule đang dùng, cài tay, chạy thử trên file log (scs-agent rules -h)
   promote      (root, do scs-agent-promote.timer gọi) thay bản khung bằng bản mới đã chạy tốt, có kiểm chữ ký
+  smart        (root, do scs-agent-smart.timer gọi) đọc SMART các ổ, ghi kết quả cho agent gửi lên (-out FILE)
+  renew        xin server cấp lại chứng chỉ máy ngay (chạy bằng user scs-agent: sudo -u scs-agent scs-agent renew)
   version      in phiên bản
 
 Hostname phải đúng quy ước <mã siêu thị>-TN<số>[-PRI|-SEC]:
@@ -69,7 +73,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "rules":
 		return runRules(args[1:], stdout, stderr)
-	case "run", "fingerprint", "status", "ping", "promote":
+	case "run", "fingerprint", "status", "ping", "promote", "smart", "renew":
 	default:
 		fmt.Fprintf(stderr, "lệnh không hợp lệ: %q\n\n%s", cmd, usage)
 		return 2
@@ -80,6 +84,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	server := fs.String("server", "", "ping: địa chỉ server cần thử (mặc định lấy từ cấu hình)")
 	caFile := fs.String("ca", "", "ping: CA của server (mặc định lấy từ cấu hình)")
 	installDir := fs.String("install-dir", "/opt/scs-agent", "promote: thư mục cài bản khung")
+	smartOut := fs.String("out", smart.DefaultFile, "smart: file kết quả (thư mục phải thuộc root)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
@@ -98,6 +103,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 		cfg.ServerCA = *caFile
 	}
 
+	if cmd == "smart" {
+		return runSmart(stdout, stderr, *smartOut)
+	}
 	switch cmd {
 	case "fingerprint":
 		printFingerprint(stdout, cfg)
@@ -108,11 +116,87 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return ping(stdout, stderr, cfg)
 	case "promote":
 		return promote(stdout, stderr, cfg, *installDir)
+	case "renew":
+		return renewNow(stdout, stderr, cfg)
 	}
 	return runAgent(stdout, stderr, cfg)
 }
 
 // promote: một lượt thay bản khung (xem internal/update/promote.go). Phải chạy bằng root.
+// renewNow: xin cấp lại chứng chỉ máy ngay (khi máy bị báo chứng chỉ sắp / đã hết hạn mà chưa tự gia hạn). Dùng
+// chính khóa máy; server chỉ cấp cho máy đã duyệt, đúng khóa, đúng mã máy. Chạy bằng user scs-agent (chủ khóa).
+func renewNow(stdout, stderr io.Writer, cfg *config.Config) int {
+	if err := cfg.RequireServer(); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	key, err := identity.LoadKey(cfg.KeyDir)
+	if err != nil {
+		fmt.Fprintln(stderr, "không đọc được khóa máy (chạy bằng: sudo -u scs-agent scs-agent renew):", err)
+		return 1
+	}
+	st, err := identity.LoadState(cfg.StateDir)
+	if err != nil || st.Status != identity.StatusApproved || st.DeviceID == "" {
+		fmt.Fprintln(stderr, "máy chưa được duyệt: không có chứng chỉ để gia hạn")
+		return 1
+	}
+	if na, err := identity.CertNotAfter(cfg.KeyDir); err == nil {
+		fmt.Fprintf(stdout, "Chứng chỉ hiện tại hết hạn: %s\n", na.Local().Format("15:04 02/01/2006"))
+	}
+	c, err := client.New(cfg.Server, cfg.ServerCA, cfg.KeyDir, key, version)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	c.SetServers(st.Servers)
+	c.Prefer(st.LastServer)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	ok, err := enroll.Renew(ctx, enroll.Deps{Log: newLogger(io.Discard, "error"), Client: c, Key: key, KeyDir: cfg.KeyDir,
+		StateDir: cfg.StateDir, CAFile: cfg.ServerCA}, st.DeviceID)
+	switch {
+	case err != nil:
+		fmt.Fprintln(stderr, "✖ không gia hạn được:", err)
+		return 1
+	case !ok:
+		fmt.Fprintln(stdout, "Server chưa cấp (đang hết lượt tải): thử lại sau ít phút")
+		return 1
+	}
+	na, _ := identity.CertNotAfter(cfg.KeyDir)
+	fmt.Fprintf(stdout, "✔ Đã nhận chứng chỉ mới, hết hạn %s. Agent dùng ở lần gọi tới (hoặc: sudo systemctl restart scs-agent)\n",
+		na.Local().Format("15:04 02/01/2006"))
+	return 0
+}
+
+// runSmart: tác vụ root riêng (scs-agent-smart.service, chỉ CAP_SYS_RAWIO + CAP_SYS_ADMIN, thiết bị ổ chỉ đọc, không
+// mạng) đọc SMART rồi ghi file kết quả; agent thường chỉ đọc file đó. Không cần file cấu hình.
+func runSmart(stdout, stderr io.Writer, out string) int {
+	if os.Geteuid() != 0 && os.Geteuid() != -1 {
+		fmt.Fprintln(stderr, "smart phải chạy bằng root (dịch vụ scs-agent-smart gọi lệnh này)")
+		return 1
+	}
+	rep := smart.Read(time.Now())
+	if err := smart.Save(out, rep); err != nil {
+		fmt.Fprintln(stderr, "✖ không ghi được kết quả SMART:", err)
+		return 1
+	}
+	for _, d := range rep.Disks {
+		switch {
+		case !d.OK:
+			fmt.Fprintf(stdout, "%-10s %-4s không đọc được: %s\n", d.Name, d.Kind, d.Note)
+		case d.Passed != nil && !*d.Passed:
+			fmt.Fprintf(stdout, "%-10s %-4s Ổ BÁO LỖI: %s\n", d.Name, d.Kind, strings.Join(d.Failing, "; "))
+		default:
+			fmt.Fprintf(stdout, "%-10s %-4s đọc được\n", d.Name, d.Kind)
+		}
+	}
+	if rep.Error != "" {
+		fmt.Fprintln(stderr, rep.Error)
+	}
+	fmt.Fprintf(stdout, "Đã ghi %s (%d ổ)\n", out, len(rep.Disks))
+	return 0
+}
+
 func promote(stdout, stderr io.Writer, cfg *config.Config, installDir string) int {
 	if os.Geteuid() != 0 && os.Geteuid() != -1 {
 		fmt.Fprintln(stderr, "promote phải chạy bằng root (dịch vụ scs-agent-promote gọi lệnh này)")
@@ -204,7 +288,11 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		}
 		err := heartbeat.Run(ctx, heartbeat.Deps{Log: log, Client: c, StateDir: cfg.StateDir, State: st,
 			Version: version, ReleasePub: cfg.ReleasePub, Scanner: sc, KeyDir: cfg.KeyDir, Renew: renew,
-			FirstDelay: firstDelay, Services: cfg.WatchServices, Status: sysinfo.Status})
+			FirstDelay: firstDelay, Services: cfg.WatchServices, Status: func(svcs []string) *protocol.MachineStatus {
+				st := sysinfo.Status(svcs)
+				st.Smart = smart.Load(smart.DefaultFile) // tác vụ root ghi, agent chỉ đọc
+				return st
+			}})
 		stopScan()
 		<-scanDone
 		if errors.Is(err, heartbeat.ErrRestart) {
@@ -304,6 +392,14 @@ func printStatus(stdout, stderr io.Writer, cfg *config.Config) int {
 	fmt.Fprintf(stdout, "Trạng thái đăng ký: %s\n", st.Status)
 	if st.DeviceID != "" {
 		fmt.Fprintf(stdout, "Mã máy (device_id): %s\n", st.DeviceID)
+	}
+	if na, err := identity.CertNotAfter(cfg.KeyDir); err == nil {
+		left := time.Until(na)
+		note := fmt.Sprintf("còn %d ngày; agent tự gia hạn khi còn dưới 30 ngày", int(left.Hours()/24))
+		if left <= 0 {
+			note = "ĐÃ HẾT HẠN — chạy: sudo -u scs-agent scs-agent renew"
+		}
+		fmt.Fprintf(stdout, "Chứng chỉ máy     : hết hạn %s (%s)\n", na.Local().Format("15:04 02/01/2006"), note)
 	}
 	b, _ := json.MarshalIndent(sysinfo.Status(watch), "", "  ")
 	fmt.Fprintf(stdout, "\nTrạng thái máy sẽ gửi trong heartbeat:\n%s\n", b)
