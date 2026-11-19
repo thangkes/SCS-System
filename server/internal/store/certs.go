@@ -28,9 +28,10 @@ func (g *Registry) CertTick(ctx context.Context, now time.Time, warn time.Durati
 		closed = int(tag.RowsAffected())
 		for _, q := range []struct {
 			kind, sev, cond string
+			args            []any // đúng số tham số câu lệnh dùng: pgx từ chối thừa tham số
 		}{
-			{"cert_expiring", "high", "d.cert_expires > $1 AND d.cert_expires <= $2"},
-			{"cert_expired", "critical", "d.cert_expires <= $1"},
+			{"cert_expiring", "high", "d.cert_expires > $1 AND d.cert_expires <= $2", []any{now, now.Add(warn)}},
+			{"cert_expired", "critical", "d.cert_expires <= $1", []any{now}},
 		} {
 			tag, err := tx.Exec(ctx, `
 				INSERT INTO alerts (device_id, store_code, kind, severity, detail)
@@ -39,7 +40,7 @@ func (g *Registry) CertTick(ctx context.Context, now time.Time, warn time.Durati
 				FROM devices d
 				WHERE d.status = 'approved' AND d.cert_expires IS NOT NULL AND `+q.cond+`
 				  AND NOT EXISTS (SELECT 1 FROM alerts a WHERE a.device_id = d.id AND a.kind = '`+q.kind+`' AND a.acked_at IS NULL)`,
-				now, now.Add(warn))
+				q.args...)
 			if err != nil {
 				return err
 			}
