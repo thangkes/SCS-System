@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/thangkes/SCS-System/common/protocol"
 )
@@ -145,6 +146,35 @@ func TestHeartbeatComputesHealth(t *testing.T) {
 	reg.mu.Unlock()
 	if h == nil || h.Level != HealthNote || len(h.Issues) != 1 || h.Issues[0].Code != "raid:md0" {
 		t.Fatalf("health: %+v", h)
+	}
+}
+
+// Tình trạng đọc SMART của máy: agent cũ / chưa cài tác vụ / lỗi / cũ / không đọc được ổ / đọc được.
+func TestSmartState(t *testing.T) {
+	now := time.Now()
+	ok := []protocol.SmartDisk{{Name: "sda", Kind: "ata", OK: true}}
+	raid := []protocol.SmartDisk{{Name: "sda", Kind: "ata", OK: false, Note: "ổ ảo của card RAID phần cứng"}}
+	for _, c := range []struct {
+		sm   *protocol.SmartReport
+		want string
+	}{
+		{nil, SmartOld},
+		{&protocol.SmartReport{Error: "chưa có kết quả SMART"}, SmartMissing},
+		{&protocol.SmartReport{At: now, Error: "file kết quả SMART hỏng"}, SmartError},
+		{&protocol.SmartReport{At: now.Add(-4 * 24 * time.Hour), Disks: ok}, SmartStale},
+		{&protocol.SmartReport{At: now}, SmartNoDisk},
+		{&protocol.SmartReport{At: now, Disks: raid}, SmartUnreadable},
+		{&protocol.SmartReport{At: now, Disks: append(raid, ok...)}, SmartOK},
+	} {
+		if got := smartState(&protocol.MachineStatus{Smart: c.sm}, now); got != c.want {
+			t.Errorf("%+v: được %q, cần %q", c.sm, got, c.want)
+		}
+	}
+	if smartState(nil, now) != "" {
+		t.Error("không có trạng thái máy thì để trống")
+	}
+	if h := evalHealth(&protocol.MachineStatus{}, 0); h.Smart != SmartOld {
+		t.Errorf("evalHealth phải ghi tình trạng SMART: %q", h.Smart)
 	}
 }
 

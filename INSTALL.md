@@ -155,6 +155,19 @@ Chạy bằng user thường hoặc root (tự gọi sudo khi cài). Script kéo
 binary cũ**. Thư mục code có thay đổi chưa commit thì từ chối chạy. Mỗi lần cập nhật cũng build **bản agent cùng
 phiên bản** (amd64, arm64); server nhập vào kho, admin phát hành trên web (mục 2).
 
+**Chỉ đổi agent — không cài lại, không khởi động lại server** (menu mục 19):
+
+```bash
+bash server/scripts/release-agent.sh              # build agent từ tag mới nhất (chưa có tag thì main)
+bash server/scripts/release-agent.sh --ref <commit>
+```
+
+Build trong thư mục tạm (`git worktree`, code của server không đổi), chạy test agent + common, chép bản amd64/arm64 vào
+`/opt/scs-server/agent` (binary trước, `VERSION` sau cùng). scs-server tự kiểm thư mục đó **mỗi phút** và nạp, ký bản mới vào
+kho — phiên đăng nhập web và kết nối agent giữ nguyên; rồi phát hành trên trang Agent như thường. Bản có đổi phần server,
+giao thức (`common/protocol`) hay cấu trúc DB thì script cảnh báo và hỏi lại — khi đó dùng mục 4. Server bản cũ (trước khi có
+tự nạp) chỉ nạp khi khởi động lại.
+
 **Thông báo bản mới**: máy server tự kiểm GitHub 6 giờ một lần (timer `scs-server-update-check`, cài cùng lần cập nhật);
 có bản mới thì web hiện "Có bản mới" cho quản trị gốc và mức 1, trang **Hệ thống** liệt kê các thay đổi. **Không tự cài**:
 vẫn cập nhật bằng menu mục 4 / lệnh trên. Kiểm ngay: `sudo systemctl start scs-server-update-check`.

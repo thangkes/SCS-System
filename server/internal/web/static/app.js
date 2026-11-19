@@ -850,8 +850,27 @@
   }
 
   // SMART các ổ (tác vụ root riêng đọc mỗi ngày; agent gửi kèm trạng thái máy).
+  // Tình trạng đọc SMART của máy (server tính, health.smart): nhãn, màu, cách xử lý.
+  const SMART_STATE = {
+    ok: ['pill-ok', 'Đọc được', 'đã có SMART'],
+    missing: ['pill-warn', 'Chưa cài tác vụ', 'chạy bộ cài agent một lần với --smart-only (menu agent mục 9)'],
+    old: ['', 'Agent cũ', 'phát hành bản agent mới (có SMART) cho máy'],
+    stale: ['pill-warn', 'Kết quả cũ', 'tác vụ SMART không chạy hơn 3 ngày: systemctl status scs-agent-smart.timer'],
+    error: ['pill-warn', 'Lỗi kết quả', 'xem log: journalctl -u scs-agent-smart'],
+    unreadable: ['', 'Không đọc được ổ', 'ổ sau card RAID phần cứng / ổ USB / SAS — chưa hỗ trợ'],
+    nodisk: ['', 'Không thấy ổ', 'tác vụ không tìm thấy ổ sd* / nvme'],
+  };
+  const smartOf = (d) => (d && d.health && d.health.smart) || '';
+  function smartCell(d) {
+    const s = SMART_STATE[smartOf(d)];
+    return s ? `<span class="pill ${s[0]} no-dot" title="${esc(s[2])}">${esc(s[1])}</span>` : '<span class="sub">—</span>';
+  }
+
   function smartSection(sm) {
-    if (!sm) return '';
+    if (!sm) return `<h4>SMART</h4><p class="hint">Agent bản cũ chưa đọc SMART: ${esc(SMART_STATE.old[2])}.</p>`;
+    if (!sm.at) return `<h4>SMART</h4><p class="hint">Chưa có kết quả SMART: máy chưa cài tác vụ đọc SMART hoặc tác vụ chưa chạy lần nào
+      (chạy 20 phút sau khi bật máy, rồi mỗi ngày). Cài một lần trên máy:
+      <code>sudo bash scs-agent/scripts/install.sh --smart-only</code> (menu agent mục 9).</p>`;
     const when = sm.at ? `đọc lúc ${esc(fmtFull(sm.at))}${(Date.now() - new Date(sm.at)) > 3 * 86400e3 ? ' — <strong>đã cũ hơn 3 ngày</strong> (tác vụ không chạy?)' : ''}` : '';
     const num = (v) => (v === undefined || v === null ? null : fmtNum(v));
     const rows = (sm.disks || []).map((d) => {
@@ -1152,7 +1171,9 @@
   async function pageHealth(params) {
     setTitle('Sức khỏe máy');
     const page = view;
-    const state = { q: params.get('q') || '', level: params.get('level') || 'note', kind: params.get('kind') || '', page: 0, list: [] };
+    const state = { q: params.get('q') || '', level: params.get('level') || 'note', kind: params.get('kind') || '',
+      smart: params.get('smart') || '', page: 0, list: [] };
+    if (state.smart && !params.get('level')) state.level = 'all';
     const PAGE = 50;
     page.innerHTML = `
       <div class="callout callout-info"><strong>Thông tin tham khảo.</strong> Trạng thái máy agent gửi trong heartbeat gần nhất (ổ đĩa, ổ vật lý và lỗi I/O, RAID,
@@ -1161,6 +1182,12 @@
       <div class="card">
         <div class="card-head"><h2>Ghi nhận đang có</h2><span class="sub">Bấm để lọc</span></div>
         <div class="chips hl-kinds" id="hl-kinds"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h2>SMART ổ cứng</h2><span class="sub">Máy nào đã đọc được SMART, máy nào chưa và vì sao — bấm để lọc</span></div>
+        <div class="chips hl-kinds" id="hl-smart"></div>
+        <p class="hint">Máy đang chạy cần cài tác vụ SMART một lần (bản cập nhật agent không tự cài được tác vụ chạy bằng root):
+          <code>sudo bash scs-agent/scripts/install.sh --smart-only</code> — menu agent mục 9. Tác vụ chạy 20 phút sau khi bật máy, rồi mỗi ngày.</p>
       </div>
       <div class="card">
         <div class="toolbar">
@@ -1172,8 +1199,8 @@
           <span class="count" id="hl-count"></span>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Máy</th><th>Sức khỏe</th><th>Ghi nhận</th><th class="hide-sm">Liên lạc lần cuối</th><th class="hide-sm">Agent</th></tr></thead>
-          <tbody id="hl-rows"><tr><td colspan="5" class="empty">Đang tải…</td></tr></tbody>
+          <thead><tr><th>Máy</th><th>Sức khỏe</th><th>Ghi nhận</th><th>SMART</th><th class="hide-sm">Liên lạc lần cuối</th><th class="hide-sm">Agent</th></tr></thead>
+          <tbody id="hl-rows"><tr><td colspan="6" class="empty">Đang tải…</td></tr></tbody>
         </table></div>
         <div class="pager"><span id="hl-range"></span><div class="btns">
           <button class="btn btn-sm" id="hl-prev">Trước</button><button class="btn btn-sm" id="hl-next">Sau</button></div></div>
@@ -1193,6 +1220,12 @@
         ${kpi('Có ghi nhận', fmtNum(cnt.note), 'máy có điểm cần xem (tham khảo)')}
         ${kpi('Không có ghi nhận', fmtNum(cnt.ok), 'máy đã gửi trạng thái')}
         ${kpi('Chưa gửi', fmtNum(cnt.none), 'agent bản cũ / chưa có heartbeat')}`;
+      const smartCnt = {};
+      all.forEach((d) => { const s = smartOf(d) || 'none'; smartCnt[s] = (smartCnt[s] || 0) + 1; });
+      const smartKeys = [...Object.keys(SMART_STATE), 'none'].filter((k) => smartCnt[k]);
+      $('#hl-smart').innerHTML = `<button type="button" class="chip${state.smart ? '' : ' active'}" data-smart="">Tất cả</button>` +
+        smartKeys.map((k) => `<button type="button" class="chip${state.smart === k ? ' active' : ''}" data-smart="${esc(k)}"
+          title="${esc(k === 'none' ? 'agent chưa gửi trạng thái máy / server bản cũ chưa tính' : SMART_STATE[k][2])}">${esc(k === 'none' ? 'Chưa rõ' : SMART_STATE[k][1])} · ${fmtNum(smartCnt[k])}</button>`).join('');
       const kindList = Object.entries(kinds).sort((a, b) => b[1] - a[1]);
       $('#hl-kinds').innerHTML = kindList.length
         ? `<button type="button" class="chip${state.kind ? '' : ' active'}" data-kind="">Tất cả</button>` +
@@ -1205,6 +1238,7 @@
         const lv = h ? h.level : 'none';
         if (state.level !== 'all' && lv !== state.level) return false;
         if (state.kind && !(h && (h.issues || []).some((i) => healthKind(i.code) === state.kind))) return false;
+        if (state.smart && (smartOf(d) || 'none') !== state.smart) return false;
         if (!q) return true;
         return [d.hostname, d.store_code, storeLabel(d.store_code || ''), ...((h && h.issues) || []).map((i) => i.text)]
           .some((v) => (v || '').toLowerCase().includes(q));
@@ -1223,9 +1257,10 @@
           <td>${healthCell(d)}</td>
           <td>${issues.length ? `<ul class="health-notes">${issues.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul>`
             : `<span class="sub">${h ? 'Không có ghi nhận' : 'Agent chưa gửi trạng thái máy'}</span>`}</td>
+          <td>${smartCell(d)}</td>
           <td class="hide-sm">${d.last_seen ? esc(ago(new Date(d.last_seen))) : '—'}</td>
           <td class="hide-sm mono">${esc(d.agent_version || '—')}</td></tr>`;
-      }).join('') || `<tr><td colspan="5" class="empty">${all.length ? 'Không có máy nào khớp bộ lọc.' : 'Không có máy nào.'}</td></tr>`;
+      }).join('') || `<tr><td colspan="6" class="empty">${all.length ? 'Không có máy nào khớp bộ lọc.' : 'Không có máy nào.'}</td></tr>`;
     };
 
     const load = async () => {
@@ -1246,6 +1281,12 @@
       const b = e.target.closest('[data-kind]'); if (!b) return;
       state.kind = b.dataset.kind;
       if (state.kind && (state.level === 'ok' || state.level === 'none')) { state.level = 'note'; $('#hl-level').value = 'note'; }
+      state.page = 0; render();
+    });
+    $('#hl-smart').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-smart]'); if (!b) return;
+      state.smart = b.dataset.smart;
+      if (state.smart) { state.level = 'all'; $('#hl-level').value = 'all'; state.kind = ''; }
       state.page = 0; render();
     });
     $('#hl-prev').addEventListener('click', () => { state.page--; render(); });

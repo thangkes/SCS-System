@@ -26,24 +26,35 @@ func releaseFile(root, version, arch string) string {
 	return filepath.Join(root, version, "scs-agent-linux-"+arch)
 }
 
-// ImportAgentDist nhập các bản agent đi kèm bản server này (SCS_AGENT_DIST, do install.sh chép
-// vào: file VERSION + scs-agent-linux-<arch>) vào kho và DB, ký bằng khóa phát hành. Chạy nền lúc
-// khởi động; DB chưa sẵn sàng (đang cập nhật cấu trúc) thì thử lại tới khi được.
+// DistRescan: nhịp kiểm lại thư mục bản agent đi kèm (SCS_AGENT_DIST). Nhờ vậy bản agent build riêng
+// (menu mục 19, scripts/release-agent.sh) vào kho phát hành mà không phải khởi động lại server.
+var DistRescan = time.Minute
+
+// ImportAgentDist nhập các bản agent đi kèm bản server này (SCS_AGENT_DIST, do install.sh hoặc
+// release-agent.sh chép vào: file VERSION + scs-agent-linux-<arch>) vào kho và DB, ký bằng khóa phát
+// hành. Chạy nền: lúc khởi động, rồi mỗi DistRescan kiểm lại — chỉ đọc lại file khi VERSION hoặc
+// binary đổi (so tên, kích thước, giờ sửa). DB chưa sẵn sàng (đang cập nhật cấu trúc) thì thử lại.
 func ImportAgentDist(d Deps) func(context.Context) error {
 	return func(ctx context.Context) error {
 		if d.ReleaseKey == nil || d.Registry == nil {
 			return nil
 		}
-		for wait := time.Second; ; wait = min(wait*2, time.Minute) {
-			n, err := importDist(ctx, d)
-			if err == nil {
-				if n > 0 {
-					d.Log.Info("đã nhập bản agent vào kho phát hành", "so_ban", n, "thu_muc", d.Cfg.AgentDist)
+		last := ""
+		wait := time.Second
+		for {
+			sig := distSig(d.Cfg.AgentDist)
+			if sig != last {
+				n, err := importDist(ctx, d)
+				if err != nil {
+					d.Log.Warn("chưa nhập được bản agent, sẽ thử lại", "err", err)
+					wait = min(wait*2, time.Minute)
+				} else {
+					if n > 0 {
+						d.Log.Info("đã nhập bản agent vào kho phát hành", "so_ban", n, "thu_muc", d.Cfg.AgentDist)
+					}
+					last, wait = sig, DistRescan
 				}
-				<-ctx.Done()
-				return nil
 			}
-			d.Log.Warn("chưa nhập được bản agent, sẽ thử lại", "err", err)
 			select {
 			case <-ctx.Done():
 				return nil
@@ -51,6 +62,20 @@ func ImportAgentDist(d Deps) func(context.Context) error {
 			}
 		}
 	}
+}
+
+// distSig: dấu của thư mục bản agent (nội dung VERSION + kích thước, giờ sửa từng binary) để biết có
+// gì đổi mà không phải đọc lại vài chục MB mỗi phút.
+func distSig(dir string) string {
+	var b strings.Builder
+	v, _ := os.ReadFile(filepath.Join(dir, "VERSION"))
+	b.WriteString(strings.TrimSpace(string(v)))
+	for _, arch := range protocol.Arches {
+		if fi, err := os.Stat(filepath.Join(dir, "scs-agent-linux-"+arch)); err == nil {
+			fmt.Fprintf(&b, "|%s:%d:%d", arch, fi.Size(), fi.ModTime().UnixNano())
+		}
+	}
+	return b.String()
 }
 
 func importDist(ctx context.Context, d Deps) (int, error) {

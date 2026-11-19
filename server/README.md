@@ -317,6 +317,11 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
 
 ## Phát hành bản agent: lượt tải, băng thông, thống kê
 
+- **Nạp bản agent không khởi động lại server**: scs-server kiểm thư mục `SCS_AGENT_DIST` (`/opt/scs-server/agent`) mỗi
+  phút (chỉ so `VERSION` + kích thước, giờ sửa binary; đổi mới đọc lại) và nạp, ký bản mới vào kho. Bản agent build riêng
+  bằng menu mục 19 / `scripts/release-agent.sh` (build trong `git worktree` tạm, không đổi code của server; đổi phần
+  server / giao thức / DB thì cảnh báo, nên dùng mục 4). Cùng phiên bản mà nội dung khác vẫn giữ bản đã nạp.
+
 - **Lượt tải** (`SCS_DOWNLOAD_SLOTS`, mặc định 4) áp cho **mọi lần tải**: bản agent, bộ rule, và chứng chỉ của **máy mới
   hòa mạng**. Heartbeat chỉ báo "có bản / bộ mới" cho máy giữ được lượt; máy khác chạy cái đang có, không báo lỗi, xin lại
   ở heartbeat sau (5–30 phút). Máy mới đã được duyệt mà hết lượt thì vẫn nhận "chờ duyệt", hỏi lại sau ~5 phút (chấp

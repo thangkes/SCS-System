@@ -244,6 +244,14 @@ do_update() {
 
 do_rollback() { bash "$SCRIPTS/update.sh" --rollback; }
 
+# do_release_agent: thay đổi chỉ ở agent — build và nạp vào kho phát hành, server không cài lại.
+do_release_agent() {
+	echo "  Build bản agent từ code mới nhất trên GitHub và nạp vào kho phát hành của server đang chạy."
+	echo "  Server không cài lại, không khởi động lại (phiên đăng nhập web giữ nguyên). Bản có đổi phần server,"
+	echo "  giao thức hay DB thì dùng mục 4. Nạp xong, phát hành trên trang Agent (nhóm thử trước)."
+	bash "$SCRIPTS/release-agent.sh"
+}
+
 do_allow() {
 	local cur
 	cur="$(env_get SCS_ADMIN_ALLOW)"
@@ -723,6 +731,7 @@ while true; do
 
   ${C_B}Agent${C_0}
   11) Đóng gói agent để cài cho máy tại điểm bán (một file .tar.gz)
+  19) Build và nạp bản agent mới (chỉ agent, không khởi động lại server)
 
   ${C_B}Cụm nhiều server${C_0}
   12) Trạng thái cụm, mã khóa của server này
@@ -758,6 +767,7 @@ EOF
 		9) do_status ;;
 		10) do_uninstall ;;
 		11) do_package ;;
+		19) do_release_agent ;;
 		12) do_cluster_status ;;
 		13) do_cluster_init ;;
 		14) do_cluster_join ;;

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/thangkes/SCS-System/common/protocol"
@@ -46,6 +47,47 @@ type HealthIssue struct {
 type Health struct {
 	Level  string        `json:"level"` // ok | note
 	Issues []HealthIssue `json:"issues"`
+	Smart  string        `json:"smart,omitempty"` // tình trạng đọc SMART của máy (SmartOK…), để thống kê và lọc
+}
+
+// Tình trạng đọc SMART của một máy (Health.Smart) — trả lời "máy này đã có SMART chưa, vì sao chưa".
+const (
+	SmartOK         = "ok"         // đọc được ít nhất một ổ
+	SmartOld        = "old"        // agent bản cũ, chưa hỗ trợ SMART
+	SmartMissing    = "missing"    // agent hỗ trợ nhưng chưa có kết quả: chưa cài tác vụ (install.sh --smart-only) / chưa chạy lần nào
+	SmartError      = "error"      // tác vụ đã chạy nhưng file kết quả lỗi
+	SmartStale      = "stale"      // kết quả cũ hơn SmartStaleAfter (tác vụ không chạy nữa?)
+	SmartUnreadable = "unreadable" // có ổ nhưng không ổ nào đọc được (sau card RAID phần cứng, ổ USB…)
+	SmartNoDisk     = "nodisk"     // không thấy ổ nào
+)
+
+// SmartStaleAfter: kết quả SMART cũ hơn bấy nhiêu thì coi như tác vụ không chạy (tác vụ chạy mỗi ngày).
+var SmartStaleAfter = 3 * 24 * time.Hour
+
+// smartState: tình trạng đọc SMART từ trạng thái máy (nil = agent không gửi trạng thái máy).
+func smartState(st *protocol.MachineStatus, now time.Time) string {
+	if st == nil {
+		return ""
+	}
+	sm := st.Smart
+	switch {
+	case sm == nil:
+		return SmartOld
+	case sm.At.IsZero():
+		return SmartMissing
+	case sm.Error != "":
+		return SmartError
+	case now.Sub(sm.At) > SmartStaleAfter:
+		return SmartStale
+	case len(sm.Disks) == 0:
+		return SmartNoDisk
+	}
+	for _, d := range sm.Disks {
+		if d.OK {
+			return SmartOK
+		}
+	}
+	return SmartUnreadable
 }
 
 var rwFS = map[string]bool{"ext2": true, "ext3": true, "ext4": true, "xfs": true, "btrfs": true, "f2fs": true, "zfs": true}
@@ -161,6 +203,7 @@ func evalHealth(st *protocol.MachineStatus, memLow int) Health {
 	if len(h.Issues) > 0 {
 		h.Level = HealthNote
 	}
+	h.Smart = smartState(st, time.Now())
 	return h
 }
 

@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/thangkes/SCS-System/common/protocol"
 )
@@ -214,4 +215,31 @@ func TestAgentAdminAPI(t *testing.T) {
 	if w := call("GET", "/admin/v1/agent/config", "", ""); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "pos.service") {
 		t.Fatalf("đọc cấu hình: %d %s", w.Code, w.Body)
 	}
+}
+
+// Bản agent build riêng (release-agent.sh) chép vào SCS_AGENT_DIST khi server đang chạy: vòng nền tự
+// nhập trong nhịp DistRescan, không phải khởi động lại; thư mục không đổi thì không nhập lại.
+func TestImportAgentDistRescan(t *testing.T) {
+	d, reg, _ := releaseDeps(t)
+	old := DistRescan
+	DistRescan = 20 * time.Millisecond
+	t.Cleanup(func() { DistRescan = old })
+	putDist(t, d.Cfg.AgentDist, "v1.1.0", map[string]string{"amd64": "agent amd64 v1.1.0"})
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { ImportAgentDist(d)(ctx); close(done) }()
+	t.Cleanup(func() { cancel(); <-done })
+	waitFor := func(version string) {
+		t.Helper()
+		for i := 0; i < 200; i++ {
+			if _, err := reg.GetRelease(context.Background(), version, "amd64"); err == nil {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		t.Fatalf("chưa nhập bản %s", version)
+	}
+	waitFor("v1.1.0")
+	putDist(t, d.Cfg.AgentDist, "v1.2.0", map[string]string{"amd64": "agent amd64 v1.2.0 khác kích thước"})
+	waitFor("v1.2.0")
 }
