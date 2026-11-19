@@ -20,7 +20,7 @@ Mục lục
 14. [Mối đe dọa và cách chặn](#14-mối-đe-dọa-và-cách-chặn)
 15. [Thứ tự làm](#15-thứ-tự-làm)
 16. [Đã xác nhận](#16-đã-xác-nhận-2026-11-12)
-17. [Đồng bộ dữ liệu siêu thị và tài khoản (mốc D1)](#17-đồng-bộ-dữ-liệu-siêu-thị-và-tài-khoản-mốc-d1)
+17. [Dữ liệu siêu thị và tài khoản giữa nhiều server (mốc D1)](#17-dữ-liệu-siêu-thị-và-tài-khoản-giữa-nhiều-server-mốc-d1)
 
 ---
 
@@ -263,7 +263,7 @@ Không đưa vào nhật ký quyết định: thay đổi quá nhiều (mỗi m�
 - Câu hỏi giữa các node có chữ ký của node hỏi, kèm tên người dùng và mức quyền (0 quản trị gốc … 7 chỉ xem, xem server/README.md "Tài khoản và mức quyền"); node được hỏi ghi nhật ký thao tác.
 - **Thay đổi** (duyệt máy, đổi cấu hình…) trên web là **đề nghị** gửi vào nhật ký quyết định ([mục 5](#5-nhật-ký-quyết-định-và-quy-tắc-quá-nửa)). Web hiện trạng thái "đang chờ đủ chữ ký (2/3)".
 - Phiên đăng nhập và mã đăng nhập vẫn riêng từng node. Tài khoản email (bảng `accounts`) và thông tin siêu thị hiện
-  riêng từng node; thiết kế đồng bộ ở [mục 17](#17-đồng-bộ-dữ-liệu-siêu-thị-và-tài-khoản-mốc-d1) (chưa làm).
+  riêng từng node; thiết kế đồng bộ ở [mục 17](#17-dữ-liệu-siêu-thị-và-tài-khoản-giữa-nhiều-server-mốc-d1) (chưa làm).
 
 ## 9. Agent trong cụm
 
@@ -437,126 +437,146 @@ Các mốc của bản một server (A3 đọc log, M4 lưu trạng thái máy, 
 6. **Làm cụm ngay**, bắt đầu từ mốc C1.
 7. **Giữ quy tắc quá nửa** (không đổi sang hơn 2/3): chấp nhận việc một node gian ký hai lần chỉ bị phát hiện chứ không bị chặn ([mục 14](#quá-nửa-hay-hơn-23)).
 
-## 17. Đồng bộ dữ liệu siêu thị và tài khoản (mốc D1)
+## 17. Dữ liệu siêu thị và tài khoản giữa nhiều server (mốc D1)
 
-Trạng thái: **bản đề xuất (2026-11-19), chưa làm, chờ chốt các câu hỏi ở cuối mục**. Phạm vi D1 chỉ gồm **thông tin
-siêu thị** (bảng `stores`) và **tài khoản web** (bảng `accounts`). Trạng thái realtime (máy online / offline, cảnh báo —
-mục 7) và dữ liệu lớn (mục 8) để mốc sau.
+Trạng thái: **bản thiết kế (2026-11-19), chưa làm**. Phạm vi: **thông tin siêu thị** (bảng `stores`) và **tài khoản web**
+(bảng `accounts`). Trạng thái realtime (máy online / offline, cảnh báo — mục 7) và dữ liệu lớn (mục 8) để mốc sau.
 
-**Nguyên tắc số 1: bảo vệ dữ liệu đặt trên tốc độ và tiện lợi.** Hai bảng này có dữ liệu cá nhân (email, tên người phụ
-trách) và dữ liệu ảnh hưởng tới bảo mật (mức quyền tài khoản; IP WAN siêu thị — điều kiện duyệt tự động máy). Vì vậy:
+Có **hai hướng vận hành**, khác nhau ở cách giữ dữ liệu về sau:
 
-| Mục tiêu | Cách làm |
-|---|---|
-| **Không node nào tự ý đổi dữ liệu của node khác** | Mọi thay đổi là một **quyết định trong nhật ký** (mục 5), cần **quá nửa** node ký; node nhận tự kiểm lại nội dung trước khi ký và trước khi áp dụng. Một node bị hack không tự cấp được tài khoản hay sửa IP WAN cho cả cụm |
-| **Việc nâng quyền cần người xác nhận** | Cấp / nâng tài khoản lên **mức 1–4** cần **admin xác nhận trên quá nửa node** (như phát hành bản agent). Mức 5–7, khóa, hạ mức, xóa: quá nửa ký tự động sau khi kiểm |
-| **Dữ liệu cá nhân không nằm rải rác trên đĩa** | Nhật ký quyết định (`log.jsonl`, file chữ thường) **chỉ ghi SHA-256** của gói thay đổi, không ghi email hay tên người. Nội dung chỉ đi qua 5222 (TLS 1.3 hai chiều) và ghi thẳng vào DB trong một transaction, không ghi file tạm |
-| **Chỉ đồng bộ cái cần** | Không đồng bộ: phiên đăng nhập, mã đăng nhập, khóa đăng nhập (`login_blocks`), lần đăng nhập cuối, nhật ký thao tác (`audit`) — mỗi node giữ riêng. Mức 0 (quản trị gốc qua SSH) không bao giờ đồng bộ |
-| **Biết khi dữ liệu bị sửa ngoài luồng** | Mỗi giờ mỗi node tính **dấu (SHA-256) của hai bảng** theo thứ tự cố định và gửi trong trạng thái cụm; lệch với số đông → cảnh báo trên trang Cụm server và tự đồng bộ lại từ quá nửa |
-| **Truy vết được** | Mỗi lần áp dụng ghi `audit` tại node đó: số quyết định, node đề nghị, người thao tác gốc, số dòng đổi |
-
-### 17.1 Dữ liệu đồng bộ
-
-| Bảng | Đồng bộ | Không đồng bộ |
+| | Hướng A — chuyển nguyên server | Hướng B — server chủ + bản sao |
 |---|---|---|
-| `stores` | mã, IP WAN chính + thêm, tên, tổ chức, quản lý, phó QL, trưởng nhóm, phó phòng, ghi chú, người sửa cuối, `rev` | `created_at` (mỗi node tự ghi); dòng siêu thị trống do máy đăng ký tự tạo (D1 chỉ đồng bộ dòng có thông tin) |
-| `accounts` | tên đăng nhập, email, trạng thái, mức 1–7, người duyệt + lúc duyệt, thời gian sống phiên, số phiên tối đa, `rev` | `last_login_at`, phiên, mã đăng nhập; tài khoản **chờ duyệt** (đăng ký chưa duyệt chỉ nằm ở node nhận đăng ký) |
+| Dùng khi | Dời server sang nơi khác (ví dụ từ máy thử bên ngoài về trụ sở), máy cũ bỏ đi | Chạy **nhiều server lâu dài**, một server (thường ở trụ sở) giữ dữ liệu gốc |
+| Dữ liệu mang theo | **Toàn bộ**: máy, chứng chỉ, CA, khóa phát hành, siêu thị, tài khoản, lịch sử | Siêu thị + tài khoản (D1). Máy / chứng chỉ cần thêm C2 + C4 |
+| Cần cụm | Không | Có (mục 5–6) |
+| Code mới | Không (đã có: sao lưu DB, danh sách địa chỉ cho agent) | Có — mục 17.2 trở đi |
 
-Mỗi dòng thêm cột **`rev`** (số đời, tăng mỗi lần đổi) để chặn ghi đè lên bản cũ: gói thay đổi ghi `rev` gốc của từng
-dòng; node áp dụng thấy `rev` hiện tại khác thì **từ chối cả gói** (người sửa phải tải lại và sửa lại), không âm thầm
-ghép.
+**Nguyên tắc chung cho cả hai: bảo vệ dữ liệu đặt trên tốc độ và tiện lợi.** Hai bảng có dữ liệu cá nhân (email, tên
+người phụ trách) và dữ liệu ảnh hưởng bảo mật (mức quyền; IP WAN siêu thị — điều kiện duyệt tự động máy).
 
-### 17.2 Luồng một thay đổi
+### 17.1 Hướng A — chuyển nguyên server sang địa điểm mới (đã làm được)
 
+Giữ **đúng CA và khóa phát hành** thì agent đang chạy vẫn tin server mới, không cài lại máy nào.
+
+1. **Chuẩn bị máy mới** (trụ sở): menu mục 1 → 2 (Docker, Go, PostgreSQL, test). **Chưa** chạy mục 3.
+2. **Cho agent biết địa chỉ mới trước** (máy cũ, menu mục 15): thêm IP / tên miền của máy mới, mở chuyển tiếp cổng 6222
+   về máy mới. Chờ trang "Địa chỉ server" báo **gần 100% máy đã nhận danh sách** (≤ 65 phút).
+3. **Dừng ghi ở máy cũ**: `sudo systemctl stop scs-server` (agent giữ sự kiện trong hàng đợi đĩa, không mất).
+4. **Sao lưu ở máy cũ** (menu mục 18 → 1) và gom các file bí mật:
+   `/etc/scs-server/` (server.env, pki/ca.key, pki/release.key, chứng chỉ), `/var/lib/scs-server/data/cluster/` (nếu có),
+   `agent-servers.json`, kho rule.
+5. **Chép sang máy mới chỉ qua kênh mã hóa** (`scp` / `rsync -e ssh`, khóa SSH, không mật khẩu); **không** USB, mail,
+   chat, ổ chia sẻ. Kiểm `sha256sum` hai đầu.
+6. **Máy mới**: khôi phục DB (menu mục 18 → 3), đặt file vào đúng chỗ với **đúng quyền** (khóa 600, user `scs`), chạy
+   menu mục 3 (giữ CA cũ; thêm IP mới vào chứng chỉ server), kiểm `/readyz`, đăng nhập web, xem máy gọi về.
+7. **Sau 1–2 ngày ổn định**: gỡ địa chỉ cũ (menu mục 15, khi "máy đang dùng" về 0), rồi **xóa sạch** máy cũ: DB, bản sao
+   lưu, `/etc/scs-server`, khóa (`shred` hoặc xóa ổ), thu hồi khóa SSH / mật khẩu ứng dụng Gmail nếu chuyển sang tài khoản
+   khác.
+
+Rủi ro chính là lúc chép: trong một khoảng ngắn có **hai bản** CA, khóa phát hành và email người dùng. Giảm: chép một
+lần, qua SSH, xóa máy cũ ngay khi xong; không giữ bản trung gian ở máy cá nhân. (Có thể viết script `move-server.sh`
+đóng gói bước 4–6 có kiểm SHA-256 — tùy chọn, chưa làm.)
+
+### 17.2 Hướng B — mô hình server chủ
+
+- Trong cụm có **đúng một server chủ dữ liệu** (gọi tắt **chủ**). Chủ giữ bản gốc của siêu thị và tài khoản; **mọi thay
+  đổi chỉ làm trên chủ**. Các server khác giữ **bản sao chỉ đọc**, kéo thay đổi từ chủ.
+- **Chọn chủ bằng biểu quyết**: quyết định mới **`data.primary`** `{node: "<mã node>"}` trong nhật ký cụm, cần **quá nửa
+  node hợp lệ**, **mỗi chữ ký phải được admin xác nhận trên chính server đó** (như bỏ cô lập node). Đổi chủ = biểu quyết
+  lại; mỗi lần đổi tăng **nhiệm kỳ** (`term`).
+- Chủ bị cô lập / gỡ → cụm **không có chủ**: mọi server chỉ đọc hai bảng này (vẫn đăng nhập, vẫn xem) tới khi biểu quyết
+  chủ mới.
+- Server bản sao: web hiện "Dữ liệu siêu thị / tài khoản do **<chủ>** quản lý — sửa tại server đó" và nút mở web của chủ;
+  form sửa, nạp file, duyệt tài khoản bị tắt (server cũng chặn API, 409).
+- **Đăng ký tài khoản** chỉ trên chủ (trang đăng ký ở bản sao chỉ dẫn sang chủ). Tài khoản chờ duyệt chỉ nằm ở chủ.
+- Đăng nhập: **mọi server** — mỗi server tự gửi mã qua Gmail của nó, phiên riêng từng server như hiện nay.
+
+### 17.3 Nhật ký thay đổi của chủ
+
+Mỗi thay đổi trên chủ (sửa một siêu thị, một lần nạp file, duyệt / đổi mức / khóa / xóa tài khoản, giới hạn phiên) thành
+**một mục thay đổi** trong bảng `data_changes` của chủ:
+
+```json
+{ "term": 3, "seq": 1052, "prev": "<sha256 mục 1051>", "at": "...", "kind": "stores | accounts",
+  "actor": "<người thao tác>", "rows": [ { "key": "13645", "rev": 7, "data": { ... } } ],
+  "sig": "<chữ ký khóa node của chủ>" }
 ```
-admin sửa trên web node A (form, nạp file, duyệt / đổi mức tài khoản)
-   │  A kiểm như hiện nay (mức quyền, định dạng, bộ kiểm dữ liệu siêu thị)
-   ▼
-A tạo GÓI THAY ĐỔI (JSON, sắp xếp cố định): loại, các dòng mới + rev gốc, người thao tác
-A tính SHA-256 của gói, giữ gói trong RAM + bảng sync_blobs (chỉ chứa gói chờ, xóa khi mọi node đã áp dụng hoặc sau 7 ngày)
-   ▼
-A đề nghị quyết định:  data.stores / data.accounts  { sha256, số dòng, loại, người thao tác, tóm tắt an toàn* }
-   ▼
-node B, C nhận đề nghị → TẢI GÓI từ A qua 5222 (có giới hạn băng thông) → kiểm SHA-256 → kiểm lại toàn bộ nội dung
-bằng chính bộ kiểm của mình (định dạng, độ dài, IP hợp lệ, mức 1–7, rev khớp) → ký (hoặc chờ admin xác nhận nếu
-là nâng quyền mức 1–4)
-   ▼
-đủ quá nửa → quyết định có hiệu lực → MỌI node áp dụng gói trong một transaction, ghi audit
-```
 
-\* *Tóm tắt an toàn* chỉ có số liệu không chứa dữ liệu cá nhân, để web các node hiện "đang chờ ký": ví dụ
-`{"stores": 37, "wan_changed": 2}` hoặc `{"account_level": 5, "action": "approve"}` — **không có email, không có tên**.
+- **Chuỗi băm** (`prev`) + `seq` tăng liên tục + chữ ký chủ: bản sao phát hiện mất mục, đảo thứ tự, mục giả hay bị sửa.
+- `term` phải khớp nhiệm kỳ của quyết định `data.primary` mới nhất: chủ cũ (đã bị thay) **không còn ghi được** vào bản sao.
+- Mỗi dòng có `rev` (số đời): chủ là nơi duy nhất ghi nên không có xung đột; `rev` dùng để bản sao kiểm và để chặn hai
+  người sửa cùng lúc trên web chủ.
+- Giữ mục thay đổi 30 ngày; bản sao chậm hơn thế thì lấy **bản chụp** (17.4).
 
-Node đang **ít hơn quá nửa** (mạng bị chia) thì không sửa được hai bảng này (web báo "chỉ đọc khi mất kết nối với quá
-nửa cụm"), nhưng vẫn đọc và đăng nhập bình thường bằng dữ liệu đã có.
+### 17.4 Kênh giao tiếp giữa các server
 
-### 17.3 Kênh giao tiếp giữa các server
-
-Dùng lại cổng **5222** (TLS 1.3 hai chiều, chỉ nhận khóa node có trong danh sách cụm, node bị cô lập bị từ chối ngay).
-Thêm các đường dẫn chỉ cho node hợp lệ:
+Dùng lại cổng **5222** (TLS 1.3 hai chiều, chỉ nhận khóa node trong danh sách cụm; node bị cô lập bị từ chối ngay). Thêm
+đường dẫn **chỉ chủ trả lời, chỉ node hợp lệ gọi được**:
 
 | Đường dẫn | Việc | Giới hạn |
 |---|---|---|
-| `GET /cluster/v1/sync/blob/{sha256}` | tải một gói thay đổi đang chờ ký / vừa có hiệu lực | gói ≤ 8 MB; chỉ trả gói có trong quyết định đang chờ hoặc đã có hiệu lực |
-| `GET /cluster/v1/sync/snapshot/{bảng}?after=&limit=` | bản đầy đủ theo trang (node mới vào cụm, node lệch dấu, node bị mất gói) | 1.000 dòng / trang; kèm số quyết định mà bản chụp ứng với |
-| `GET /cluster/v1/sync/digest` | dấu SHA-256 của từng bảng + số quyết định đã áp dụng | nhẹ, gọi mỗi giờ |
+| `GET /cluster/v1/data/changes?after=<seq>` | các mục thay đổi sau `seq` | tối đa 2 MB / lần |
+| `GET /cluster/v1/data/snapshot/{stores\|accounts}?after=&limit=` | bản đầy đủ theo trang, kèm `term` + `seq` ứng với bản chụp và chữ ký chủ trên dấu SHA-256 cả bảng | 1.000 dòng / trang; tối đa 1 bản chụp đầy đủ / node / 10 phút |
+| `GET /cluster/v1/data/digest` | `term`, `seq` mới nhất, SHA-256 từng bảng | nhẹ |
 
-Bảo vệ thêm trên kênh này:
+- Bản sao **kéo** (pull) mỗi **60 giây** (`digest` → có `seq` mới thì `changes`); chủ không đẩy. Chủ mới có thay đổi thì
+  báo nhẹ qua `status` để bản sao kéo sớm.
+- Bản sao **kiểm trước khi áp dụng**: chữ ký chủ, `term` đúng quyết định `data.primary`, chuỗi `prev` liền, `seq` liên
+  tục, và **kiểm lại toàn bộ nội dung bằng bộ kiểm của chính nó** (định dạng, độ dài, IP hợp lệ, mức 1–7, ký tự vô hình).
+  Sai một chỗ là **bỏ cả lô, dừng kéo, báo trên trang Cụm server** — không áp dụng nửa vời.
+- Áp dụng trong **một transaction**, ghi `audit` tại bản sao: `term/seq`, chủ, người thao tác gốc, số dòng.
+- Không có đường nào để node khác **đọc tùy ý** một tài khoản hay siêu thị: chỉ kéo được theo chuỗi thay đổi / bản chụp.
 
-- **Mỗi phản hồi có chữ ký của node trả** (khóa node) trên `{đường dẫn, sha256 nội dung, số quyết định, giờ}`: node nhận
-  kiểm chữ ký trước khi dùng — kể cả khi TLS bị đứng giữa (đã khó) cũng không chèn được dữ liệu.
-- Gói và bản chụp **chỉ được áp dụng khi SHA-256 khớp quyết định có quá nửa chữ ký** — node gửi không tự quyết được
-  nội dung, chỉ là "người chở".
-- Node hỏi phải ghi rõ lý do (`pending`, `catchup`, `digest_mismatch`); node trả ghi log và giới hạn số lần hỏi bản chụp
-  (tối đa 1 bản chụp đầy đủ / node / 10 phút).
-- Không có đường nào để node khác **đọc tùy ý** một tài khoản hay một siêu thị: chỉ tải được gói / bản chụp đã gắn với
-  quyết định.
+### 17.5 Giới hạn băng thông: 10 Mbit/s
 
-### 17.4 Giới hạn băng thông: 10 Mbit/s
+- Một bộ giới hạn chung cho phần thân dữ liệu đồng bộ: mỗi server **gửi ≤ 10 Mbit/s** và **nhận ≤ 10 Mbit/s** (token
+  bucket), cấu hình `SCS_CLUSTER_SYNC_MBPS` (mặc định 10). Bỏ phiếu, chữ ký, `status` không tính (để cụm không kẹt).
+- Chủ phục vụ **tối đa 2 lượt chuyển cùng lúc**; quá thì 503 + `Retry-After`.
+- Ước lượng: 20.000 siêu thị đủ thông tin ≈ 6–8 MB → ≈ 6 giây; 1.000 tài khoản ≈ 0,3 MB; một lần nạp file vài trăm KB.
 
-- **Một bộ giới hạn chung cho toàn bộ phần thân dữ liệu đồng bộ** của mỗi node: tổng **gửi ≤ 10 Mbit/s** và tổng
-  **nhận ≤ 10 Mbit/s** (token bucket, cửa sổ 1 giây), cấu hình `SCS_CLUSTER_SYNC_MBPS` (mặc định 10). Quyết định, chữ ký,
-  `hello` / `status` nhỏ nên không tính vào giới hạn (để cụm không bị kẹt bỏ phiếu khi đang chuyển bản chụp lớn).
-- **Tối đa 2 lượt chuyển cùng lúc** mỗi node (gói hoặc trang bản chụp); quá thì trả 503 + `Retry-After`, bên hỏi chờ rồi
-  thử lại — giống phân lượt tải bản agent.
-- Ước lượng: 20.000 siêu thị đầy đủ thông tin ≈ 6–8 MB JSON → ≈ 6 giây ở 10 Mbit/s; 1.000 tài khoản ≈ 0,3 MB. Một lần
-  nạp file siêu thị thường vài trăm KB → dưới 1 giây. Giới hạn chủ yếu để bản chụp lúc node mới vào cụm không chiếm
-  đường truyền của agent và web.
+### 17.6 Bảo vệ dữ liệu
 
-### 17.5 Node mới vào cụm, hoặc server đang chạy riêng nay join
+| Mục tiêu | Cách làm |
+|---|---|
+| Server bản sao không sửa được dữ liệu | Không có API ghi ở bản sao (409); chỉ áp dụng mục có chữ ký chủ đúng nhiệm kỳ |
+| Chọn / đổi chủ phải có người | `data.primary` cần quá nửa node, **admin xác nhận trên từng server** |
+| Phát hiện giả, mất, sửa | Chuỗi băm + `seq` + chữ ký; mỗi giờ so `digest`, lệch → cảnh báo, tự lấy bản chụp |
+| **Chủ bị hack cấp quyền bậy** | Bản sao áp dụng ngay nhưng **ghi nổi bật** mọi lần cấp / nâng **mức 1–4** trên trang Tài khoản của từng server; admin bản sao **khóa tại chỗ** được một tài khoản (chỉ trên server đó, không cần chủ). Nghi chủ bị hack: cô lập chủ (quá nửa) → hết quyền ghi ngay, biểu quyết chủ mới |
+| Dữ liệu cá nhân không rải rác | Nhật ký cụm (`log.jsonl`) chỉ có `data.primary`, không có email / tên; mục thay đổi chỉ trong DB, không ghi file tạm |
+| Chỉ đồng bộ cái cần | Không đồng bộ: phiên, mã đăng nhập, `login_blocks`, `last_login_at`, `audit`, tài khoản chờ duyệt; mức 0 không bao giờ đồng bộ |
+| Truy vết | `audit` ở chủ (người sửa) + ở bản sao (đã áp dụng gì, từ chủ nào, nhiệm kỳ nào) |
 
-1. Node đầu tiên (đang có dữ liệu) tạo quyết định **`data.baseline`** ghi dấu của hai bảng hiện tại (chỉ SHA-256 + số
-   dòng). Đây là "bản gốc" của cụm.
-2. Node mới, sau khi vào cụm (100% node đồng ý như hiện nay), tải bản chụp theo trang từ một node, kiểm dấu khớp
-   `data.baseline` + các quyết định sau đó, rồi mới thay dữ liệu của mình.
-3. **Node mới đã có dữ liệu riêng** (siêu thị, tài khoản từ trước) — xem câu hỏi Q-D3. Đề xuất mặc định: **sao lưu DB
-   rồi thay bằng dữ liệu cụm**; phần chỉ có ở node mới thì liệt kê ra để admin nạp lại qua luồng thay đổi bình thường
-   (có quá nửa ký), không tự trộn.
+**Đánh đổi so với bản đề xuất trước (mỗi thay đổi cần quá nửa ký):** mô hình chủ đơn giản, nhanh, dễ vận hành hơn,
+nhưng **tin chủ nhiều hơn** — chủ bị hack thì đổi được dữ liệu cho cả cụm tới khi bị cô lập. Bù lại bằng: chọn chủ phải
+biểu quyết, nâng quyền 1–4 hiện nổi bật ở mọi server, khóa tại chỗ, cô lập chủ có hiệu lực ngay.
 
-### 17.6 Rủi ro còn lại (ghi rõ)
+### 17.7 Vào cụm và chuyển chủ
+
+1. **Cụm 1 server** (server đang chạy): `cluster init` → tự là chủ (`data.primary` nhiệm kỳ 1 trong quyết định đầu).
+2. **Thêm server** (100% đồng ý như hiện nay). Server mới **đã có dữ liệu riêng**: **sao lưu DB rồi thay bằng bản chụp
+   từ chủ**; phần chỉ có ở server mới được liệt kê ra file để admin nạp lại trên chủ (không tự trộn).
+3. **Chuyển chủ về trụ sở**: thêm server trụ sở → chờ bản sao bắt kịp (`digest` khớp) → biểu quyết `data.primary` =
+   trụ sở → server cũ thành bản sao (hoặc gỡ khỏi cụm, rồi xóa sạch như 17.1 bước 7).
+
+### 17.8 Rủi ro còn lại
 
 | Rủi ro | Mức | Ghi chú |
 |---|---|---|
-| Dữ liệu cá nhân nằm trên **nhiều máy** hơn (mỗi node một bản email + tên người phụ trách) | Trung bình | Bản chất của đồng bộ. Giảm: chỉ đồng bộ cột cần, không ghi vào log / file tạm, khuyến nghị mã hóa ổ đĩa node, mã hóa bản sao lưu (R17) |
-| Node bị gỡ / cô lập **vẫn giữ bản dữ liệu đã có** | Trung bình | Không thu hồi được dữ liệu đã chép. Chỉ thêm node do người tin cậy quản lý; khi gỡ node thì xóa DB của node đó |
-| Hack quá nửa node | Cao | Giới hạn chung của quy tắc quá nửa (mục 14) |
-| Đang chia cụm thì phía ít node không sửa được tài khoản / siêu thị | Thấp | Đánh đổi có chủ ý để không có hai bản trái nhau |
-| Hai người sửa cùng một siêu thị trên hai node cùng lúc | Thấp | `rev` chặn: một bên bị từ chối, sửa lại |
+| Chủ bị hack đổi dữ liệu cả cụm | Trung bình | Phát hiện qua nâng quyền nổi bật / audit; cô lập chủ; hack quá nửa thì không chặn được |
+| Dữ liệu cá nhân nằm trên nhiều máy | Trung bình | Bản chất của bản sao. Mã hóa ổ đĩa, mã hóa sao lưu (R17) |
+| Server bị gỡ vẫn giữ bản dữ liệu đã chép | Trung bình | Xóa DB khi gỡ; chỉ thêm server do người tin cậy giữ |
+| Chủ tắt → không sửa được siêu thị / tài khoản | Thấp | Đăng nhập, xem vẫn được; biểu quyết chủ khác nếu tắt lâu |
+| Bản sao chậm tới 60 giây | Thấp | Khóa / xóa tài khoản trên chủ tới bản sao trong ≤ 1 phút; cần ngay thì khóa tại chỗ |
 
-### 17.7 Thứ tự làm D1
+### 17.9 Thứ tự làm D1
 
 | Bước | Nội dung |
 |---|---|
-| D1.1 | Cột `rev` cho `stores`, `accounts`; gói thay đổi (định dạng, SHA-256, bộ kiểm dùng chung với web) |
-| D1.2 | Quyết định `data.stores`, `data.accounts`, `data.baseline`; ký tự động sau khi kiểm / chờ admin xác nhận khi nâng quyền 1–4 |
-| D1.3 | Đường dẫn blob / snapshot / digest trên 5222, chữ ký phản hồi, giới hạn 10 Mbit/s + 2 lượt |
-| D1.4 | Web: sửa siêu thị / tài khoản thành "đề nghị", hiện "đang chờ ký (2/3)", chỉ đọc khi thiếu quá nửa; trang Cụm server có dấu dữ liệu từng node |
-| D1.5 | Join node có sẵn dữ liệu (Q-D3), kiểm dấu mỗi giờ, test cụm 3 node trên PostgreSQL thật |
+| D1.1 | Cột `rev` cho `stores`, `accounts`; bảng `data_changes`; ghi mục thay đổi trong cùng transaction với mọi lần sửa trên chủ |
+| D1.2 | Quyết định `data.primary` (quá nửa + admin xác nhận từng server), nhiệm kỳ; web Cụm server: biểu quyết chủ |
+| D1.3 | Đường dẫn `changes` / `snapshot` / `digest` trên 5222, chữ ký chủ, giới hạn 10 Mbit/s + 2 lượt |
+| D1.4 | Bản sao: kéo 60 giây, kiểm, áp dụng, dừng khi sai; chặn API ghi ở bản sao (409); web hiện "do <chủ> quản lý" |
+| D1.5 | Nâng quyền 1–4 nổi bật + khóa tại chỗ; server mới có dữ liệu riêng: sao lưu + thay; test cụm 3 server trên PostgreSQL thật |
 
-### 17.8 Câu hỏi cần chốt
-
-- **Q-D1**: "10mb/s" hiểu là **10 Mbit/s** (cùng đơn vị với giới hạn tải bản agent 20 Mbit/s) — đúng không?
-- **Q-D2**: Nâng quyền mức 1–4 cần admin xác nhận trên quá nửa node; mức 5–7, khóa, hạ mức thì ký tự động — đồng ý?
-- **Q-D3**: Server đang chạy riêng khi join mà đã có dữ liệu: **thay bằng dữ liệu cụm** (sao lưu trước, liệt kê phần
-  khác để nạp lại) hay **trộn** (phức tạp, dễ đưa dữ liệu sai vào cả cụm)?
-- **Q-D4**: Tài khoản chờ duyệt có cần thấy ở mọi node không (đề xuất: không — chỉ node nhận đăng ký)?
+Đã chốt: giới hạn **10 Mbit/s** (2026-11-19); mô hình **server chủ do admin các server biểu quyết** thay cho "mỗi thay đổi
+cần quá nửa ký" (2026-11-19).
