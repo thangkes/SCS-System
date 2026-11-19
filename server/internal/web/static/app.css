@@ -213,7 +213,7 @@ label { font-weight: 600; font-size: 13px; }
 .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
 .version { color: var(--faint); font-size: 12px; }
 .update-pill { text-decoration: none; margin-right: 10px; font-size: 12px; }
-.health-issues { margin: 0 0 10px; padding-left: 0; list-style: none; display: grid; gap: 6px; font-size: 13px; }
+.health-notes { margin: 0 0 10px; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; }
 .health-meters { display: grid; gap: 10px; margin: 10px 0; }
 .health-list { margin: 4px 0 10px; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; }
 .health-list .sub { margin-left: 6px; }

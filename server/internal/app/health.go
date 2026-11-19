@@ -2,7 +2,6 @@ package app
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"sync"
 	"unicode/utf8"
@@ -10,37 +9,41 @@ import (
 	"github.com/thangkes/SCS-System/common/protocol"
 )
 
-// Sức khỏe máy tính từ trạng thái agent gửi trong heartbeat (mốc A2).
+// Sức khỏe máy tính từ trạng thái agent gửi trong heartbeat (mốc A2) — CHỈ ĐỂ THAM KHẢO.
 //
-// Mỗi vấn đề có mã (ví dụ "disk_full:/var") và mức. Máy: ok (không có vấn đề), warn (chỉ mức medium), bad
-// (có high / critical). Sức khỏe TÁCH khỏi cảnh báo: không ghi sự kiện, không mở giai đoạn cảnh báo, không tô
-// viền siêu thị — chỉ hiện ở thẻ Tình trạng máy, cột Sức khỏe (trang Máy) và ô đếm ở Tổng quan; hết vấn đề thì
-// tự về Tốt. (Bản 6963dd3 từng ghi sự kiện "may.<mã>"; migration 0017 đóng các cảnh báo chỉ gồm sự kiện đó.)
+// Không chấm mức: mỗi ghi nhận chỉ có mã (ví dụ "disk_full:/var") và nội dung. Máy "ok" (không có ghi nhận) hoặc
+// "note" (có ghi nhận, để tham khảo). Tách hẳn khỏi cảnh báo: không ghi sự kiện, không mở giai đoạn cảnh báo, không
+// tô viền siêu thị — chỉ hiện ở menu Sức khỏe máy, thẻ Tình trạng máy và cột Sức khỏe ở trang Máy; hết thì tự mất.
+// (Bản 6963dd3 từng ghi sự kiện "may.<mã>"; migration 0017 đóng các cảnh báo chỉ gồm sự kiện đó.)
 
 // HealthPrefix: tiền tố mã rule của sự kiện sức khỏe máy trong giai đoạn cũ (bản 6963dd3; nay không ghi nữa,
 // giữ để hiện tiêu đề trong lịch sử).
 const HealthPrefix = "may."
 
-// Ngưỡng (đổi được khi test).
+// Ngưỡng ghi nhận (đổi được khi test).
 var (
-	HealthDiskHigh     = 90.0 // % đã dùng
-	HealthDiskCritical = 95.0
-	HealthInodeHigh    = 95.0
+	HealthDiskPct      = 90.0 // % đã dùng
+	HealthInodePct     = 95.0
 	HealthMemLowPct    = 5.0 // RAM còn dưới bấy nhiêu %…
 	HealthMemLowStreak = 3   // …liên tiếp bấy nhiêu heartbeat
 	HealthTempHigh     = 90  // °C
 )
 
-// HealthIssue: một vấn đề sức khỏe đang có.
+// Mức của máy: chỉ có hoặc không có ghi nhận.
+const (
+	HealthOK   = "ok"
+	HealthNote = "note"
+)
+
+// HealthIssue: một ghi nhận về sức khỏe máy (tham khảo).
 type HealthIssue struct {
-	Code     string `json:"code"`
-	Severity string `json:"severity"` // medium | high | critical
-	Text     string `json:"text"`
+	Code string `json:"code"`
+	Text string `json:"text"`
 }
 
 // Health: sức khỏe máy theo heartbeat gần nhất.
 type Health struct {
-	Level  string        `json:"level"` // ok | warn | bad
+	Level  string        `json:"level"` // ok | note
 	Issues []HealthIssue `json:"issues"`
 }
 
@@ -73,62 +76,54 @@ func usedPct(total, free uint64) float64 {
 	return float64(total-min(free, total)) * 100 / float64(total)
 }
 
-// evalHealth đánh giá trạng thái máy. memLow: số heartbeat liên tiếp RAM thấp (kể cả lần này).
+// evalHealth liệt kê ghi nhận từ trạng thái máy. memLow: số heartbeat liên tiếp RAM thấp (kể cả lần này).
 func evalHealth(st *protocol.MachineStatus, memLow int) Health {
-	h := Health{Level: "ok", Issues: []HealthIssue{}}
+	h := Health{Level: HealthOK, Issues: []HealthIssue{}}
 	if st == nil {
 		return h
 	}
-	add := func(code, sev, format string, a ...any) {
-		h.Issues = append(h.Issues, HealthIssue{Code: code, Severity: sev, Text: fmt.Sprintf(format, a...)})
+	add := func(code, format string, a ...any) {
+		h.Issues = append(h.Issues, HealthIssue{Code: code, Text: fmt.Sprintf(format, a...)})
 	}
 	for _, d := range st.Disks {
-		switch p := usedPct(d.TotalBytes, d.FreeBytes); {
-		case p >= HealthDiskCritical:
-			add("disk_full:"+d.Mount, "critical", "Phân vùng %s đầy %.0f%%", d.Mount, p)
-		case p >= HealthDiskHigh:
-			add("disk_full:"+d.Mount, "high", "Phân vùng %s đầy %.0f%%", d.Mount, p)
+		if d.ReadOnly && rwFS[d.FS] {
+			add("fs_ro:"+d.Mount, "Phân vùng %s (%s) đang chỉ đọc: không ghi được dữ liệu (thường do ổ gặp lỗi)", d.Mount, d.FS)
+		}
+		if p := usedPct(d.TotalBytes, d.FreeBytes); p >= HealthDiskPct {
+			add("disk_full:"+d.Mount, "Phân vùng %s đầy %.0f%%", d.Mount, p)
 		}
 		if d.InodesTotal > 0 {
-			if p := usedPct(d.InodesTotal, d.InodesFree); p >= HealthInodeHigh {
-				add("inode_full:"+d.Mount, "high", "Phân vùng %s hết inode (%.0f%%): còn dung lượng nhưng không tạo được file mới", d.Mount, p)
+			if p := usedPct(d.InodesTotal, d.InodesFree); p >= HealthInodePct {
+				add("inode_full:"+d.Mount, "Phân vùng %s dùng %.0f%% inode: còn dung lượng nhưng có thể không tạo được file mới", d.Mount, p)
 			}
-		}
-		if d.ReadOnly && rwFS[d.FS] {
-			add("fs_ro:"+d.Mount, "critical", "Phân vùng %s (%s) đang chỉ đọc: thường do ổ lỗi, không ghi được dữ liệu", d.Mount, d.FS)
 		}
 	}
 	for _, b := range st.Block {
 		if b.IOErrKnown && b.IOErrors > 0 {
-			add("io_err:"+b.Name, "high", "Ổ %s%s có %d lỗi I/O từ lần khởi động", b.Name, modelSuffix(b.Model), b.IOErrors)
+			add("io_err:"+b.Name, "Ổ %s%s có %d lỗi I/O từ lần khởi động", b.Name, modelSuffix(b.Model), b.IOErrors)
 		}
 	}
 	for _, r := range st.RAID {
 		if r.Degraded {
-			add("raid:"+r.Name, "critical", "RAID %s (%s) hỏng: %d/%d ổ hoạt động", r.Name, r.Level, r.Active, r.Disks)
+			add("raid:"+r.Name, "RAID %s (%s) thiếu ổ: %d/%d ổ hoạt động", r.Name, r.Level, r.Active, r.Disks)
 		}
 	}
 	for _, s := range st.Services {
 		if s.Active == "failed" || s.Active == "inactive" {
-			add("svc:"+s.Name, "high", "Dịch vụ %s không chạy (%s)", s.Name, s.Active)
+			add("svc:"+s.Name, "Dịch vụ %s không chạy (%s)", s.Name, s.Active)
 		}
 	}
 	if st.TimeSync.Checked && !st.TimeSync.Synced {
-		add("time", "medium", "Đồng hồ máy chưa đồng bộ NTP")
+		add("time", "Đồng hồ máy chưa đồng bộ NTP")
 	}
 	if memLow >= HealthMemLowStreak && st.MemTotalKB > 0 {
-		add("mem", "medium", "RAM còn %.0f%% (%d lần gửi liên tiếp)", float64(st.MemAvailableKB)*100/float64(st.MemTotalKB), memLow)
+		add("mem", "RAM còn %.0f%% (%d lần gửi liên tiếp)", float64(st.MemAvailableKB)*100/float64(st.MemTotalKB), memLow)
 	}
 	if st.TempC >= HealthTempHigh {
-		add("temp", "high", "Nhiệt độ máy %d°C", st.TempC)
+		add("temp", "Nhiệt độ máy %d°C", st.TempC)
 	}
-	sort.SliceStable(h.Issues, func(i, j int) bool { return sevRank(h.Issues[i].Severity) > sevRank(h.Issues[j].Severity) })
-	for _, is := range h.Issues {
-		if sevRank(is.Severity) >= sevRank("high") {
-			h.Level = "bad"
-			break
-		}
-		h.Level = "warn"
+	if len(h.Issues) > 0 {
+		h.Level = HealthNote
 	}
 	return h
 }
@@ -142,20 +137,6 @@ func modelSuffix(m string) string {
 		return ""
 	}
 	return " (" + m + ")"
-}
-
-func sevRank(s string) int {
-	switch s {
-	case "critical":
-		return 4
-	case "high":
-		return 3
-	case "medium":
-		return 2
-	case "low":
-		return 1
-	}
-	return 0
 }
 
 // HealthTitle: tiêu đề hiển thị của sự kiện sức khỏe "may.<mã>" (trang Cảnh báo, dòng thời gian).

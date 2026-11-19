@@ -23,9 +23,9 @@ func TestHealthOnPostgres(t *testing.T) {
 		t.Helper()
 		heartbeatWith(t, g, id, "203.0.113.20", h)
 	}
-	hb(&app.Health{Level: "ok", Issues: []app.HealthIssue{}})
-	disk := &app.Health{Level: "bad", Issues: []app.HealthIssue{
-		{Code: "disk_full:/", Severity: "critical", Text: "Phân vùng / đầy 96%"}, {Code: "time", Severity: "medium", Text: "Đồng hồ"}}}
+	hb(&app.Health{Level: app.HealthOK, Issues: []app.HealthIssue{}})
+	disk := &app.Health{Level: app.HealthNote, Issues: []app.HealthIssue{
+		{Code: "disk_full:/", Text: "Phân vùng / đầy 96%"}, {Code: "time", Text: "Đồng hồ"}}}
 	hb(disk)
 	var kind string
 	var events int
@@ -48,7 +48,7 @@ func TestHealthOnPostgres(t *testing.T) {
 	for _, d := range list {
 		if d.ID == id {
 			found = true
-			if !(strings.Contains(string(d.Health), `"level": "bad"`) || strings.Contains(string(d.Health), `"level":"bad"`)) {
+			if !(strings.Contains(string(d.Health), `"level": "note"`) || strings.Contains(string(d.Health), `"level":"note"`)) {
 				t.Fatalf("health trong danh sách máy: %s", d.Health)
 			}
 		}

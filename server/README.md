@@ -207,33 +207,29 @@ lại bảng nên chỉ chạy trên DB có chữ "test" trong tên (tự từ c
   `SELECT timescaledb_post_restore();` → bật lại `scs-server`. Chưa diễn tập khôi phục trên máy thật: nên thử một lần
   trên máy / DB thử trước khi cần dùng.
 
-## Sức khỏe máy (A2)
+## Sức khỏe máy (A2) — chỉ để tham khảo
 
-Agent bản mới gửi trạng thái máy trong mỗi heartbeat. Server **không tin agent**: cắt số phần tử, làm sạch chuỗi, rồi
-chấm sức khỏe — **Tốt** (không vấn đề), **Cần chú ý** (chỉ mức trung bình), **Nguy hiểm** (có mức cao / nghiêm trọng):
+Agent bản mới gửi trạng thái máy trong mỗi heartbeat. Server **không tin agent** (cắt số phần tử, làm sạch chuỗi) rồi
+liệt kê các **ghi nhận** — **không chấm mức** (không có Nguy hiểm / Cần chú ý), máy chỉ "có ghi nhận" hoặc "không có":
 
-| Dấu hiệu | Mức |
-|---|---|
-| Phân vùng đầy ≥ 90% / ≥ 95% | cao / nghiêm trọng |
-| Phân vùng ext4 / xfs / btrfs… bị chuyển sang chỉ đọc | nghiêm trọng |
-| RAID phần mềm hỏng | nghiêm trọng |
-| Ổ có lỗi I/O từ lần khởi động (`/sys/block/*/device/ioerr_cnt`) | cao |
-| Dịch vụ theo dõi `failed` / `inactive` | cao |
-| Inode ≥ 95% | cao |
-| Nhiệt độ ≥ 90°C | cao |
-| Đồng hồ chưa đồng bộ NTP | trung bình |
-| RAM còn dưới 5% liên tiếp 3 heartbeat | trung bình |
+| Ghi nhận khi |
+|---|
+| Phân vùng ext4 / xfs / btrfs… đang chỉ đọc |
+| Phân vùng đầy ≥ 90%; inode ≥ 95% |
+| Ổ có lỗi I/O từ lần khởi động (`/sys/block/*/device/ioerr_cnt`) |
+| RAID phần mềm thiếu ổ |
+| Dịch vụ theo dõi `failed` / `inactive` |
+| Nhiệt độ ≥ 90°C; đồng hồ chưa đồng bộ NTP; RAM còn dưới 5% liên tiếp 3 heartbeat |
 
-- Lưu ở `device_status.health` (migration 0016), ghi đè mỗi heartbeat; agent không gửi trạng thái thì giữ giá trị cũ;
-  hết vấn đề thì tự về Tốt.
-- **Tách khỏi cảnh báo**: sức khỏe không ghi sự kiện, không mở giai đoạn cảnh báo, không vào trang Cảnh báo, không tô
-  viền siêu thị (viền vẫn chỉ theo cảnh báo log / mất liên lạc). Bản 6963dd3 từng ghi vấn đề sức khỏe thành sự kiện
-  `may.<mã>`; migration 0017 đóng các cảnh báo đang mở chỉ gồm sự kiện đó (cảnh báo có lẫn sự kiện log giữ nguyên).
-- Web: menu riêng **Sức khỏe máy** (nhóm **Tham khảo**, mọi mức quyền xem được): số máy Nguy hiểm / Cần chú ý / Tốt /
-  Chưa gửi, các loại vấn đề đang có (bấm để lọc), bảng máy kèm vấn đề, tìm theo mã siêu thị / hostname / vấn đề, bấm
-  máy mở chi tiết. Chi tiết máy có thẻ **Tình trạng máy** (vấn đề, RAM / swap / từng phân vùng, ổ vật lý + lỗi I/O,
-  RAID, dịch vụ, NTP, phần không đọc được); trang **Máy** có cột **Sức khỏe** và ô "Chỉ máy có vấn đề sức khỏe".
-  Tổng quan không hiện sức khỏe (trang đó dành cho cảnh báo).
+- Lưu ở `device_status.health` (migration 0016, `{"level": "ok" | "note", "issues": [{code, text}]}`), ghi đè mỗi
+  heartbeat; agent không gửi trạng thái thì giữ giá trị cũ; hết thì ghi nhận tự mất.
+- **Tách hẳn khỏi cảnh báo**: không ghi sự kiện, không mở giai đoạn cảnh báo, không vào trang Cảnh báo, không tô viền
+  siêu thị. Bản 6963dd3 từng ghi vấn đề sức khỏe thành sự kiện `may.<mã>`; migration 0017 đóng các cảnh báo đang mở
+  chỉ gồm sự kiện đó (cảnh báo có lẫn sự kiện log giữ nguyên).
+- Web: menu riêng **Sức khỏe máy** (nhóm **Tham khảo**, mọi mức quyền xem được): số máy có / không có ghi nhận / chưa
+  gửi, các loại ghi nhận đang có (bấm để lọc), bảng máy kèm ghi nhận, tìm theo mã siêu thị / hostname / nội dung, bấm
+  máy mở chi tiết. Chi tiết máy có thẻ **Tình trạng máy** (ghi nhận, RAM / swap / từng phân vùng, ổ vật lý + lỗi I/O,
+  RAID, dịch vụ, NTP, phần không đọc được); trang **Máy** có cột **Sức khỏe** và ô "Chỉ máy có ghi nhận sức khỏe".
 - Chưa đọc **SMART** (cần quyền raw với ổ, agent chạy user thường).
 
 ## Thông báo bản server mới (chỉ đề xuất)

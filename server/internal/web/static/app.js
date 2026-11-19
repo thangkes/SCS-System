@@ -703,8 +703,10 @@
   // health = { level: ok | warn | bad, issues: [{code, severity, text}] } do server tính; null = agent chưa gửi.
   // Sức khỏe TÁCH khỏi cảnh báo: không tô viền siêu thị, không vào trang Cảnh báo — chỉ cột Sức khỏe, ô lọc,
   // thẻ Tình trạng máy và ô đếm ở Tổng quan.
-  const HEALTH_TXT = { ok: ['pill-ok', 'Tốt'], warn: ['pill-warn', 'Cần chú ý'], bad: ['pill-bad', 'Nguy hiểm'] };
-  const healthOf = (d) => (d && d.health && HEALTH_TXT[d.health.level] ? d.health : null);
+  // Chỉ để tham khảo, không chấm mức: máy có ghi nhận (note) hoặc không (ok). Bản cũ lưu warn / bad → coi như có ghi nhận.
+  const HEALTH_TXT = { ok: ['pill-ok', 'Không có ghi nhận'], note: ['pill-info', 'Tham khảo'] };
+  const normHealth = (h) => (h && Array.isArray(h.issues) ? { ...h, level: h.issues.length ? 'note' : 'ok' } : null);
+  const healthOf = (d) => normHealth(d && d.health);
   function healthCell(d) {
     const h = healthOf(d);
     if (!h) return '<span class="sub">chưa gửi</span>';
@@ -743,7 +745,7 @@
     const svcs = (st.services || []).map((s) => `<li><span class="mono">${esc(s.name)}</span>
       <span class="pill ${s.active === 'active' ? 'pill-ok' : s.active === 'failed' || s.active === 'inactive' ? 'pill-bad' : 'pill-warn'} no-dot">${esc(s.active)}${s.sub ? ` · ${esc(s.sub)}` : ''}</span></li>`).join('');
     return `<h3>Tình trạng máy ${h ? `<span class="pill ${HEALTH_TXT[h.level][0]} no-dot">${esc(HEALTH_TXT[h.level][1])}</span>` : ''}</h3>
-      ${issues.length ? `<ul class="health-issues">${issues.map((i) => `<li>${pill(SEV[i.severity] || SEV.low)} ${esc(i.text)}</li>`).join('')}</ul>` : '<p class="hint">Không có vấn đề.</p>'}
+      ${issues.length ? `<ul class="health-notes">${issues.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul>` : '<p class="hint">Không có ghi nhận.</p>'}
       <dl class="kv">
         <dt>Hệ điều hành</dt><dd>${esc(st.os || '—')} <span class="sub mono">${esc(st.kernel || '')}</span></dd>
         <dt>Máy chạy</dt><dd>${esc(fmtUptime(st.boot_uptime_s))}</dd>
@@ -786,7 +788,7 @@
             <option value="approved">Đang hoạt động</option><option value="revoked">Đã thu hồi</option>
             <option value="rejected">Đã từ chối</option>
           </select>
-          <label class="chk"><input type="checkbox" id="dev-sick"> Chỉ máy có vấn đề sức khỏe</label>
+          <label class="chk"><input type="checkbox" id="dev-sick"> Chỉ máy có ghi nhận sức khỏe</label>
           <span class="count" id="dev-count"></span>
           <button type="button" class="btn btn-sm" id="dev-import" title="Nạp thông tin siêu thị từ file .xlsx / .csv (quyền: Duyệt và phát hành rule trở lên)">Nạp thông tin từ file</button>
           <div class="right store-legend" aria-hidden="true">
@@ -939,27 +941,27 @@
   async function pageHealth(params) {
     setTitle('Sức khỏe máy');
     const page = view;
-    const state = { q: params.get('q') || '', level: params.get('level') || 'issue', kind: params.get('kind') || '', page: 0, list: [] };
+    const state = { q: params.get('q') || '', level: params.get('level') || 'note', kind: params.get('kind') || '', page: 0, list: [] };
     const PAGE = 50;
     page.innerHTML = `
       <div class="callout callout-info"><strong>Thông tin tham khảo.</strong> Trạng thái máy agent gửi trong heartbeat gần nhất (ổ đĩa, ổ vật lý và lỗi I/O, RAID,
-        dịch vụ, RAM, nhiệt độ, đồng hồ). Không phải cảnh báo: không mở sự cố, không tính vào trang Cảnh báo; hết vấn đề thì tự về Tốt.</div>
+        dịch vụ, RAM, nhiệt độ, đồng hồ). Không chấm mức, không phải cảnh báo: không mở sự cố, không tính vào trang Cảnh báo; hết thì ghi nhận tự mất.</div>
       <div class="grid-kpi" id="hl-kpi"></div>
       <div class="card">
-        <div class="card-head"><h2>Vấn đề đang có</h2><span class="sub">Bấm để lọc</span></div>
+        <div class="card-head"><h2>Ghi nhận đang có</h2><span class="sub">Bấm để lọc</span></div>
         <div class="chips hl-kinds" id="hl-kinds"></div>
       </div>
       <div class="card">
         <div class="toolbar">
-          <input type="search" id="hl-q" placeholder="Tìm mã siêu thị, hostname, vấn đề…" value="${esc(state.q)}" aria-label="Tìm máy">
+          <input type="search" id="hl-q" placeholder="Tìm mã siêu thị, hostname, ghi nhận…" value="${esc(state.q)}" aria-label="Tìm máy">
           <select id="hl-level" aria-label="Lọc mức">
-            <option value="issue">Có vấn đề</option><option value="bad">Nguy hiểm</option><option value="warn">Cần chú ý</option>
-            <option value="ok">Tốt</option><option value="none">Chưa gửi</option><option value="all">Tất cả</option>
+            <option value="note">Có ghi nhận</option><option value="ok">Không có ghi nhận</option>
+            <option value="none">Chưa gửi</option><option value="all">Tất cả</option>
           </select>
           <span class="count" id="hl-count"></span>
         </div>
         <div class="table-wrap"><table>
-          <thead><tr><th>Máy</th><th>Sức khỏe</th><th>Vấn đề</th><th class="hide-sm">Liên lạc lần cuối</th><th class="hide-sm">Agent</th></tr></thead>
+          <thead><tr><th>Máy</th><th>Sức khỏe</th><th>Ghi nhận</th><th class="hide-sm">Liên lạc lần cuối</th><th class="hide-sm">Agent</th></tr></thead>
           <tbody id="hl-rows"><tr><td colspan="5" class="empty">Đang tải…</td></tr></tbody>
         </table></div>
         <div class="pager"><span id="hl-range"></span><div class="btns">
@@ -969,7 +971,7 @@
 
     const render = () => {
       const all = state.list;
-      const cnt = { ok: 0, warn: 0, bad: 0, none: 0 };
+      const cnt = { ok: 0, note: 0, none: 0 };
       const kinds = {};
       all.forEach((d) => {
         const h = healthOf(d);
@@ -977,27 +979,25 @@
         if (h) new Set((h.issues || []).map((i) => healthKind(i.code))).forEach((k) => { kinds[k] = (kinds[k] || 0) + 1; });
       });
       $('#hl-kpi').innerHTML = `
-        ${kpi('Nguy hiểm', fmtNum(cnt.bad), 'có vấn đề mức cao / nghiêm trọng', cnt.bad ? 'is-bad' : '')}
-        ${kpi('Cần chú ý', fmtNum(cnt.warn), 'chỉ vấn đề mức trung bình', cnt.warn ? 'is-warn' : '')}
-        ${kpi('Tốt', fmtNum(cnt.ok), 'không có vấn đề')}
+        ${kpi('Có ghi nhận', fmtNum(cnt.note), 'máy có điểm cần xem (tham khảo)')}
+        ${kpi('Không có ghi nhận', fmtNum(cnt.ok), 'máy đã gửi trạng thái')}
         ${kpi('Chưa gửi', fmtNum(cnt.none), 'agent bản cũ / chưa có heartbeat')}`;
       const kindList = Object.entries(kinds).sort((a, b) => b[1] - a[1]);
       $('#hl-kinds').innerHTML = kindList.length
         ? `<button type="button" class="chip${state.kind ? '' : ' active'}" data-kind="">Tất cả</button>` +
           kindList.map(([k, n]) => `<button type="button" class="chip${state.kind === k ? ' active' : ''}" data-kind="${esc(k)}">${esc(HEALTH_KINDS[k] || k)} · ${fmtNum(n)}</button>`).join('')
-        : '<p class="hint">Không máy nào có vấn đề.</p>';
+        : '<p class="hint">Không máy nào có ghi nhận.</p>';
 
       const q = state.q.trim().toLowerCase();
       const rows = all.filter((d) => {
         const h = healthOf(d);
         const lv = h ? h.level : 'none';
-        if (state.level === 'issue' ? !(lv === 'bad' || lv === 'warn') : state.level !== 'all' && lv !== state.level) return false;
+        if (state.level !== 'all' && lv !== state.level) return false;
         if (state.kind && !(h && (h.issues || []).some((i) => healthKind(i.code) === state.kind))) return false;
         if (!q) return true;
         return [d.hostname, d.store_code, storeLabel(d.store_code || ''), ...((h && h.issues) || []).map((i) => i.text)]
           .some((v) => (v || '').toLowerCase().includes(q));
-      }).sort((a, b) => (RANK[(healthOf(b) || {}).level] ?? -1) - (RANK[(healthOf(a) || {}).level] ?? -1) ||
-        ((healthOf(b) || {}).issues || []).length - ((healthOf(a) || {}).issues || []).length || a.hostname.localeCompare(b.hostname));
+      }).sort((a, b) => ((healthOf(b) || {}).issues || []).length - ((healthOf(a) || {}).issues || []).length || a.hostname.localeCompare(b.hostname));
       const pages = Math.max(1, Math.ceil(rows.length / PAGE));
       state.page = Math.min(state.page, pages - 1);
       $('#hl-count').textContent = `${fmtNum(rows.length)} / ${fmtNum(all.length)} máy`;
@@ -1010,8 +1010,8 @@
         return `<tr class="clickable" data-id="${d.id}">
           <td><span class="strong mono">${esc(d.hostname)}</span><span class="sub">${esc(d.store_code ? storeLabel(d.store_code) : 'chưa có mã siêu thị')}</span></td>
           <td>${healthCell(d)}</td>
-          <td>${issues.length ? `<ul class="health-issues">${issues.map((i) => `<li>${pill(SEV[i.severity] || SEV.low)} ${esc(i.text)}</li>`).join('')}</ul>`
-            : `<span class="sub">${h ? 'Không có vấn đề' : 'Agent chưa gửi trạng thái máy'}</span>`}</td>
+          <td>${issues.length ? `<ul class="health-notes">${issues.map((i) => `<li>${esc(i.text)}</li>`).join('')}</ul>`
+            : `<span class="sub">${h ? 'Không có ghi nhận' : 'Agent chưa gửi trạng thái máy'}</span>`}</td>
           <td class="hide-sm">${d.last_seen ? esc(ago(new Date(d.last_seen))) : '—'}</td>
           <td class="hide-sm mono">${esc(d.agent_version || '—')}</td></tr>`;
       }).join('') || `<tr><td colspan="5" class="empty">${all.length ? 'Không có máy nào khớp bộ lọc.' : 'Không có máy nào.'}</td></tr>`;
@@ -1034,7 +1034,7 @@
     $('#hl-kinds').addEventListener('click', (e) => {
       const b = e.target.closest('[data-kind]'); if (!b) return;
       state.kind = b.dataset.kind;
-      if (state.kind && state.level === 'ok') { state.level = 'issue'; $('#hl-level').value = 'issue'; }
+      if (state.kind && (state.level === 'ok' || state.level === 'none')) { state.level = 'note'; $('#hl-level').value = 'note'; }
       state.page = 0; render();
     });
     $('#hl-prev').addEventListener('click', () => { state.page--; render(); });
@@ -1341,7 +1341,7 @@
     }
     if (!$('#dev-timeline') || box !== $('#dev-timeline')) return;
     const hbox = $('#dev-health');
-    if (hbox) { hbox.innerHTML = healthSection(tl.status, tl.health && HEALTH_TXT[tl.health.level] ? tl.health : null); sizeMeters(hbox); }
+    if (hbox) { hbox.innerHTML = healthSection(tl.status, normHealth(tl.health)); sizeMeters(hbox); }
     const lastSeen = tl.last_seen ? new Date(tl.last_seen) : null;
     const item = (p) => {
       const start = new Date(p.started_at);

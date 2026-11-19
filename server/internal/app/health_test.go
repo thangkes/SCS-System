@@ -9,15 +9,15 @@ import (
 	"github.com/thangkes/SCS-System/common/protocol"
 )
 
-func codes(h Health) map[string]string {
-	m := map[string]string{}
+func codes(h Health) map[string]bool {
+	m := map[string]bool{}
 	for _, is := range h.Issues {
-		m[is.Code] = is.Severity
+		m[is.Code] = true
 	}
 	return m
 }
 
-// Đánh giá sức khỏe: đúng ngưỡng, đúng mức, sắp mức cao trước; máy khỏe = ok.
+// Ghi nhận sức khỏe (tham khảo, không chấm mức): đúng ngưỡng; máy không có ghi nhận = ok, có = note.
 func TestEvalHealth(t *testing.T) {
 	const G = 1 << 30
 	good := &protocol.MachineStatus{MemTotalKB: 8 << 20, MemAvailableKB: 4 << 20, TempC: 50,
@@ -26,19 +26,20 @@ func TestEvalHealth(t *testing.T) {
 		RAID:     []protocol.RAIDStatus{{Name: "md0", Disks: 2, Active: 2}},
 		TimeSync: protocol.TimeSyncStatus{Synced: true, Checked: true},
 		Services: []protocol.ServiceStatus{{Name: "pos.service", Active: "active"}}}
-	if h := evalHealth(good, 0); h.Level != "ok" || len(h.Issues) != 0 {
-		t.Fatalf("máy khỏe: %+v", h)
+	if h := evalHealth(good, 0); h.Level != HealthOK || len(h.Issues) != 0 {
+		t.Fatalf("không có ghi nhận: %+v", h)
 	}
-	if h := evalHealth(nil, 0); h.Level != "ok" {
+	if h := evalHealth(nil, 0); h.Level != HealthOK {
 		t.Fatalf("không có trạng thái: %+v", h)
 	}
 
 	bad := *good
 	bad.Disks = []protocol.DiskStatus{
-		{Mount: "/", FS: "ext4", TotalBytes: 100 * G, FreeBytes: 4 * G},                                     // 96% → critical
-		{Mount: "/var", FS: "ext4", TotalBytes: 100 * G, FreeBytes: 8 * G, InodesTotal: 100, InodesFree: 2}, // 92% → high, inode 98%
-		{Mount: "/data", FS: "xfs", TotalBytes: 100 * G, FreeBytes: 50 * G, ReadOnly: true},                 // chỉ đọc → critical
+		{Mount: "/", FS: "ext4", TotalBytes: 100 * G, FreeBytes: 4 * G},                                     // 96%
+		{Mount: "/var", FS: "ext4", TotalBytes: 100 * G, FreeBytes: 8 * G, InodesTotal: 100, InodesFree: 2}, // 92%, inode 98%
+		{Mount: "/data", FS: "xfs", TotalBytes: 100 * G, FreeBytes: 50 * G, ReadOnly: true},                 // chỉ đọc
 		{Mount: "/boot/efi", FS: "vfat", TotalBytes: G, FreeBytes: G / 2, ReadOnly: true},                   // vfat chỉ đọc: bỏ qua
+		{Mount: "/opt", FS: "ext4", TotalBytes: 100 * G, FreeBytes: 11 * G},                                 // 89%: chưa tới ngưỡng
 	}
 	bad.Block = []protocol.BlockDevice{{Name: "sda", Model: "WDC", IOErrKnown: true, IOErrors: 3}}
 	bad.RAID = []protocol.RAIDStatus{{Name: "md0", Level: "raid1", Disks: 2, Active: 1, Degraded: true}}
@@ -47,27 +48,29 @@ func TestEvalHealth(t *testing.T) {
 	bad.MemAvailableKB = bad.MemTotalKB / 50 // 2%
 	bad.TempC = 92
 	h := evalHealth(&bad, 3)
-	want := map[string]string{"disk_full:/": "critical", "disk_full:/var": "high", "inode_full:/var": "high",
-		"fs_ro:/data": "critical", "io_err:sda": "high", "raid:md0": "critical", "svc:pos.service": "high",
-		"time": "medium", "mem": "medium", "temp": "high"}
+	want := []string{"disk_full:/", "disk_full:/var", "inode_full:/var", "fs_ro:/data", "io_err:sda", "raid:md0",
+		"svc:pos.service", "time", "mem", "temp"}
 	got := codes(h)
-	if h.Level != "bad" || len(got) != len(want) {
-		t.Fatalf("vấn đề: %v (muốn %v)", got, want)
+	if h.Level != HealthNote || len(got) != len(want) {
+		t.Fatalf("ghi nhận: %v (muốn %v)", got, want)
 	}
-	for k, v := range want {
-		if got[k] != v {
-			t.Errorf("%s: %q, muốn %q", k, got[k], v)
+	for _, k := range want {
+		if !got[k] {
+			t.Errorf("thiếu %s", k)
 		}
 	}
-	if h.Issues[0].Severity != "critical" || !strings.Contains(codesText(h, "io_err:sda"), "3 lỗi I/O") {
-		t.Fatalf("thứ tự / nội dung: %+v", h.Issues)
+	if !strings.Contains(codesText(h, "io_err:sda"), "3 lỗi I/O") {
+		t.Fatalf("nội dung: %+v", h.Issues)
 	}
-	// RAM thấp chưa đủ 3 lần liên tiếp: chưa báo. Chỉ có vấn đề medium: warn.
+	if b, _ := json.Marshal(h); strings.Contains(string(b), "severity") {
+		t.Fatalf("không còn mức đánh giá: %s", b)
+	}
+	// RAM thấp chưa đủ 3 lần liên tiếp: chưa ghi nhận.
 	only := *good
 	only.TimeSync = protocol.TimeSyncStatus{Checked: true}
 	only.MemAvailableKB = only.MemTotalKB / 50
-	if h := evalHealth(&only, 2); h.Level != "warn" || len(h.Issues) != 1 || h.Issues[0].Code != "time" {
-		t.Fatalf("chỉ medium: %+v", h)
+	if h := evalHealth(&only, 2); h.Level != HealthNote || len(h.Issues) != 1 || h.Issues[0].Code != "time" {
+		t.Fatalf("RAM chưa đủ 3 lần: %+v", h)
 	}
 }
 
@@ -140,7 +143,7 @@ func TestHeartbeatComputesHealth(t *testing.T) {
 	reg.mu.Lock()
 	h := reg.status[id].Health
 	reg.mu.Unlock()
-	if h == nil || h.Level != "bad" || len(h.Issues) != 1 || h.Issues[0].Code != "raid:md0" {
+	if h == nil || h.Level != HealthNote || len(h.Issues) != 1 || h.Issues[0].Code != "raid:md0" {
 		t.Fatalf("health: %+v", h)
 	}
 }
