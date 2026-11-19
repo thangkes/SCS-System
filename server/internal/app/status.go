@@ -26,6 +26,9 @@ type HeartbeatRecord struct {
 	Rules          *protocol.RuleSetReport // bộ rule đang cài (nil = agent bản cũ, không báo)
 	Sig            string                  // dấu các trường đáng kể (SHA-256 hex)
 	Summary        map[string]any          // các trường đáng kể, ghi vào lịch sử khi Sig đổi
+	// Health: sức khỏe máy tính từ Status (nil = agent không gửi trạng thái, giữ giá trị cũ). Kho so với lần
+	// trước: vấn đề mới / tăng mức thì ghi sự kiện "may.<mã>" vào giai đoạn.
+	Health *Health
 }
 
 // StatusChange: một lần trạng thái máy thay đổi đáng kể.
@@ -98,6 +101,23 @@ func statusSummary(agentVersion string, ip netip.Addr, body protocol.HeartbeatBo
 			}
 		}
 		m["disks_full"] = disks
+		var ro, ioerr []string
+		for _, d := range st.Disks {
+			if d.ReadOnly && rwFS[d.FS] {
+				ro = append(ro, d.Mount)
+			}
+		}
+		for _, b := range st.Block {
+			if b.IOErrKnown && b.IOErrors > 0 {
+				ioerr = append(ioerr, b.Name)
+			}
+		}
+		if len(ro) > 0 {
+			m["read_only"] = ro
+		}
+		if len(ioerr) > 0 {
+			m["io_errors"] = ioerr
+		}
 	}
 	// encoding/json xếp khóa map theo thứ tự chữ cái, nên cùng nội dung luôn ra cùng dấu.
 	b, _ := json.Marshal(m)

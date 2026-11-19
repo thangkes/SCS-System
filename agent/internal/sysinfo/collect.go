@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,17 +137,26 @@ func Status(services []string) *protocol.MachineStatus {
 	}
 	if f, err := os.Open(path("proc/self/mounts")); err == nil {
 		for _, m := range parseMounts(f) {
-			total, free, err := diskUsage(m.Path)
+			if len(st.Disks) == protocol.MaxDisks {
+				break
+			}
+			u, err := diskUsage(m.Path)
 			if err != nil {
 				fail("dung lượng "+m.Path, err)
 				continue
 			}
-			st.Disks = append(st.Disks, protocol.DiskStatus{Mount: m.Path, FS: m.FS, TotalBytes: total, FreeBytes: free})
+			st.Disks = append(st.Disks, protocol.DiskStatus{Mount: m.Path, FS: m.FS, Device: m.Device, TotalBytes: u.total,
+				FreeBytes: u.free, InodesTotal: u.inodes, InodesFree: u.inodesFree, ReadOnly: m.ReadOnly})
 		}
 		f.Close()
 	} else {
 		fail("mounts", err)
 	}
+	if up, err := Uptime(); err == nil {
+		st.BootUptimeS = up
+	}
+	st.Block = blockDevices()
+	st.TempC = maxTemp()
 	if f, err := os.Open(path("proc/mdstat")); err == nil { // không có RAID phần mềm thì không có file
 		st.RAID = parseMdstat(f)
 		f.Close()
@@ -171,5 +181,95 @@ func Status(services []string) *protocol.MachineStatus {
 		}
 		st.Services = append(st.Services, s)
 	}
+	if len(st.Errors) > protocol.MaxErrors {
+		st.Errors = st.Errors[:protocol.MaxErrors]
+	}
 	return st
+}
+
+// blockDevices: ổ vật lý trong /sys/block (đọc được bằng user thường, không cần quyền với /dev). Bỏ ổ ảo
+// (loop, ram, zram), lớp ảo (dm, md — RAID báo riêng), ổ quang / ổ rời (USB).
+func blockDevices() []protocol.BlockDevice {
+	ents, err := os.ReadDir(path("sys/block"))
+	if err != nil {
+		return nil
+	}
+	var out []protocol.BlockDevice
+	for _, e := range ents {
+		name := e.Name()
+		if skipBlock(name) || len(out) == protocol.MaxBlock {
+			continue
+		}
+		base := "sys/block/" + name + "/"
+		if rm, _ := readTrim(base + "removable"); rm == "1" {
+			continue
+		}
+		b := protocol.BlockDevice{Name: name}
+		if s, err := readTrim(base + "size"); err == nil {
+			if n, err := strconv.ParseUint(s, 10, 64); err == nil {
+				b.SizeBytes = n * 512 // /sys/block/*/size luôn tính theo sector 512 byte
+			}
+		}
+		if b.SizeBytes == 0 {
+			continue // khe thẻ nhớ trống, ổ chưa sẵn sàng
+		}
+		if r, err := readTrim(base + "queue/rotational"); err == nil {
+			b.SSD = r == "0"
+		}
+		if m, err := readTrim(base + "device/model"); err == nil {
+			b.Model = cleanModel(m)
+		}
+		if s, err := readTrim(base + "device/ioerr_cnt"); err == nil { // dạng "0x1a"
+			if n, err := strconv.ParseInt(s, 0, 64); err == nil && n >= 0 {
+				b.IOErrors, b.IOErrKnown = n, true
+			}
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+func skipBlock(name string) bool {
+	for _, p := range []string{"loop", "ram", "zram", "dm-", "md", "sr", "fd", "nbd", "mmcblk0boot", "mmcblk1boot"} {
+		if strings.HasPrefix(name, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// cleanModel: model ổ chỉ giữ ký tự in được, tối đa 64 ký tự.
+func cleanModel(s string) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r > 0x7e {
+			return -1
+		}
+		return r
+	}, strings.TrimSpace(s))
+	if len(s) > 64 {
+		s = s[:64]
+	}
+	return s
+}
+
+// maxTemp: nhiệt độ cao nhất (°C) các vùng nhiệt (/sys/class/thermal); 0 = không có cảm biến.
+func maxTemp() int {
+	ents, err := os.ReadDir(path("sys/class/thermal"))
+	if err != nil {
+		return 0
+	}
+	best := 0
+	for _, e := range ents {
+		if !strings.HasPrefix(e.Name(), "thermal_zone") {
+			continue
+		}
+		s, err := readTrim("sys/class/thermal/" + e.Name() + "/temp")
+		if err != nil {
+			continue
+		}
+		if mc, err := strconv.Atoi(s); err == nil && mc > 0 && mc < 130000 && mc/1000 > best {
+			best = mc / 1000
+		}
+	}
+	return best
 }

@@ -52,16 +52,16 @@ func TestParseMounts(t *testing.T) {
 	mounts := `sysfs /sys sysfs rw 0 0
 /dev/md0 / ext4 rw,relatime 0 0
 tmpfs /run tmpfs rw 0 0
-/dev/sda1 /boot/efi vfat rw 0 0
+/dev/sda1 /boot/efi vfat ro,relatime 0 0
 /dev/loop3 /snap/core20/2318 squashfs ro 0 0
 /dev/md0 /var/lib/docker ext4 rw 0 0
 /dev/sdb1 /mnt/du\040lieu ext4 rw 0 0
 `
 	got := parseMounts(strings.NewReader(mounts))
 	want := []mount{
-		{"/dev/md0", "/", "ext4"},
-		{"/dev/sda1", "/boot/efi", "vfat"},
-		{"/dev/sdb1", "/mnt/du lieu", "ext4"},
+		{"/dev/md0", "/", "ext4", false},
+		{"/dev/sda1", "/boot/efi", "vfat", true}, // mount chỉ đọc
+		{"/dev/sdb1", "/mnt/du lieu", "ext4", false},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("mounts = %+v", got)
@@ -124,6 +124,22 @@ func TestCollectFromFakeRoot(t *testing.T) {
 	write("proc/self/mounts", "")
 	write("proc/mdstat", "md0 : active raid1 sdb1[1] sda1[0]\n      100 blocks [2/2] [UU]\n")
 	write("proc/uptime", "3600.5 100.0\n")
+	// Ổ vật lý: sda (HDD SATA, có 3 lỗi I/O), nvme0n1 (SSD, không có bộ đếm lỗi), loop0 / sr0 / ổ USB bị bỏ.
+	write("sys/block/sda/size", "1953525168\n")
+	write("sys/block/sda/removable", "0\n")
+	write("sys/block/sda/queue/rotational", "1\n")
+	write("sys/block/sda/device/model", "WDC WD10EZEX-08W\x01  \n")
+	write("sys/block/sda/device/ioerr_cnt", "0x3\n")
+	write("sys/block/nvme0n1/size", "500118192\n")
+	write("sys/block/nvme0n1/removable", "0\n")
+	write("sys/block/nvme0n1/queue/rotational", "0\n")
+	write("sys/block/nvme0n1/device/model", "Samsung SSD 980 500GB\n")
+	write("sys/block/loop0/size", "100\n")
+	write("sys/block/sr0/size", "100\n")
+	write("sys/block/sdc/size", "100\n")
+	write("sys/block/sdc/removable", "1\n")
+	write("sys/class/thermal/thermal_zone0/temp", "48000\n")
+	write("sys/class/thermal/thermal_zone1/temp", "61500\n")
 
 	oldRoot, oldRun := Root, run
 	Root = root
@@ -153,6 +169,23 @@ func TestCollectFromFakeRoot(t *testing.T) {
 		len(st.Load) != 3 || len(st.RAID) != 1 || st.RAID[0].Degraded || !st.TimeSync.Synced ||
 		len(st.Services) != 1 || st.Services[0].Active != "active" {
 		t.Fatalf("status = %+v", st)
+	}
+	if st.BootUptimeS != 3600 || st.TempC != 61 || len(st.Block) != 2 {
+		t.Fatalf("uptime / nhiệt độ / ổ vật lý: %d %d %+v", st.BootUptimeS, st.TempC, st.Block)
+	}
+	for _, b := range st.Block {
+		switch b.Name {
+		case "sda":
+			if b.SSD || !b.IOErrKnown || b.IOErrors != 3 || b.SizeBytes != 1953525168*512 || b.Model != "WDC WD10EZEX-08W" {
+				t.Fatalf("sda: %+v", b)
+			}
+		case "nvme0n1":
+			if !b.SSD || b.IOErrKnown || b.Model != "Samsung SSD 980 500GB" {
+				t.Fatalf("nvme: %+v", b)
+			}
+		default:
+			t.Fatalf("không được có %s", b.Name)
+		}
 	}
 	if want := "systemctl show -p ActiveState -p SubState pos.service"; calls[len(calls)-1] != want {
 		t.Fatalf("lệnh systemctl = %q", calls[len(calls)-1])

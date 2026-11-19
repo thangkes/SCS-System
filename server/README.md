@@ -207,6 +207,33 @@ lại bảng nên chỉ chạy trên DB có chữ "test" trong tên (tự từ c
   `SELECT timescaledb_post_restore();` → bật lại `scs-server`. Chưa diễn tập khôi phục trên máy thật: nên thử một lần
   trên máy / DB thử trước khi cần dùng.
 
+## Sức khỏe máy (A2)
+
+Agent bản mới gửi trạng thái máy trong mỗi heartbeat. Server **không tin agent**: cắt số phần tử, làm sạch chuỗi, rồi
+chấm sức khỏe — **Tốt** (không vấn đề), **Cần chú ý** (chỉ mức trung bình), **Nguy hiểm** (có mức cao / nghiêm trọng):
+
+| Dấu hiệu | Mức |
+|---|---|
+| Phân vùng đầy ≥ 90% / ≥ 95% | cao / nghiêm trọng |
+| Phân vùng ext4 / xfs / btrfs… bị chuyển sang chỉ đọc | nghiêm trọng |
+| RAID phần mềm hỏng | nghiêm trọng |
+| Ổ có lỗi I/O từ lần khởi động (`/sys/block/*/device/ioerr_cnt`) | cao |
+| Dịch vụ theo dõi `failed` / `inactive` | cao |
+| Inode ≥ 95% | cao |
+| Nhiệt độ ≥ 90°C | cao |
+| Đồng hồ chưa đồng bộ NTP | trung bình |
+| RAM còn dưới 5% liên tiếp 3 heartbeat | trung bình |
+
+- Lưu ở `device_status.health` (migration 0016), ghi đè mỗi heartbeat; agent không gửi trạng thái thì giữ giá trị cũ.
+- **Vấn đề mới xuất hiện** (hoặc tăng mức) được ghi thành sự kiện `may.<mã>` vào giai đoạn của máy, giống sự kiện log:
+  mức cao / nghiêm trọng mở cảnh báo, hiện thông báo trên web; vấn đề còn nguyên ở các heartbeat sau không ghi thêm.
+  Hết vấn đề thì trạng thái sức khỏe tự về Tốt; cảnh báo đóng theo luật giai đoạn (cao tự đóng sau 24 giờ yên,
+  nghiêm trọng chờ admin bấm "Đã xử lý").
+- Web: chi tiết máy có thẻ **Tình trạng máy** (vấn đề, RAM / swap / từng phân vùng, ổ vật lý + lỗi I/O, RAID, dịch vụ,
+  NTP, phần không đọc được); trang **Máy** có cột **Sức khỏe**, ô "Chỉ máy có vấn đề sức khỏe", viền siêu thị tính cả
+  sức khỏe; **Tổng quan** có ô đếm và danh sách máy có vấn đề.
+- Chưa đọc **SMART** (cần quyền raw với ổ, agent chạy user thường).
+
 ## Thông báo bản server mới (chỉ đề xuất)
 
 - `scs-server-update-check.timer` chạy **10 phút sau khi bật máy rồi 6 giờ một lần**, gọi `/opt/scs-server/check-update.sh`:
@@ -446,5 +473,4 @@ Giao diện nằm trong
 Có CSP chặt: không script/style inline, không tải gì từ nguồn ngoài.
 
 Mọi trang dùng dữ liệu thật từ API quản trị: Tổng quan, Máy, Cảnh báo, Báo cáo server, Chờ duyệt, Agent, Rule quét log,
-Địa chỉ server, Cụm server, Tài khoản, Hệ thống. Chưa có trang chi tiết trạng thái máy theo thời gian (M6, chờ agent gửi
-trạng thái máy — A2).
+Địa chỉ server, Cụm server, Tài khoản, Hệ thống. Chi tiết máy có thẻ **Tình trạng máy** (trạng thái agent gửi gần nhất).

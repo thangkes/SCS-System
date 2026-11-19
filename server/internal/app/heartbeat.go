@@ -124,7 +124,13 @@ func heartbeatHandler(d Deps) http.Handler {
 		if !cleanText(body.RuleSetVersion, 64) {
 			body.RuleSetVersion = ""
 		}
-		if err := d.Registry.RecordHeartbeat(r.Context(), id, heartbeatRecord(env, body, remoteAddr(r))); err != nil {
+		body.Status = cleanStatus(body.Status)
+		rec := heartbeatRecord(env, body, remoteAddr(r))
+		if body.Status != nil {
+			h := evalHealth(body.Status, lowMemStreak(id, memIsLow(body.Status)))
+			rec.Health = &h
+		}
+		if err := d.Registry.RecordHeartbeat(r.Context(), id, rec); err != nil {
 			d.Log.Error("ghi heartbeat thất bại", "err", err, "device", id)
 			httpx.WriteError(w, http.StatusInternalServerError, "lỗi nội bộ")
 			return

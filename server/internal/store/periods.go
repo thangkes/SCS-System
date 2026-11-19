@@ -246,9 +246,21 @@ func (g *Registry) RecordHeartbeat(ctx context.Context, id int64, h app.Heartbea
 			return err
 		}
 		var oldSig *string
-		err = tx.QueryRow(ctx, `SELECT sig FROM device_status WHERE device_id = $1 FOR UPDATE`, id).Scan(&oldSig)
+		var oldHealth []byte
+		err = tx.QueryRow(ctx, `SELECT sig, health FROM device_status WHERE device_id = $1 FOR UPDATE`, id).Scan(&oldSig, &oldHealth)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return err
+		}
+		var healthJSON any
+		var newIssues []app.HealthIssue
+		if h.Health != nil {
+			b, _ := json.Marshal(h.Health)
+			healthJSON = b
+			var prev app.Health
+			if len(oldHealth) > 0 {
+				_ = json.Unmarshal(oldHealth, &prev)
+			}
+			newIssues = app.NewHealthIssues(prev.Issues, h.Health.Issues)
 		}
 		var status any
 		if h.Status != nil {
@@ -259,14 +271,15 @@ func (g *Registry) RecordHeartbeat(ctx context.Context, id int64, h app.Heartbea
 			rulesJSON, _ = json.Marshal(h.Rules)
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO device_status (device_id, received_at, agent_time, ip, uptime_s,
-			agent_version, rule_set_version, queue_pending, status, sig, rules)
-			VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			agent_version, rule_set_version, queue_pending, status, sig, rules, health)
+			VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 			ON CONFLICT (device_id) DO UPDATE SET received_at = now(), agent_time = EXCLUDED.agent_time,
 				ip = EXCLUDED.ip, uptime_s = EXCLUDED.uptime_s, agent_version = EXCLUDED.agent_version,
 				rule_set_version = EXCLUDED.rule_set_version, queue_pending = EXCLUDED.queue_pending,
-				status = coalesce(EXCLUDED.status, device_status.status), sig = EXCLUDED.sig, rules = EXCLUDED.rules`,
+				status = coalesce(EXCLUDED.status, device_status.status), sig = EXCLUDED.sig, rules = EXCLUDED.rules,
+				health = coalesce(EXCLUDED.health, device_status.health)`,
 			id, h.AgentTime, h.IP.String(), h.UptimeS, h.AgentVersion, h.RuleSetVersion, h.QueuePending,
-			status, nullStr(h.Sig), rulesJSON); err != nil {
+			status, nullStr(h.Sig), rulesJSON, healthJSON); err != nil {
 			return err
 		}
 		if h.Sig != "" && (oldSig == nil || *oldSig != h.Sig) {
@@ -276,7 +289,20 @@ func (g *Registry) RecordHeartbeat(ctx context.Context, id int64, h app.Heartbea
 				return err
 			}
 		}
-		_, err = applyPeriod(ctx, tx, cur, periods.Seen(cur, id, time.Now()))
+		now := time.Now()
+		if cur, err = applyPeriod(ctx, tx, cur, periods.Seen(cur, id, now)); err != nil {
+			return err
+		}
+		// Vấn đề sức khỏe mới (hoặc tăng mức): ghi thành sự kiện "may.<mã>" như sự kiện log — mở cảnh báo
+		// (high / critical), hiện thông báo trên web.
+		if len(newIssues) > 0 {
+			evs := make([]periods.Event, 0, len(newIssues))
+			for _, is := range newIssues {
+				evs = append(evs, periods.Event{RuleID: app.HealthPrefix + is.Code, Severity: is.Severity, Count: 1,
+					First: now, Last: now, Sample: is.Text})
+			}
+			_, err = applyPeriod(ctx, tx, cur, periods.AddEvents(cur, id, evs, now))
+		}
 		return err
 	})
 }
@@ -369,9 +395,11 @@ func (g *Registry) ListPeriods(ctx context.Context, deviceID int64, limit int) (
 		return tl, app.ErrNotFound
 	}
 	var seen *time.Time
-	if err := g.pool.QueryRow(ctx, `SELECT received_at FROM device_status WHERE device_id = $1`, deviceID).Scan(&seen); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	var status, health []byte
+	if err := g.pool.QueryRow(ctx, `SELECT received_at, status, health FROM device_status WHERE device_id = $1`, deviceID).Scan(&seen, &status, &health); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return tl, err
 	}
+	tl.Status, tl.Health = status, health
 	if seen != nil {
 		tl.LastSeen = *seen
 	}

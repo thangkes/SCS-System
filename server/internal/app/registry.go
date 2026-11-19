@@ -98,6 +98,9 @@ type Timeline struct {
 	LastSeen time.Time        `json:"last_seen,omitzero"`
 	Periods  []periods.Period `json:"periods"`
 	Changes  []StatusChange   `json:"status_changes"`
+	// Status / Health: trạng thái máy và sức khỏe theo heartbeat gần nhất (nil = agent chưa gửi).
+	Status json.RawMessage `json:"status,omitempty"`
+	Health json.RawMessage `json:"health,omitempty"`
 }
 
 // Release: một bản agent cho một kiến trúc, đã ký bằng khóa phát hành.
@@ -286,6 +289,8 @@ type Device struct {
 	CertExpires time.Time `json:"cert_expires,omitzero"`
 	// Rules: bộ rule máy báo đang cài (heartbeat gần nhất); nil = chưa có heartbeat / agent bản cũ.
 	Rules *protocol.RuleSetReport `json:"rules,omitempty"`
+	// Health: sức khỏe máy (Health) theo heartbeat gần nhất; nil = agent chưa gửi trạng thái máy.
+	Health json.RawMessage `json:"health,omitempty"`
 }
 
 // RuleUsage: số máy (đã duyệt) đang cài một bộ rule, theo tên, phiên bản, SHA-256.

@@ -106,7 +106,13 @@ var diskFS = map[string]bool{
 	"f2fs": true, "vfat": true, "exfat": true, "ntfs": true, "ntfs3": true, "fuseblk": true,
 }
 
-type mount struct{ Device, Path, FS string }
+type mount struct {
+	Device, Path, FS string
+	ReadOnly         bool
+}
+
+// usage: dung lượng và inode của một phân vùng (statfs).
+type usage struct{ total, free, inodes, inodesFree uint64 }
 
 // parseMounts đọc /proc/self/mounts, giữ phân vùng ổ thật, mỗi thiết bị một lần.
 func parseMounts(r io.Reader) []mount {
@@ -123,7 +129,13 @@ func parseMounts(r io.Reader) []mount {
 			continue
 		}
 		seen[f[0]] = true
-		out = append(out, mount{Device: f[0], Path: path, FS: f[2]})
+		ro := false
+		if len(f) > 3 {
+			for _, o := range strings.Split(f[3], ",") {
+				ro = ro || o == "ro"
+			}
+		}
+		out = append(out, mount{Device: f[0], Path: path, FS: f[2], ReadOnly: ro})
 		if len(out) == protocol.MaxDisks {
 			break
 		}

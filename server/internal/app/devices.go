@@ -207,6 +207,13 @@ func (a deviceAPI) alerts(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	for i := range list { // sự kiện sức khỏe máy: không nằm trong kho rule
+		for j := range list[i].Reasons {
+			if t := HealthTitle(list[i].Reasons[j].Rule); t != "" {
+				list[i].Reasons[j].Title = t
+			}
+		}
+	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "alerts": list, "policy": a.policy()})
 }
 

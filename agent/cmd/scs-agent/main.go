@@ -204,7 +204,7 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		}
 		err := heartbeat.Run(ctx, heartbeat.Deps{Log: log, Client: c, StateDir: cfg.StateDir, State: st,
 			Version: version, ReleasePub: cfg.ReleasePub, Scanner: sc, KeyDir: cfg.KeyDir, Renew: renew,
-			FirstDelay: firstDelay})
+			FirstDelay: firstDelay, Services: cfg.WatchServices, Status: sysinfo.Status})
 		stopScan()
 		<-scanDone
 		if errors.Is(err, heartbeat.ErrRestart) {

@@ -87,8 +87,11 @@ Agent chỉ tin CA trong `server-ca.pem`: server khác (kể cả chứng chỉ 
 
 Uptime, phiên bản rule, số sự kiện đang chờ gửi, và trạng thái máy: hostname, bản Ubuntu, kernel,
 số CPU, tải 1/5/15 phút, RAM và swap, dung lượng từng phân vùng, RAID phần mềm (`/proc/mdstat`:
-hỏng ổ, đang đồng bộ lại), đồng bộ giờ NTP, trạng thái các dịch vụ theo dõi. Phần nào không đọc được
-thì để trống kèm lý do, không làm hỏng cả heartbeat.
+hỏng ổ, đang đồng bộ lại), đồng bộ giờ NTP, trạng thái các dịch vụ theo dõi. Thêm (mốc A2): máy đã chạy bao lâu,
+nhiệt độ cao nhất các cảm biến (`/sys/class/thermal`), inode và cờ **chỉ đọc** của từng phân vùng, **ổ vật lý**
+(`/sys/block`: model, dung lượng, HDD/SSD, số lỗi I/O kernel đếm từ lần khởi động — `device/ioerr_cnt`, chỉ ổ
+SATA/SAS có). Tất cả đọc bằng user thường, không cần quyền thêm; chưa đọc SMART (cần quyền raw với ổ). Phần nào
+không đọc được thì để trống kèm lý do, không làm hỏng cả heartbeat. Xem trước: `scs-agent status`.
 
 ## Các mốc
 
@@ -96,7 +99,7 @@ thì để trống kèm lý do, không làm hỏng cả heartbeat.
 |---|---|---|
 | A0 | Khung, cấu hình, lệnh con, khóa máy, fingerprint, trạng thái máy | xong |
 | A1 | Ký gói, mTLS, đăng ký → chờ duyệt → nhận chứng chỉ | xong (server M3 xong) |
-| A2 | Heartbeat, bù lệch giờ, giãn nhịp khi server bận, nhiều địa chỉ server, cấu hình từ server xong; **gửi trạng thái máy trong heartbeat chưa làm** (server đã lưu theo giai đoạn) | một phần |
+| A2 | Heartbeat, bù lệch giờ, giãn nhịp khi server bận, nhiều địa chỉ server, cấu hình từ server; **gửi trạng thái máy trong heartbeat** (kể cả ổ vật lý, lỗi I/O, chỉ đọc, inode, nhiệt độ) | xong (chưa chạy thật) |
 | A3 | Quét log liên tục (`internal/watch`): file trong /var/log (nhớ vị trí `scan/positions.json`, nhận ra logrotate / cắt ngắn, lần đầu bắt đầu từ cuối file), journald qua `journalctl -f -o json` (nhớ con trỏ `scan/journal.cursor`), hàng đợi trên đĩa `scan/queue.jsonl` (tối đa 5.000, đầy thì bỏ sự kiện thường cũ trước), gửi `POST /v1/logs`: high / critical sau ~3 giây, còn lại mỗi phút; tự nạp lại khi bộ rule / nhãn máy đổi | xong, đang chạy thật |
 | A4 | Kéo rule có chữ ký: heartbeat trả bộ server gán, agent tải `GET /v1/rules/{tên@phiên bản}`, kiểm chữ ký, cài (lỗi thì 1 giờ sau thử lại) | xong |
 | A5 | Cài đặt: script + systemd (giới hạn quyền, tài nguyên) xong; gói .deb để sau | một phần |

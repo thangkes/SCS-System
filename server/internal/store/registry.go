@@ -186,7 +186,7 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		       coalesce(d.tn_no, 0), coalesce(d.tn_role, ''), d.status, d.public_key, d.fingerprint,
 		       d.os_version, d.agent_version, host(d.enroll_ip), coalesce(host(s.wan_ip), ''),
 		       d.requested_at, d.decided_at, coalesce(d.decided_by, ''), d.last_seen, coalesce(host(d.last_ip), ''), d.test_ring,
-		       st.rules, coalesce(d.auto_note, ''), d.cert_expires
+		       st.rules, coalesce(d.auto_note, ''), d.cert_expires, st.health
 		FROM devices d LEFT JOIN stores s ON s.code = d.store_code
 		LEFT JOIN device_status st ON st.device_id = d.id
 		WHERE d.status = $1
@@ -203,9 +203,10 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 		var decided, seen *time.Time
 		var rules []byte
 		var certExp *time.Time
+		var health []byte
 		if err := rows.Scan(&dv.ID, &dv.Hostname, &dv.HostnameOK, &dv.HostnameError, &dv.StoreCode, &dv.TN, &dv.Role,
 			&dv.Status, &pub, &dv.Fingerprint, &dv.OSVersion, &dv.AgentVersion, &dv.EnrollIP, &dv.StoreWANIP,
-			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing, &rules, &dv.AutoNote, &certExp); err != nil {
+			&dv.RequestedAt, &decided, &dv.DecidedBy, &seen, &dv.LastIP, &dv.TestRing, &rules, &dv.AutoNote, &certExp, &health); err != nil {
 			return nil, err
 		}
 		if len(rules) > 0 {
@@ -215,6 +216,9 @@ func (g *Registry) ListDevices(ctx context.Context, status string) ([]app.Device
 			}
 		}
 		dv.KeyID = app.KeyID(pub)
+		if len(health) > 0 {
+			dv.Health = health
+		}
 		if certExp != nil {
 			dv.CertExpires = *certExp
 		}

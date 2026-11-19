@@ -78,6 +78,8 @@ const (
 	MaxDisks    = 16
 	MaxRAID     = 8
 	MaxServices = 32
+	MaxBlock    = 16 // ổ vật lý
+	MaxErrors   = 16
 )
 
 // MachineStatus: trạng thái máy agent đọc được ở mỗi heartbeat. Trường nào không đọc được
@@ -94,7 +96,11 @@ type MachineStatus struct {
 	SwapTotalKB    uint64 `json:"swap_total_kb"`
 	SwapFreeKB     uint64 `json:"swap_free_kb"`
 
+	BootUptimeS int64 `json:"boot_uptime_s,omitempty"` // máy đã chạy bao lâu (giây) — khác uptime của agent
+	TempC       int   `json:"temp_c,omitempty"`        // nhiệt độ cao nhất các cảm biến (°C); 0 = không đọc được
+
 	Disks    []DiskStatus    `json:"disks,omitempty"`
+	Block    []BlockDevice   `json:"block,omitempty"` // ổ vật lý (/sys/block)
 	RAID     []RAIDStatus    `json:"raid,omitempty"`
 	TimeSync TimeSyncStatus  `json:"time_sync"`
 	Services []ServiceStatus `json:"services,omitempty"`
@@ -103,10 +109,26 @@ type MachineStatus struct {
 
 // DiskStatus: một phân vùng đang mount (bỏ qua tmpfs, squashfs...).
 type DiskStatus struct {
-	Mount      string `json:"mount"`
-	FS         string `json:"fs"`
-	TotalBytes uint64 `json:"total_bytes"`
-	FreeBytes  uint64 `json:"free_bytes"`
+	Mount       string `json:"mount"`
+	FS          string `json:"fs"`
+	Device      string `json:"device,omitempty"` // /dev/sda2
+	TotalBytes  uint64 `json:"total_bytes"`
+	FreeBytes   uint64 `json:"free_bytes"`
+	InodesTotal uint64 `json:"inodes_total,omitempty"`
+	InodesFree  uint64 `json:"inodes_free,omitempty"`
+	ReadOnly    bool   `json:"read_only,omitempty"` // đang mount chỉ đọc (ổ lỗi nặng thường bị kernel chuyển sang ro)
+}
+
+// BlockDevice: một ổ vật lý (/sys/block, bỏ loop / ram / zram / dm / md / ổ rời).
+type BlockDevice struct {
+	Name      string `json:"name"` // sda, nvme0n1
+	Model     string `json:"model,omitempty"`
+	SizeBytes uint64 `json:"size_bytes"`
+	SSD       bool   `json:"ssd"` // không quay (queue/rotational = 0)
+	// IOErrors: số lần lỗi I/O kernel đếm cho ổ từ lúc khởi động (device/ioerr_cnt, ổ SATA/SAS); IOErrKnown =
+	// false khi ổ không có bộ đếm này (NVMe, ổ ảo).
+	IOErrors   int64 `json:"io_errors"`
+	IOErrKnown bool  `json:"io_err_known"`
 }
 
 // RAIDStatus: một mảng RAID phần mềm (/proc/mdstat).

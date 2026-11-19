@@ -65,6 +65,10 @@ type Deps struct {
 	Scanner RuleScanner
 	// FirstDelay: chờ bấy lâu trước heartbeat đầu tiên (BootDelay khi máy vừa khởi động; 0 = gọi ngay).
 	FirstDelay time.Duration
+	// Services: dịch vụ cần báo trạng thái theo agent.env (server gửi danh sách khác thì dùng của server).
+	// Status: đọc trạng thái máy (sysinfo.Status; nil = không gửi — test).
+	Services []string
+	Status   func(services []string) *protocol.MachineStatus
 }
 
 // RuleScanner: phần quét log (watch.Scanner) heartbeat cần.
@@ -122,6 +126,13 @@ func Run(ctx context.Context, d Deps) error {
 			ServersHash: protocol.ServersHash(st.Servers), ServerURL: d.Client.Current(),
 			Capabilities: []string{protocol.CapRulesPrefix + strconv.Itoa(rules.SchemaMax)},
 			Rules:        report(d, st)}
+		if d.Status != nil {
+			watch := d.Services
+			if st.WatchServices != nil {
+				watch = st.WatchServices
+			}
+			body.Status = d.Status(watch)
+		}
 		if failedUpdate != "" {
 			body.UpdateError = &protocol.UpdateError{Version: failedUpdate, Error: shorten(failedMsg, 200)}
 		}

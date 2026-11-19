@@ -383,7 +383,7 @@
     setPendingCount(pending.length);
     setAlertCount(alerts);
     setRuleCount(ruleList);
-    const sig = JSON.stringify([approved.map((d) => [d.id, d.store_code, d.tn]), pending.length,
+    const sig = JSON.stringify([approved.map((d) => [d.id, d.store_code, d.tn, d.health && d.health.level, d.health && d.health.issues.length]), pending.length,
       alerts.map((a) => [a.id, a.severity, a.occurrences]), ruleList.map((e) => [e.name, e.version, e.status]),
       Object.values(storeCache).map((x) => [x.code, x.name])]);
     if (soft && sig === softSig.overview) return;
@@ -392,6 +392,10 @@
     const toSign = ruleList.filter((e) => e.status === 'chua-ky' || e.status === 'can-ky-lai');
 
     const serious = alerts.filter((a) => a.severity === 'high' || a.severity === 'critical').length;
+    const hc = { ok: 0, warn: 0, bad: 0, none: 0, top: [] };
+    approved.forEach((d) => { const h = healthOf(d); hc[h ? h.level : 'none']++; if (h && h.level !== 'ok') hc.top.push(d); });
+    hc.top.sort((a, b) => RANK[b.health.level] - RANK[a.health.level] || a.hostname.localeCompare(b.hostname));
+    hc.top = hc.top.slice(0, 8);
     // Số siêu thị có máy đang hoạt động (máy chưa có mã siêu thị không tính).
     const stores = [...new Set(approved.map((d) => d.store_code).filter(Boolean))];
 
@@ -405,7 +409,11 @@
         ${kpi('Chờ duyệt', fmtNum(pending.length), 'yêu cầu đăng ký mới', pending.length ? 'is-warn' : '')}
         ${kpi('Cảnh báo đang mở', fmtNum(alerts.length), `${fmtNum(serious)} mức cao / nghiêm trọng`, serious ? 'is-bad' : (alerts.length ? 'is-warn' : ''))}
         ${kpi('Mất liên lạc', fmtNum(alerts.filter((a) => a.kind === 'offline').length), 'máy quá hạn không gửi gì', alerts.some((a) => a.kind === 'offline') ? 'is-warn' : '')}
+        ${kpi('Sức khỏe máy', `${fmtNum(hc.bad)} nguy hiểm`, `${fmtNum(hc.warn)} cần chú ý · ${fmtNum(hc.ok)} tốt · ${fmtNum(hc.none)} chưa gửi`, hc.bad ? 'is-bad' : hc.warn ? 'is-warn' : '')}
       </div>
+      ${hc.top.length ? `<div class="card"><div class="card-head"><h2>Máy có vấn đề sức khỏe</h2><div class="right"><a href="#/may" class="btn btn-sm">Trang Máy</a></div></div>
+        <ul class="list health-top">${hc.top.map((d) => `<li class="clickable" data-dev="${d.id}" tabindex="0"><div class="grow"><span class="strong mono">${esc(d.hostname)}</span>
+          <span class="sub">${esc(d.health.issues.slice(0, 3).map((i) => i.text).join(' · '))}${d.health.issues.length > 3 ? ' …' : ''}</span></div>${healthCell(d)}</li>`).join('')}</ul></div>` : ''}
 
       <div class="grid-2">
         <div class="card">
@@ -698,6 +706,67 @@
     refreshTimer = setInterval(() => { if (st.preset === '24h') load(); }, 60000); // 24 giờ gần nhất: tự cập nhật mỗi phút
   }
 
+
+  // ---------------------------------------------------------------- sức khỏe máy (agent gửi trạng thái máy)
+  // health = { level: ok | warn | bad, issues: [{code, severity, text}] } do server tính; null = agent chưa gửi.
+  const HEALTH_TXT = { ok: ['pill-ok', 'Tốt'], warn: ['pill-warn', 'Cần chú ý'], bad: ['pill-bad', 'Nguy hiểm'] };
+  const healthOf = (d) => (d && d.health && HEALTH_TXT[d.health.level] ? d.health : null);
+  function healthCell(d) {
+    const h = healthOf(d);
+    if (!h) return '<span class="sub">chưa gửi</span>';
+    const [cls, txt] = HEALTH_TXT[h.level];
+    const n = (h.issues || []).length;
+    return `<span class="pill ${cls} no-dot" title="${esc((h.issues || []).map((i) => i.text).join('\n'))}">${esc(txt)}${n ? ` · ${n}` : ''}</span>`;
+  }
+  // Tiêu đề sự kiện sức khỏe "may.<mã>" (dòng thời gian; trang Cảnh báo có tiêu đề từ server).
+  function healthTitle(id) {
+    if (!id.startsWith('may.')) return '';
+    const [kind, arg] = id.slice(4).split(/:(.*)/s);
+    return ({ disk_full: `Phân vùng ${arg} sắp đầy`, inode_full: `Phân vùng ${arg} hết inode`, fs_ro: `Phân vùng ${arg} bị chuyển sang chỉ đọc`,
+      io_err: `Ổ ${arg} có lỗi I/O`, raid: `RAID ${arg} hỏng`, svc: `Dịch vụ ${arg} không chạy`, time: 'Đồng hồ chưa đồng bộ',
+      mem: 'RAM thấp kéo dài', temp: 'Nhiệt độ máy cao' })[kind] || 'Sức khỏe máy';
+  }
+
+  // Thẻ "Tình trạng máy" trong chi tiết máy.
+  function healthSection(st, h) {
+    if (!st) return `<h3>Tình trạng máy</h3><p class="hint">Agent chưa gửi trạng thái máy (agent bản cũ: phát hành bản agent mới).</p>`;
+    const pct = (used, total) => (total > 0 ? (used * 100) / total : -1);
+    const memUsed = st.mem_total_kb ? st.mem_total_kb - st.mem_available_kb : 0;
+    const swapUsed = st.swap_total_kb ? st.swap_total_kb - st.swap_free_kb : 0;
+    const issues = (h && h.issues) || [];
+    const disks = (st.disks || []).map((d) => {
+      const used = d.total_bytes - Math.min(d.free_bytes, d.total_bytes);
+      const ino = d.inodes_total ? ` · inode ${Math.round(pct(d.inodes_total - d.inodes_free, d.inodes_total))}%` : '';
+      return meter(`${d.mount} (${d.fs})${d.read_only ? ' — CHỈ ĐỌC' : ''}`, pct(used, d.total_bytes),
+        `${fmtBytes(used)} / ${fmtBytes(d.total_bytes)}`, `${d.device || ''}${ino}`);
+    }).join('');
+    const block = (st.block || []).map((b) => `<li><span class="mono">${esc(b.name)}</span> ${esc(b.model || '')}
+      <span class="sub">${esc(fmtBytes(b.size_bytes))} · ${b.ssd ? 'SSD' : 'HDD'} · ${b.io_err_known
+        ? (b.io_errors ? `<strong class="txt-bad">${fmtNum(b.io_errors)} lỗi I/O từ lần khởi động</strong>` : 'không có lỗi I/O')
+        : 'không có bộ đếm lỗi I/O'}</span></li>`).join('');
+    const raid = (st.raid || []).map((r) => `<li><span class="mono">${esc(r.name)}</span> ${esc(r.level)} · ${r.active}/${r.disks} ổ
+      ${r.degraded ? '<span class="pill pill-bad no-dot">Hỏng</span>' : r.sync ? `<span class="pill pill-warn no-dot">${esc(r.sync)}</span>` : '<span class="pill pill-ok no-dot">OK</span>'}</li>`).join('');
+    const svcs = (st.services || []).map((s) => `<li><span class="mono">${esc(s.name)}</span>
+      <span class="pill ${s.active === 'active' ? 'pill-ok' : s.active === 'failed' || s.active === 'inactive' ? 'pill-bad' : 'pill-warn'} no-dot">${esc(s.active)}${s.sub ? ` · ${esc(s.sub)}` : ''}</span></li>`).join('');
+    return `<h3>Tình trạng máy ${h ? `<span class="pill ${HEALTH_TXT[h.level][0]} no-dot">${esc(HEALTH_TXT[h.level][1])}</span>` : ''}</h3>
+      ${issues.length ? `<ul class="health-issues">${issues.map((i) => `<li>${pill(SEV[i.severity] || SEV.low)} ${esc(i.text)}</li>`).join('')}</ul>` : '<p class="hint">Không có vấn đề.</p>'}
+      <dl class="kv">
+        <dt>Hệ điều hành</dt><dd>${esc(st.os || '—')} <span class="sub mono">${esc(st.kernel || '')}</span></dd>
+        <dt>Máy chạy</dt><dd>${esc(fmtUptime(st.boot_uptime_s))}</dd>
+        <dt>CPU</dt><dd>${esc(st.cpus || '—')} lõi · tải ${esc((st.load || []).map((x) => x.toFixed(2)).join(' / ') || '—')}${st.temp_c ? ` · ${esc(st.temp_c)}°C` : ''}</dd>
+        <dt>Đồng hồ</dt><dd>${!st.time_sync || !st.time_sync.checked ? 'không kiểm được' : st.time_sync.synced ? 'Đã đồng bộ NTP' : '<span class="pill pill-warn no-dot">Chưa đồng bộ</span>'}</dd>
+      </dl>
+      <div class="health-meters">
+        ${meter('RAM', pct(memUsed, st.mem_total_kb), `${fmtBytes(memUsed * 1024)} / ${fmtBytes(st.mem_total_kb * 1024)}`)}
+        ${st.swap_total_kb ? meter('Swap', pct(swapUsed, st.swap_total_kb), `${fmtBytes(swapUsed * 1024)} / ${fmtBytes(st.swap_total_kb * 1024)}`) : ''}
+        ${disks}
+      </div>
+      ${block ? `<h4>Ổ vật lý</h4><ul class="health-list">${block}</ul>` : ''}
+      ${raid ? `<h4>RAID</h4><ul class="health-list">${raid}</ul>` : ''}
+      ${svcs ? `<h4>Dịch vụ theo dõi</h4><ul class="health-list">${svcs}</ul>` : ''}
+      ${(st.errors || []).length ? `<details><summary class="sub">${fmtNum(st.errors.length)} phần agent không đọc được</summary><ul class="health-list">${st.errors.map((e) => `<li class="sub">${esc(e)}</li>`).join('')}</ul></details>` : ''}`;
+  }
+
   // ---------------------------------------------------------------- trang: Máy
   // Gom theo mã siêu thị; viền màu theo máy tệ nhất trong siêu thị (cảnh báo đang mở):
   //   đỏ  = cảnh báo nghiêm trọng (critical) hoặc mất liên lạc: cần người xử lý
@@ -723,6 +792,7 @@
             <option value="approved">Đang hoạt động</option><option value="revoked">Đã thu hồi</option>
             <option value="rejected">Đã từ chối</option>
           </select>
+          <label class="chk"><input type="checkbox" id="dev-sick"> Chỉ máy có vấn đề sức khỏe</label>
           <span class="count" id="dev-count"></span>
           <button type="button" class="btn btn-sm" id="dev-import" title="Nạp thông tin siêu thị từ file .xlsx / .csv (quyền: Duyệt và phát hành rule trở lên)">Nạp thông tin từ file</button>
           <div class="right store-legend" aria-hidden="true">
@@ -743,6 +813,7 @@
         <td class="hide-sm mono">${esc(d.last_ip || d.enroll_ip)}</td>
         <td class="hide-sm mono">${esc(d.agent_version || '—')}</td>
         <td class="hide-sm">${ruleCell(d.rules)}</td>
+        <td>${healthCell(d)}</td>
       </tr>`;
 
     const render = () => {
@@ -754,6 +825,8 @@
           if (a.device_id) byDev[a.device_id] = worst(byDev[a.device_id] || 'ok', l);
           else if (a.store_code && a.kind !== 'enroll_request') byStore[a.store_code] = worst(byStore[a.store_code] || 'ok', l);
         });
+        // Sức khỏe máy hiện tại (ổ đầy, RAID hỏng, dịch vụ dừng…) cũng tô màu, kể cả khi cảnh báo đã đóng.
+        state.list.forEach((d) => { const h = healthOf(d); if (h && h.level !== 'ok') byDev[d.id] = worst(byDev[d.id] || 'ok', h.level); });
       }
       const pendingBy = {};
       if (colored) state.pending.forEach((d) => { const k = d.store_code || ''; pendingBy[k] = (pendingBy[k] || 0) + 1; });
@@ -763,6 +836,7 @@
         .some((v) => (v || '').toLowerCase().includes(q));
       const groups = {};
       state.list.forEach((d) => {
+        if (state.sick && !(healthOf(d) && healthOf(d).level !== 'ok')) return;
         const k = d.store_code || '';
         (groups[k] ||= { code: k, devs: [] }).devs.push(d);
       });
@@ -812,7 +886,7 @@
             <span class="store-last hide-sm">${g.last ? esc(ago(new Date(g.last))) : '—'}</span>
           </button>
           ${open ? `${g.code ? storeSummary(g.code, g.info) : ''}<div class="table-wrap"><table class="store-devs">
-            <thead><tr><th>Máy</th><th>Vị trí</th><th>Liên lạc lần cuối</th><th class="hide-sm">IP</th><th class="hide-sm">Agent</th><th class="hide-sm">Bộ rule</th></tr></thead>
+            <thead><tr><th>Máy</th><th>Vị trí</th><th>Liên lạc lần cuối</th><th class="hide-sm">IP</th><th class="hide-sm">Agent</th><th class="hide-sm">Bộ rule</th><th>Sức khỏe</th></tr></thead>
             <tbody>${g.show.map((d) => devRow(d, g.lv[g.devs.indexOf(d)])).join('')}</tbody></table></div>` : ''}
         </div>`;
       }).join('') || `<p class="empty">${state.list.length ? 'Không có máy nào khớp tìm kiếm.' : 'Không có máy nào.'}</p>`;
@@ -842,6 +916,7 @@
 
     $('#dev-import').addEventListener('click', () => importStores(() => { state.sig = ''; load(); }));
     $('#dev-q').addEventListener('input', (e) => { state.q = e.target.value; state.page = 0; render(); });
+    $('#dev-sick').addEventListener('change', (e) => { state.sick = e.target.checked; state.page = 0; render(); });
     $('#dev-status').addEventListener('change', (e) => { state.status = e.target.value; state.page = 0; state.open.clear(); load(); });
     $('#dev-prev').addEventListener('click', () => { state.page--; render(); });
     $('#dev-next').addEventListener('click', () => { state.page++; render(); });
@@ -1155,13 +1230,15 @@
       return;
     }
     if (!$('#dev-timeline') || box !== $('#dev-timeline')) return;
+    const hbox = $('#dev-health');
+    if (hbox) { hbox.innerHTML = healthSection(tl.status, tl.health && HEALTH_TXT[tl.health.level] ? tl.health : null); sizeMeters(hbox); }
     const lastSeen = tl.last_seen ? new Date(tl.last_seen) : null;
     const item = (p) => {
       const start = new Date(p.started_at);
       const open = !p.ended_at;
       const end = open ? (lastSeen && lastSeen > start ? lastSeen : new Date()) : new Date(p.ended_at);
       const all = Object.entries(p.rules || {}).sort((a, b) => b[1].count - a[1].count);
-      const ruleLi = ([id, r]) => `<li><span class="mono">${esc(id)}</span> ${pill(SEV[r.severity] || SEV.low)} ×${fmtNum(r.count)}${sampleHTML(r.sample)}</li>`;
+      const ruleLi = ([id, r]) => `<li>${healthTitle(id) ? `<strong>${esc(healthTitle(id))}</strong> ` : ''}<span class="mono">${esc(id)}</span> ${pill(SEV[r.severity] || SEV.low)} ×${fmtNum(r.count)}${sampleHTML(r.sample)}</li>`;
       const rest = all.slice(TL_RULES);
       return `<li class="period period-${esc(p.kind)}">
         <div class="period-head">${pill(PERIOD_KIND[p.kind] || ['', p.kind])}
@@ -1232,6 +1309,7 @@
         ${d.rules.installed ? `<dt>Rule chạy trên máy</dt><dd>${fmtNum(d.rules.active)} / ${fmtNum(d.rules.total)} (rule không khớp applies_to của máy thì bỏ qua)</dd>
         <dt>Quét log</dt><dd>${d.rules.scanning ? 'Đang quét liên tục, sự kiện gửi về server' : 'Chưa quét (agent bản cũ, hoặc không có rule nào chạy trên máy này)'}</dd>` : ''}
       </dl>`}</section>
+      <section id="dev-health"><h3>Tình trạng máy</h3><p class="hint">Đang tải…</p></section>
       <section id="dev-timeline"><h3>Dòng thời gian</h3><p class="hint">Đang tải…</p></section>
       <section><h3>Nhận dạng</h3><dl class="kv">
         <dt>Mã khóa</dt><dd class="mono">${esc(d.key_id)}</dd>
