@@ -168,6 +168,23 @@ kho — phiên đăng nhập web và kết nối agent giữ nguyên; rồi phá
 giao thức (`common/protocol`) hay cấu trúc DB thì script cảnh báo và hỏi lại — khi đó dùng mục 4. Server bản cũ (trước khi có
 tự nạp) chỉ nạp khi khởi động lại.
 
+**Chép nguyên server sang máy khác qua mạng** (menu mục 20, `scripts/move-server.sh`) — ví dụ đưa server thử nghiệm
+bên ngoài về trụ sở. Giữ đúng CA và khóa phát hành nên **agent không phải cài lại**:
+
+1. Máy mới: clone repo (cùng hoặc mới hơn bản máy cũ), menu mục 1 → 2. **Chưa** chạy mục 3.
+2. Máy cũ, menu mục 15: thêm địa chỉ máy mới cho agent, mở chuyển tiếp cổng 6222 về máy mới; chờ gần 100% máy nhận danh sách.
+3. Máy cũ (user thường có khóa SSH tới máy mới): `sudo bash server/scripts/move-server.sh export --to <user>@<máy mới>` —
+   dừng và tắt tự chạy server cũ, sao lưu DB, gom `/etc/scs-server` + `/var/lib/scs-server`, chép bằng scp, kiểm SHA-256
+   hai đầu, xóa bản tạm.
+4. Máy mới: `sudo bash server/scripts/move-server.sh import --bundle ~/scs-move-<giờ>.tar.gz --wan-ip <IP WAN mới> [--lan-ip <IP LAN>]`
+   — đặt khóa / cấu hình đúng quyền, khôi phục DB (sao lưu DB đang có trước), chạy `install.sh` (giữ CA, thêm IP mới vào
+   chứng chỉ server, dùng mật khẩu DB của máy mới), hỏi xóa gói.
+5. Máy mới chạy ổn 1–2 ngày: gỡ địa chỉ cũ (mục 15), **xóa sạch máy cũ** (DB, bản sao lưu, `/etc/scs-server`, khóa).
+   Quay lại máy cũ khi cần: `sudo systemctl enable --now scs-server` trên máy cũ.
+
+Gói chứa khóa CA, khóa phát hành, mật khẩu và email người dùng: chỉ đi qua SSH, nằm trong thư mục 700 của root, xóa bằng
+`shred` ngay khi xong.
+
 **Thông báo bản mới**: máy server tự kiểm GitHub 6 giờ một lần (timer `scs-server-update-check`, cài cùng lần cập nhật);
 có bản mới thì web hiện "Có bản mới" cho quản trị gốc và mức 1, trang **Hệ thống** liệt kê các thay đổi. **Không tự cài**:
 vẫn cập nhật bằng menu mục 4 / lệnh trên. Kiểm ngay: `sudo systemctl start scs-server-update-check`.

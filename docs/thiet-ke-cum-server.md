@@ -475,8 +475,9 @@ Giữ **đúng CA và khóa phát hành** thì agent đang chạy vẫn tin serv
    khác.
 
 Rủi ro chính là lúc chép: trong một khoảng ngắn có **hai bản** CA, khóa phát hành và email người dùng. Giảm: chép một
-lần, qua SSH, xóa máy cũ ngay khi xong; không giữ bản trung gian ở máy cá nhân. (Có thể viết script `move-server.sh`
-đóng gói bước 4–6 có kiểm SHA-256 — tùy chọn, chưa làm.)
+lần, qua SSH, xóa máy cũ ngay khi xong; không giữ bản trung gian ở máy cá nhân. Bước 3–6 đã có
+script: menu mục 20 / `scripts/move-server.sh export | import` (scp + SHA-256 hai đầu, xóa bản tạm bằng `shred`) — xem
+INSTALL.md.
 
 ### 17.2 Hướng B — mô hình server chủ
 

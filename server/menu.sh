@@ -334,6 +334,35 @@ do_backup() {
 	esac
 }
 
+# do_move: chép nguyên server (DB, CA, khóa phát hành, cấu hình, dữ liệu) sang máy khác qua SSH.
+do_move() {
+	echo "  Chép NGUYÊN server sang máy khác qua SSH, giữ CA và khóa phát hành (agent không phải cài lại)."
+	echo "  Máy mới: đã chạy mục 1 → 2, CHƯA chạy mục 3; code cùng hoặc mới hơn máy này."
+	echo "  Trước khi chép: thêm địa chỉ máy mới vào danh sách cho agent (mục 15) và chờ gần 100% máy nhận."
+	echo
+	echo "   1) Máy CŨ — đóng gói và gửi sang máy mới (DỪNG server này)"
+	echo "   2) Máy MỚI — cài từ gói nhận được"
+	echo "   0) Quay lại"
+	ask "Chọn" 0
+	case "$REPLY" in
+		1)
+			ask "Máy mới (user@IP hoặc user@tên)" ""
+			local to="$REPLY"
+			ask "Cổng SSH" 22
+			sudo bash "$SCRIPTS/move-server.sh" export --to "$to" --port "$REPLY"
+			;;
+		2)
+			ask "Đường dẫn gói (scs-move-*.tar.gz)" "$(ls -t "$HOME"/scs-move-*.tar.gz 2>/dev/null | head -n1)"
+			local bundle="$REPLY" args=()
+			ask "IP WAN của máy này (agent gọi tới; Enter = bỏ qua)" ""
+			[[ -z "$REPLY" ]] || args+=(--wan-ip "$REPLY")
+			ask "IP LAN của máy này (Enter = bỏ qua)" "$(lan_ip || true)"
+			[[ -z "$REPLY" ]] || args+=(--lan-ip "$REPLY")
+			sudo bash "$SCRIPTS/move-server.sh" import --bundle "$bundle" "${args[@]}"
+			;;
+	esac
+}
+
 do_uninstall() {
 	confirm "Gỡ dịch vụ scs-server? (giữ cấu hình, CA, dữ liệu; cài lại bằng mục 3)" || return 0
 	sudo bash "$SCRIPTS/install.sh" --uninstall
@@ -749,6 +778,7 @@ while true; do
 
   ${C_B}Dữ liệu${C_0}
   18) Sao lưu DB: sao lưu ngay, xem các bản, lịch 15 ngày, cách khôi phục
+  20) Chép nguyên server sang máy khác qua SSH (giữ CA, agent không phải cài lại)
 
    0) Thoát
 EOF
@@ -775,6 +805,7 @@ EOF
 		16) do_rules ;;
 		17) do_mail ;;
 		18) do_backup ;;
+		20) do_move ;;
 		0 | q | Q | "") exit 0 ;;
 		*) echo "  Không có mục \"$choice\"." ;;
 	esac
