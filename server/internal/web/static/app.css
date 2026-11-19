@@ -219,7 +219,8 @@ label { font-weight: 600; font-size: 13px; }
 .health-list .sub { margin-left: 6px; }
 #dev-health h4 { margin: 12px 0 4px; font-size: 13px; color: var(--muted); }
 .txt-bad { color: var(--bad); }
-.health-top .sub { display: block; margin-top: 2px; }
+.callout.callout-info { background: var(--info-soft); color: var(--text); margin-bottom: 16px; }
+.hl-kinds { padding: 12px 18px 16px; }
 .chk { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); white-space: nowrap; }
 .update-list { margin: 0; padding: 4px 18px 8px 18px; list-style: none; display: grid; gap: 10px; }
 .update-list li { border-left: 3px solid var(--warn); padding: 2px 0 2px 10px; }

@@ -229,9 +229,11 @@ chấm sức khỏe — **Tốt** (không vấn đề), **Cần chú ý** (chỉ
 - **Tách khỏi cảnh báo**: sức khỏe không ghi sự kiện, không mở giai đoạn cảnh báo, không vào trang Cảnh báo, không tô
   viền siêu thị (viền vẫn chỉ theo cảnh báo log / mất liên lạc). Bản 6963dd3 từng ghi vấn đề sức khỏe thành sự kiện
   `may.<mã>`; migration 0017 đóng các cảnh báo đang mở chỉ gồm sự kiện đó (cảnh báo có lẫn sự kiện log giữ nguyên).
-- Web: chi tiết máy có thẻ **Tình trạng máy** (vấn đề, RAM / swap / từng phân vùng, ổ vật lý + lỗi I/O, RAID, dịch vụ,
-  NTP, phần không đọc được); trang **Máy** có cột **Sức khỏe** và ô "Chỉ máy có vấn đề sức khỏe"; **Tổng quan** có ô
-  đếm và danh sách máy có vấn đề.
+- Web: menu riêng **Sức khỏe máy** (nhóm **Tham khảo**, mọi mức quyền xem được): số máy Nguy hiểm / Cần chú ý / Tốt /
+  Chưa gửi, các loại vấn đề đang có (bấm để lọc), bảng máy kèm vấn đề, tìm theo mã siêu thị / hostname / vấn đề, bấm
+  máy mở chi tiết. Chi tiết máy có thẻ **Tình trạng máy** (vấn đề, RAM / swap / từng phân vùng, ổ vật lý + lỗi I/O,
+  RAID, dịch vụ, NTP, phần không đọc được); trang **Máy** có cột **Sức khỏe** và ô "Chỉ máy có vấn đề sức khỏe".
+  Tổng quan không hiện sức khỏe (trang đó dành cho cảnh báo).
 - Chưa đọc **SMART** (cần quyền raw với ổ, agent chạy user thường).
 
 ## Thông báo bản server mới (chỉ đề xuất)

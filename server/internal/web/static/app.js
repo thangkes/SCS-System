@@ -383,7 +383,7 @@
     setPendingCount(pending.length);
     setAlertCount(alerts);
     setRuleCount(ruleList);
-    const sig = JSON.stringify([approved.map((d) => [d.id, d.store_code, d.tn, d.health && d.health.level, d.health && d.health.issues.length]), pending.length,
+    const sig = JSON.stringify([approved.map((d) => [d.id, d.store_code, d.tn]), pending.length,
       alerts.map((a) => [a.id, a.severity, a.occurrences]), ruleList.map((e) => [e.name, e.version, e.status]),
       Object.values(storeCache).map((x) => [x.code, x.name])]);
     if (soft && sig === softSig.overview) return;
@@ -392,10 +392,6 @@
     const toSign = ruleList.filter((e) => e.status === 'chua-ky' || e.status === 'can-ky-lai');
 
     const serious = alerts.filter((a) => a.severity === 'high' || a.severity === 'critical').length;
-    const hc = { ok: 0, warn: 0, bad: 0, none: 0, top: [] };
-    approved.forEach((d) => { const h = healthOf(d); hc[h ? h.level : 'none']++; if (h && h.level !== 'ok') hc.top.push(d); });
-    hc.top.sort((a, b) => RANK[b.health.level] - RANK[a.health.level] || a.hostname.localeCompare(b.hostname));
-    hc.top = hc.top.slice(0, 8);
     // Số siêu thị có máy đang hoạt động (máy chưa có mã siêu thị không tính).
     const stores = [...new Set(approved.map((d) => d.store_code).filter(Boolean))];
 
@@ -409,11 +405,7 @@
         ${kpi('Chờ duyệt', fmtNum(pending.length), 'yêu cầu đăng ký mới', pending.length ? 'is-warn' : '')}
         ${kpi('Cảnh báo đang mở', fmtNum(alerts.length), `${fmtNum(serious)} mức cao / nghiêm trọng`, serious ? 'is-bad' : (alerts.length ? 'is-warn' : ''))}
         ${kpi('Mất liên lạc', fmtNum(alerts.filter((a) => a.kind === 'offline').length), 'máy quá hạn không gửi gì', alerts.some((a) => a.kind === 'offline') ? 'is-warn' : '')}
-        ${kpi('Sức khỏe máy', `${fmtNum(hc.bad)} nguy hiểm`, `${fmtNum(hc.warn)} cần chú ý · ${fmtNum(hc.ok)} tốt · ${fmtNum(hc.none)} chưa gửi`, hc.bad ? 'is-bad' : hc.warn ? 'is-warn' : '')}
       </div>
-      ${hc.top.length ? `<div class="card"><div class="card-head"><h2>Máy có vấn đề sức khỏe</h2><div class="right"><a href="#/may" class="btn btn-sm">Trang Máy</a></div></div>
-        <ul class="list health-top">${hc.top.map((d) => `<li class="clickable" data-dev="${d.id}" tabindex="0"><div class="grow"><span class="strong mono">${esc(d.hostname)}</span>
-          <span class="sub">${esc(d.health.issues.slice(0, 3).map((i) => i.text).join(' · '))}${d.health.issues.length > 3 ? ' …' : ''}</span></div>${healthCell(d)}</li>`).join('')}</ul></div>` : ''}
 
       <div class="grid-2">
         <div class="card">
@@ -930,6 +922,124 @@
         render();
         return;
       }
+      const tr = e.target.closest('tr[data-id]');
+      if (tr) showDevice(state.list.find((d) => String(d.id) === tr.dataset.id), load);
+    });
+    load();
+    liveReload = load;
+  }
+
+
+  // ---------------------------------------------------------------- trang: Sức khỏe máy (tham khảo)
+  // Tách hoàn toàn với Cảnh báo: chỉ đọc trạng thái agent gửi gần nhất, không mở / đóng gì. Bấm máy để xem chi tiết.
+  const HEALTH_KINDS = { disk_full: 'Ổ đầy', fs_ro: 'Phân vùng chỉ đọc', io_err: 'Lỗi I/O ổ', raid: 'RAID hỏng', svc: 'Dịch vụ dừng',
+    inode_full: 'Hết inode', temp: 'Nhiệt độ cao', time: 'Đồng hồ lệch', mem: 'RAM thấp' };
+  const healthKind = (code) => String(code).split(':')[0];
+
+  async function pageHealth(params) {
+    setTitle('Sức khỏe máy');
+    const page = view;
+    const state = { q: params.get('q') || '', level: params.get('level') || 'issue', kind: params.get('kind') || '', page: 0, list: [] };
+    const PAGE = 50;
+    page.innerHTML = `
+      <div class="callout callout-info"><strong>Thông tin tham khảo.</strong> Trạng thái máy agent gửi trong heartbeat gần nhất (ổ đĩa, ổ vật lý và lỗi I/O, RAID,
+        dịch vụ, RAM, nhiệt độ, đồng hồ). Không phải cảnh báo: không mở sự cố, không tính vào trang Cảnh báo; hết vấn đề thì tự về Tốt.</div>
+      <div class="grid-kpi" id="hl-kpi"></div>
+      <div class="card">
+        <div class="card-head"><h2>Vấn đề đang có</h2><span class="sub">Bấm để lọc</span></div>
+        <div class="chips hl-kinds" id="hl-kinds"></div>
+      </div>
+      <div class="card">
+        <div class="toolbar">
+          <input type="search" id="hl-q" placeholder="Tìm mã siêu thị, hostname, vấn đề…" value="${esc(state.q)}" aria-label="Tìm máy">
+          <select id="hl-level" aria-label="Lọc mức">
+            <option value="issue">Có vấn đề</option><option value="bad">Nguy hiểm</option><option value="warn">Cần chú ý</option>
+            <option value="ok">Tốt</option><option value="none">Chưa gửi</option><option value="all">Tất cả</option>
+          </select>
+          <span class="count" id="hl-count"></span>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Máy</th><th>Sức khỏe</th><th>Vấn đề</th><th class="hide-sm">Liên lạc lần cuối</th><th class="hide-sm">Agent</th></tr></thead>
+          <tbody id="hl-rows"><tr><td colspan="5" class="empty">Đang tải…</td></tr></tbody>
+        </table></div>
+        <div class="pager"><span id="hl-range"></span><div class="btns">
+          <button class="btn btn-sm" id="hl-prev">Trước</button><button class="btn btn-sm" id="hl-next">Sau</button></div></div>
+      </div>`;
+    $('#hl-level').value = state.level;
+
+    const render = () => {
+      const all = state.list;
+      const cnt = { ok: 0, warn: 0, bad: 0, none: 0 };
+      const kinds = {};
+      all.forEach((d) => {
+        const h = healthOf(d);
+        cnt[h ? h.level : 'none']++;
+        if (h) new Set((h.issues || []).map((i) => healthKind(i.code))).forEach((k) => { kinds[k] = (kinds[k] || 0) + 1; });
+      });
+      $('#hl-kpi').innerHTML = `
+        ${kpi('Nguy hiểm', fmtNum(cnt.bad), 'có vấn đề mức cao / nghiêm trọng', cnt.bad ? 'is-bad' : '')}
+        ${kpi('Cần chú ý', fmtNum(cnt.warn), 'chỉ vấn đề mức trung bình', cnt.warn ? 'is-warn' : '')}
+        ${kpi('Tốt', fmtNum(cnt.ok), 'không có vấn đề')}
+        ${kpi('Chưa gửi', fmtNum(cnt.none), 'agent bản cũ / chưa có heartbeat')}`;
+      const kindList = Object.entries(kinds).sort((a, b) => b[1] - a[1]);
+      $('#hl-kinds').innerHTML = kindList.length
+        ? `<button type="button" class="chip${state.kind ? '' : ' active'}" data-kind="">Tất cả</button>` +
+          kindList.map(([k, n]) => `<button type="button" class="chip${state.kind === k ? ' active' : ''}" data-kind="${esc(k)}">${esc(HEALTH_KINDS[k] || k)} · ${fmtNum(n)}</button>`).join('')
+        : '<p class="hint">Không máy nào có vấn đề.</p>';
+
+      const q = state.q.trim().toLowerCase();
+      const rows = all.filter((d) => {
+        const h = healthOf(d);
+        const lv = h ? h.level : 'none';
+        if (state.level === 'issue' ? !(lv === 'bad' || lv === 'warn') : state.level !== 'all' && lv !== state.level) return false;
+        if (state.kind && !(h && (h.issues || []).some((i) => healthKind(i.code) === state.kind))) return false;
+        if (!q) return true;
+        return [d.hostname, d.store_code, storeLabel(d.store_code || ''), ...((h && h.issues) || []).map((i) => i.text)]
+          .some((v) => (v || '').toLowerCase().includes(q));
+      }).sort((a, b) => (RANK[(healthOf(b) || {}).level] ?? -1) - (RANK[(healthOf(a) || {}).level] ?? -1) ||
+        ((healthOf(b) || {}).issues || []).length - ((healthOf(a) || {}).issues || []).length || a.hostname.localeCompare(b.hostname));
+      const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+      state.page = Math.min(state.page, pages - 1);
+      $('#hl-count').textContent = `${fmtNum(rows.length)} / ${fmtNum(all.length)} máy`;
+      $('#hl-range').textContent = rows.length > PAGE ? `Trang ${state.page + 1} / ${pages}` : '';
+      $('#hl-prev').disabled = state.page === 0;
+      $('#hl-next').disabled = state.page >= pages - 1;
+      $('#hl-rows').innerHTML = rows.slice(state.page * PAGE, state.page * PAGE + PAGE).map((d) => {
+        const h = healthOf(d);
+        const issues = (h && h.issues) || [];
+        return `<tr class="clickable" data-id="${d.id}">
+          <td><span class="strong mono">${esc(d.hostname)}</span><span class="sub">${esc(d.store_code ? storeLabel(d.store_code) : 'chưa có mã siêu thị')}</span></td>
+          <td>${healthCell(d)}</td>
+          <td>${issues.length ? `<ul class="health-issues">${issues.map((i) => `<li>${pill(SEV[i.severity] || SEV.low)} ${esc(i.text)}</li>`).join('')}</ul>`
+            : `<span class="sub">${h ? 'Không có vấn đề' : 'Agent chưa gửi trạng thái máy'}</span>`}</td>
+          <td class="hide-sm">${d.last_seen ? esc(ago(new Date(d.last_seen))) : '—'}</td>
+          <td class="hide-sm mono">${esc(d.agent_version || '—')}</td></tr>`;
+      }).join('') || `<tr><td colspan="5" class="empty">${all.length ? 'Không có máy nào khớp bộ lọc.' : 'Không có máy nào.'}</td></tr>`;
+    };
+
+    const load = async () => {
+      try {
+        const [list] = await Promise.all([getJSON('/admin/v1/devices?status=approved').then((j) => j.devices), loadStoreCache()]);
+        const sig = JSON.stringify(list.map((d) => [d.id, d.last_seen && d.health, d.health]));
+        if (sig === state.sig) return;
+        Object.assign(state, { sig, list });
+      } catch (err) {
+        if (page === view) showLoadError(page, err);
+        return;
+      }
+      if (page === view) render();
+    };
+    $('#hl-q').addEventListener('input', (e) => { state.q = e.target.value; state.page = 0; render(); });
+    $('#hl-level').addEventListener('change', (e) => { state.level = e.target.value; state.page = 0; render(); });
+    $('#hl-kinds').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-kind]'); if (!b) return;
+      state.kind = b.dataset.kind;
+      if (state.kind && state.level === 'ok') { state.level = 'issue'; $('#hl-level').value = 'issue'; }
+      state.page = 0; render();
+    });
+    $('#hl-prev').addEventListener('click', () => { state.page--; render(); });
+    $('#hl-next').addEventListener('click', () => { state.page++; render(); });
+    $('#hl-rows').addEventListener('click', (e) => {
       const tr = e.target.closest('tr[data-id]');
       if (tr) showDevice(state.list.find((d) => String(d.id) === tr.dataset.id), load);
     });
@@ -2806,6 +2916,7 @@
     '': pageOverview,
     may: pageDevices,
     'canh-bao': pageAlerts,
+    'suc-khoe': pageHealth,
     'cho-duyet': pagePending,
     'he-thong': pageSystem,
     rule: pageRules,
