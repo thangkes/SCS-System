@@ -499,14 +499,24 @@ start_deps() {
 	[[ $OPT_START -eq 1 ]] || return 0
 	step "5. Khởi động Postgres + NATS"
 	cd "$SERVER_DIR"
-	if ! docker_cmd compose -f "$COMPOSE_FILE" up -d --wait --wait-timeout 180; then
+	# Postgres bắt buộc. NATS hiện scs-server chưa dùng (để dành cho hàng đợi sau này): lên được thì tốt, không
+	# tải được image (mạng chặn) thì chỉ cảnh báo, không chặn cài đặt.
+	if ! docker_cmd compose -f "$COMPOSE_FILE" up -d --wait --wait-timeout 180 postgres; then
 		docker_cmd compose -f "$COMPOSE_FILE" ps || true
-		docker_cmd compose -f "$COMPOSE_FILE" logs --tail 30 || true
-		die "Postgres/NATS không lên được (xem trạng thái và log phía trên)" \
-			"Không tải được image: kiểm tra mạng tới Docker Hub/proxy. Sai mật khẩu sau khi đổi .env: docker compose -f compose.dev.yml down -v"
+		docker_cmd compose -f "$COMPOSE_FILE" logs --tail 30 postgres || true
+		die "Postgres không lên được (xem trạng thái và log phía trên)" \
+			"Không tải được image: kiểm tra mạng tới Docker Hub/proxy (hoặc tải qua mirror.gcr.io rồi docker tag — xem INSTALL.md). Sai mật khẩu sau khi đổi .env: docker compose -f compose.dev.yml down -v"
+	fi
+	ok "Postgres đang chạy (healthy)"
+	local dc=(docker)
+	docker info >/dev/null 2>&1 || dc=($SUDO docker)
+	if timeout 120 "${dc[@]}" compose -f "$COMPOSE_FILE" up -d --wait --wait-timeout 90 nats >/dev/null 2>&1; then
+		ok "NATS đang chạy (healthy)"
+	else
+		"${dc[@]}" compose -f "$COMPOSE_FILE" stop nats >/dev/null 2>&1 || true
+		warn "NATS chưa lên (thường do không tải được image nats): scs-server hiện không dùng NATS, bỏ qua được"
 	fi
 	docker_cmd compose -f "$COMPOSE_FILE" ps
-	ok "Postgres và NATS đang chạy (healthy)"
 	sync_installed_env
 }
 

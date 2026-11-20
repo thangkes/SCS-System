@@ -158,6 +158,18 @@ docker info --format '{{.DockerRootDir}}'           # phải ra /data/docker
 "mất"). Chạy ổn rồi mới xóa bản cũ: `sudo rm -rf /var/lib/docker`. Menu mục 1 / 2 kiểm dung lượng trống đúng ổ chứa
 thư mục dữ liệu Docker.
 
+**Mạng chặn tải image Docker Hub** (vào được `registry-1.docker.io` nhưng hết giờ ở CDN `production.cloudfront.docker.com`):
+tải qua mirror của Google rồi đặt lại tên, sau đó chạy menu mục 2:
+
+```bash
+docker pull mirror.gcr.io/timescale/timescaledb:2.17.2-pg16 && docker tag mirror.gcr.io/timescale/timescaledb:2.17.2-pg16 timescale/timescaledb:2.17.2-pg16
+docker pull mirror.gcr.io/library/nats:2.10.22-alpine && docker tag mirror.gcr.io/library/nats:2.10.22-alpine nats:2.10.22-alpine
+```
+
+Không có mirror: trên máy có mạng `docker save <image> | gzip > img.tar.gz`, chép sang, `gunzip -c img.tar.gz | docker load`.
+**NATS không bắt buộc**: scs-server hiện chưa dùng NATS; menu mục 2 chỉ cần PostgreSQL lên, NATS không tải được thì cảnh báo
+và bỏ qua.
+
 ### 1.6 Cập nhật server
 
 ```bash
