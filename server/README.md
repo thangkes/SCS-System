@@ -397,6 +397,17 @@ màn hình; nút chuông (thanh bên) bật thông báo hệ điều hành và t
 Tối đa 64 trình duyệt mở cùng lúc; phiên đăng xuất / bị thu hồi thì luồng bị ngắt trong 30 giây. Đóng hết tab web thì
 không nhận được (không gửi ra ngoài).
 
+**Độ trễ** (bản sau 1b82555):
+
+| Chặng | Cách làm |
+|---|---|
+| Agent gửi | Sự kiện **làm máy chuyển trạng thái** (nặng hơn mức cảnh báo server đang thấy: OK → high, high → critical) gửi sau ~1 giây; sự kiện cùng mức / nhẹ hơn gom mỗi phút. Server trả mức cảnh báo đang mở (`alert_severity`) sau mỗi lô sự kiện và heartbeat; sự cố đóng thì sự cố mới lại gửi gấp. Server cũ không trả → agent gửi gấp như trước |
+| Server → web | Cổng agent ghi sự kiện / heartbeat thì đánh thức luồng ngay (cùng tiến trình); **trạng thái đổi** (cảnh báo mở, lên critical, đóng, mất liên lạc, máy chờ duyệt, rule cần ký) đẩy ngay; chỉ số đếm của cảnh báo đang mở tăng thì gom, đẩy tối đa mỗi phút. Hỏi DB 3 giây giữ làm dự phòng |
+| Trình duyệt | Cảnh báo mới mở / vừa nâng mức: vẽ lại ngay (kèm chuông nếu bật); thay đổi khác gom ~1 giây |
+| Tải trang | File giao diện có **ETag** (không đổi thì 304, không tải lại ~290 KB) và nén gzip sẵn; JSON / CSV của API quản trị nén gzip (không nén luồng SSE và route tài khoản / phiên / khóa đăng nhập — chống BREACH) |
+
+Sự cố nặng hiện lên web sau ~1–2 giây (trước ~3–9 giây). Mất liên lạc vẫn sau 60 phút (do nhịp heartbeat).
+
 ## Chạy lâu dài: dịch vụ systemd
 
 Để SCS-Server tự chạy khi khởi động lại máy và tự bật lại khi chết:

@@ -224,6 +224,10 @@ type Response struct {
 	// Servers: danh sách địa chỉ server (LAN, IP WAN, tên miền...) theo thứ tự ưu tiên. Agent lưu
 	// lại và thử lần lượt khi địa chỉ đang dùng không kết nối được. Rỗng = giữ danh sách đang có.
 	Servers []string `json:"servers,omitempty"`
+	// AlertSeverity: mức cảnh báo đang mở của máy trên server (high | critical; rỗng = máy đang OK). Agent chỉ
+	// gửi gấp sự kiện nặng HƠN mức này (chuyển trạng thái); sự kiện cùng mức gom theo nhịp thường. Server cũ
+	// không gửi trường này → agent coi như OK và gửi gấp như trước.
+	AlertSeverity string `json:"alert_severity,omitempty"`
 }
 
 // UpdateInfo: bản agent máy này cần chạy (khác bản đang chạy thì agent tải về). Sig là chữ ký

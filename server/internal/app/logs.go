@@ -42,7 +42,10 @@ func logsHandler(d Deps) http.Handler {
 			return
 		}
 		activity(d).Logs(len(evs))
-		httpx.WriteJSON(w, http.StatusOK, protocol.Response{OK: true, ServerTime: time.Now().UTC()})
+		nudgeLive() // cảnh báo có thể vừa mở / nâng mức: web biết ngay, không chờ nhịp hỏi DB
+		resp := protocol.Response{OK: true, ServerTime: time.Now().UTC()}
+		resp.AlertSeverity, _ = d.Registry.AlertLevel(r.Context(), id) // lỗi thì để trống: agent gửi gấp như cũ
+		httpx.WriteJSON(w, http.StatusOK, resp)
 	})
 }
 

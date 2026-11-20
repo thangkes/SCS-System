@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/thangkes/SCS-System/server/internal/auth"
@@ -13,6 +14,11 @@ import (
 	"github.com/thangkes/SCS-System/server/internal/rulestore"
 )
 
+// Độ trễ (bản 1.11): cổng agent ghi sự kiện / heartbeat thì "đánh thức" luồng ngay (nudgeLive, cùng tiến trình),
+// không chờ nhịp hỏi DB. Trạng thái đổi (cảnh báo mở / nâng lên critical / đóng, mất liên lạc, máy chờ duyệt, rule
+// cần ký) đẩy ngay; chỉ số đếm của cảnh báo đang mở tăng thì gom, đẩy tối đa mỗi liveCoalesce. Nhịp hỏi DB giữ
+// làm dự phòng (cổng agent và web chạy hai tiến trình).
+//
 // Thông báo tức thời trên web quản trị (không dùng dịch vụ ngoài): trình duyệt mở một luồng
 // Server-Sent Events (GET /admin/v1/stream, cùng cổng 7222, cùng phiên đăng nhập). Một tiến trình
 // chung hỏi DB vài giây một lần — chỉ khi có trình duyệt đang mở — và đẩy "pulse" xuống mọi trình
@@ -27,7 +33,21 @@ const (
 	liveRecheck   = 30 * time.Second // kiểm lại phiên đăng nhập (đăng xuất / thu hồi thì ngắt)
 	liveMaxSubs   = 64               // số trình duyệt mở luồng cùng lúc tối đa
 	liveWrite     = 15 * time.Second // hạn ghi mỗi lần đẩy (máy xem quá chậm thì ngắt)
+	liveCoalesce  = time.Minute      // chỉ số đếm đổi (trạng thái không đổi): đẩy tối đa mỗi phút
 )
+
+// liveCur: nơi phát đang chạy trong tiến trình (nudgeLive đánh thức nó). nil = không có web quản trị.
+var liveCur atomic.Pointer[Live]
+
+// nudgeLive: cổng agent vừa ghi dữ liệu — luồng thông báo hỏi DB ngay (chỉ khi có trình duyệt đang mở).
+func nudgeLive() {
+	if l := liveCur.Load(); l != nil {
+		select {
+		case l.wake <- struct{}{}:
+		default:
+		}
+	}
+}
 
 // LivePulse: gói đẩy xuống trình duyệt.
 type LivePulse struct {
@@ -44,6 +64,8 @@ type Live struct {
 	last   []byte // gói gần nhất (gửi ngay cho trình duyệt mới mở)
 	since  time.Time
 	sig    string
+	state  string    // dấu trạng thái (không tính số đếm) lần đẩy gần nhất
+	pushed time.Time // lần đẩy gần nhất
 	rules  int
 	tick   int
 	wake   chan struct{}
@@ -53,8 +75,10 @@ type Live struct {
 
 // NewLive tạo nơi phát thông báo. d.Registry nil thì luồng chỉ gửi dòng giữ kết nối.
 func NewLive(d Deps) *Live {
-	return &Live{d: d, subs: map[chan []byte]struct{}{}, since: time.Now(), wake: make(chan struct{}, 1),
+	l := &Live{d: d, subs: map[chan []byte]struct{}{}, since: time.Now(), wake: make(chan struct{}, 1),
 		done: make(chan struct{})}
+	liveCur.Store(l)
+	return l
 }
 
 // Run hỏi số liệu định kỳ tới khi ctx kết thúc; lúc đó đóng mọi luồng đang mở (tắt server không phải
@@ -110,18 +134,24 @@ func (l *Live) poll(ctx context.Context) {
 		}
 	}
 	l.tick++
-	sig := fmt.Sprintf("%d/%d/%d/%d/%d/%s", p.OpenAlerts, p.Serious, p.Offline, p.Pending, l.rules,
-		p.LastChange.UTC().Format(time.RFC3339Nano))
-	if p.LastChange.After(l.since) {
-		l.since = p.LastChange
-	}
+	state := fmt.Sprintf("%d/%d/%d/%d/%d/%d/%s/%s", p.OpenAlerts, p.Serious, p.Critical, p.Offline, p.Pending, l.rules,
+		p.LastOpen.UTC().Format(time.RFC3339Nano), p.LastAck.UTC().Format(time.RFC3339Nano))
+	sig := state + "/" + p.LastChange.UTC().Format(time.RFC3339Nano)
 	l.mu.Lock()
 	first := l.last == nil
 	l.mu.Unlock()
 	if sig == l.sig && !first {
 		return
 	}
-	l.sig = sig
+	// Trạng thái không đổi, chỉ số đếm của cảnh báo đang mở tăng: gom (since giữ nguyên để lần đẩy sau
+	// vẫn mang đủ các cảnh báo đã đổi).
+	if !first && state == l.state && time.Since(l.pushed) < liveCoalesce {
+		return
+	}
+	if p.LastChange.After(l.since) {
+		l.since = p.LastChange
+	}
+	l.sig, l.state, l.pushed = sig, state, time.Now()
 	b, _ := json.Marshal(LivePulse{Pulse: p, RulesPending: l.rules, At: time.Now().UTC()})
 	l.mu.Lock()
 	l.last = b

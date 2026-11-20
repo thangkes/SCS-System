@@ -51,6 +51,8 @@ type Registry interface {
 	// AddEvents cộng sự kiện agent gửi vào giai đoạn đang mở: info / low / medium chỉ cộng vào tóm
 	// tắt; high / critical đóng OK, mở cảnh báo (kèm một dòng trong alerts).
 	AddEvents(ctx context.Context, deviceID int64, evs []periods.Event) error
+	// AlertLevel: mức của giai đoạn cảnh báo đang mở của máy (high | critical; "" = không có cảnh báo mở).
+	AlertLevel(ctx context.Context, deviceID int64) (string, error)
 	// PeriodTick kiểm mọi máy (gọi định kỳ): mất liên lạc, tự đóng cảnh báo high, đóng giai đoạn của
 	// máy không còn được duyệt. Trả số máy có thay đổi.
 	PeriodTick(ctx context.Context, now time.Time) (int, error)
@@ -93,8 +95,13 @@ type Registry interface {
 
 // Pulse: số liệu cho thông báo tức thời. Changed: cảnh báo đang mở mới / vừa cập nhật sau mốc hỏi.
 type Pulse struct {
-	OpenAlerts int       `json:"open_alerts"`
-	Serious    int       `json:"serious"` // đang mở, mức high / critical
+	OpenAlerts int `json:"open_alerts"`
+	Serious    int `json:"serious"`  // đang mở, mức high / critical
+	Critical   int `json:"critical"` // đang mở, mức critical
+	// LastOpen / LastAck: cảnh báo mới mở / vừa đóng gần nhất — đổi là trạng thái đổi (đẩy ngay); LastChange
+	// gồm cả lần cộng số đếm (gom, đẩy tối đa mỗi liveCoalesce).
+	LastOpen   time.Time `json:"last_open,omitzero"`
+	LastAck    time.Time `json:"last_ack,omitzero"`
 	Offline    int       `json:"offline"` // máy đang mất liên lạc
 	Pending    int       `json:"pending"` // máy chờ duyệt
 	LastChange time.Time `json:"last_change,omitzero"`

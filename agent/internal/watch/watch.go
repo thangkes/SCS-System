@@ -31,8 +31,8 @@ import (
 const (
 	recheck     = 30 * time.Second // xem bộ rule / nhãn máy có đổi không
 	savePos     = 10 * time.Second
-	sendEvery   = time.Minute     // gom sự kiện thường
-	sendHot     = 3 * time.Second // sự kiện nặng: chờ chút để gom các dòng đi kèm
+	sendEvery   = time.Minute // gom sự kiện thường
+	sendHot     = time.Second // sự kiện chuyển trạng thái: chờ chút để gom các dòng đi kèm
 	maxBatch    = 500
 	sendBackMin = 30 * time.Second
 	sendBackMax = 15 * time.Minute
@@ -55,15 +55,42 @@ type Scanner struct {
 	Probes bool
 
 	active atomic.Value // string
-	q      *queue
-	pos    *positions
-	wake   chan struct{}
+	// level: mức cảnh báo đang mở của máy theo server (Response.AlertSeverity, từ lô sự kiện và heartbeat).
+	// Chỉ sự kiện nặng hơn mức này mới gửi gấp; cùng mức thì gom theo nhịp thường (sendEvery).
+	level atomic.Value // string
+	q     *queue
+	pos   *positions
+	wake  chan struct{}
 }
 
 // Active: SHA-256 bộ rule đang quét ("" nếu chưa quét).
 func (s *Scanner) Active() string {
 	v, _ := s.active.Load().(string)
 	return v
+}
+
+// SetAlertLevel: mức cảnh báo đang mở của máy theo server ("" = OK). Heartbeat gọi sau mỗi lần gọi về.
+func (s *Scanner) SetAlertLevel(sev string) {
+	if sev != "" && sevRank(sev) == 0 {
+		sev = ""
+	}
+	s.level.Store(sev)
+}
+
+func (s *Scanner) alertLevel() string {
+	v, _ := s.level.Load().(string)
+	return v
+}
+
+// urgent: sự kiện nặng (high / critical) làm máy chuyển trạng thái — nặng hơn mức cảnh báo server đang thấy.
+// Gửi gấp rồi coi như server đã biết mức này (các sự kiện cùng mức sau đó gom theo nhịp thường); server trả
+// mức thật trong phản hồi. Mất mạng / khởi động lại thì mức rỗng: lần đầu luôn gửi gấp.
+func (s *Scanner) urgent(sev string) bool {
+	if !serious(sev) || sevRank(sev) <= sevRank(s.alertLevel()) {
+		return false
+	}
+	s.level.Store(sev)
+	return true
 }
 
 // Reload: bộ rule vừa được cài: nạp lại ngay thay vì chờ lần kiểm kế tiếp.
@@ -219,7 +246,7 @@ func (s *Scanner) scan(ctx context.Context, e *rules.Engine) {
 			s.pos.save()
 		case l := <-lines:
 			for _, ev := range e.Feed(l) {
-				s.q.push(toLogEvent(ev))
+				s.q.push(toLogEvent(ev), s.urgent(ev.Severity))
 			}
 		}
 	}
@@ -276,6 +303,7 @@ func (s *Scanner) sender(ctx context.Context) {
 			}
 			backoff = 0
 			s.q.ack(len(batch))
+			s.SetAlertLevel(resp.AlertSeverity) // server cũ không gửi: rỗng, lần sau lại gửi gấp như trước
 		}
 	}
 }

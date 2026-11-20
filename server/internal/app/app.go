@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/thangkes/SCS-System/common/protocol"
@@ -190,7 +191,15 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("POST /admin/v1/rules/remove", rules(http.HandlerFunc(ru.remove)))
 	mux.Handle("GET /admin/v1/rules/assign", view(http.HandlerFunc(ru.assignments)))
 	mux.Handle("POST /admin/v1/rules/assign", rules(http.HandlerFunc(ru.assign)))
-	return wrap(d, httpx.RejectProxied(d.Log)(mux), httpx.AggregatedAccessLog(d.Log, slog.LevelInfo))
+	// Nén JSON / CSV của API quản trị (danh sách máy, cảnh báo, báo cáo); không nén luồng SSE và route đăng nhập /
+	// tài khoản (chống BREACH). File giao diện đã nén sẵn trong web.Mount.
+	gz := httpx.GzipJSON(func(r *http.Request) bool {
+		p := r.URL.Path
+		return !strings.HasPrefix(p, "/admin/v1/") || p == "/admin/v1/stream" ||
+			strings.HasPrefix(p, "/admin/v1/accounts") || strings.HasPrefix(p, "/admin/v1/sessions") ||
+			strings.HasPrefix(p, "/admin/v1/login-blocks")
+	})
+	return wrap(d, httpx.RejectProxied(d.Log)(gz(mux)), httpx.AggregatedAccessLog(d.Log, slog.LevelInfo))
 }
 
 // periodTickEvery: nhịp kiểm mất liên lạc / tự đóng cảnh báo high.

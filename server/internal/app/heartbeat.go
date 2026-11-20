@@ -192,6 +192,8 @@ func heartbeatHandler(d Deps) http.Handler {
 				}
 			}
 		}
+		resp.AlertSeverity, _ = d.Registry.AlertLevel(r.Context(), id)
+		nudgeLive() // máy gửi lại sau mất liên lạc / máy mới chờ duyệt: web biết ngay
 		httpx.WriteJSON(w, http.StatusOK, resp)
 	})
 }

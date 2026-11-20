@@ -69,6 +69,9 @@ type Deps struct {
 	// Status: đọc trạng thái máy (sysinfo.Status; nil = không gửi — test).
 	Services []string
 	Status   func(services []string) *protocol.MachineStatus
+	// AlertLevel: báo mức cảnh báo đang mở của máy theo server sau mỗi heartbeat thành công (watch.Scanner.
+	// SetAlertLevel) — sự cố được đóng thì agent biết, sự cố mới lại gửi gấp. nil = bỏ qua.
+	AlertLevel func(sev string)
 }
 
 // RuleScanner: phần quét log (watch.Scanner) heartbeat cần.
@@ -192,6 +195,9 @@ func Run(ctx context.Context, d Deps) error {
 				}
 				update.StampOK(d.StateDir, d.Version) // nếu đây là bản khung: nó gọi được server
 				marked = true
+			}
+			if d.AlertLevel != nil {
+				d.AlertLevel(resp.AlertSeverity)
 			}
 			st2, changed := apply(d, st, resp)
 			if cur := d.Client.Current(); cur != st2.LastServer {

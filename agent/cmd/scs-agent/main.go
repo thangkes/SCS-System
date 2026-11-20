@@ -273,6 +273,7 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		sc := &watch.Scanner{Log: log.With("phan", "quet-log"), StateDir: cfg.StateDir, ReleasePub: cfg.ReleasePub,
 			Client: c, DeviceID: st.DeviceID, Fingerprint: func() string { comps, _ := sysinfo.Components(); return comps.Hash() },
 			Probes: cfg.Probes}
+		sc.SetAlertLevel("")
 		scanCtx, stopScan := context.WithCancel(ctx)
 		scanDone := make(chan struct{})
 		go func() { defer close(scanDone); sc.Run(scanCtx) }()
@@ -289,7 +290,7 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		}
 		err := heartbeat.Run(ctx, heartbeat.Deps{Log: log, Client: c, StateDir: cfg.StateDir, State: st,
 			Version: version, ReleasePub: cfg.ReleasePub, Scanner: sc, KeyDir: cfg.KeyDir, Renew: renew,
-			FirstDelay: firstDelay, Services: cfg.WatchServices, Status: func(svcs []string) *protocol.MachineStatus {
+			FirstDelay: firstDelay, Services: cfg.WatchServices, AlertLevel: sc.SetAlertLevel, Status: func(svcs []string) *protocol.MachineStatus {
 				st := sysinfo.Status(svcs)
 				st.Smart = smart.Load(smart.DefaultFile) // tác vụ root ghi, agent chỉ đọc
 				return st

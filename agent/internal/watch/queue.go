@@ -26,6 +26,23 @@ type queue struct {
 
 func serious(sev string) bool { return sev == "high" || sev == "critical" }
 
+// sevRank: thứ bậc mức (info 1 … critical 5; lạ / rỗng = 0).
+func sevRank(sev string) int {
+	switch sev {
+	case "info":
+		return 1
+	case "low":
+		return 2
+	case "medium":
+		return 3
+	case "high":
+		return 4
+	case "critical":
+		return 5
+	}
+	return 0
+}
+
 func openQueue(path string) *queue {
 	q := &queue{path: path, kick: make(chan struct{}, 1)}
 	if f, err := os.Open(path); err == nil {
@@ -42,7 +59,8 @@ func openQueue(path string) *queue {
 	return q
 }
 
-func (q *queue) push(e protocol.LogEvent) {
+// push thêm sự kiện; urgent = gửi ngay (sự kiện làm máy chuyển trạng thái), không thì gom theo nhịp thường.
+func (q *queue) push(e protocol.LogEvent, urgent bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	if len(q.items) >= maxQueue {
@@ -62,7 +80,7 @@ func (q *queue) push(e protocol.LogEvent) {
 	if len(q.items) >= maxQueue {
 		q.saveLocked()
 	}
-	if serious(e.Severity) {
+	if urgent {
 		select {
 		case q.kick <- struct{}{}:
 		default:

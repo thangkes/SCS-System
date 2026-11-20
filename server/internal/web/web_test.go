@@ -70,3 +70,36 @@ func TestNoInlineCode(t *testing.T) {
 		}
 	}
 }
+
+// ETag: lần sau gửi If-None-Match đúng thì nhận 304 (không tải lại); gzip khi trình duyệt nhận được.
+func TestETagAndGzip(t *testing.T) {
+	mux := http.NewServeMux()
+	Mount(mux)
+	do := func(h map[string]string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/static/app.js", nil)
+		for k, v := range h {
+			req.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec
+	}
+	first := do(nil)
+	etag := first.Header().Get("ETag")
+	if first.Code != 200 || etag == "" || first.Header().Get("Content-Encoding") != "" {
+		t.Fatalf("lần đầu: %d etag=%q enc=%q", first.Code, etag, first.Header().Get("Content-Encoding"))
+	}
+	if rec := do(map[string]string{"If-None-Match": etag}); rec.Code != 304 || rec.Body.Len() != 0 {
+		t.Fatalf("đã có bản này: cần 304, được %d (%d byte)", rec.Code, rec.Body.Len())
+	}
+	if rec := do(map[string]string{"If-None-Match": `"khac"`}); rec.Code != 200 {
+		t.Fatalf("ETag khác: cần 200, được %d", rec.Code)
+	}
+	gz := do(map[string]string{"Accept-Encoding": "gzip, deflate, br"})
+	if gz.Header().Get("Content-Encoding") != "gzip" || gz.Body.Len() >= first.Body.Len()/2 || gz.Header().Get("Vary") == "" {
+		t.Fatalf("gzip: enc=%q %d byte (gốc %d)", gz.Header().Get("Content-Encoding"), gz.Body.Len(), first.Body.Len())
+	}
+	if !strings.Contains(gz.Header().Get("Content-Type"), "javascript") {
+		t.Fatalf("Content-Type: %q", gz.Header().Get("Content-Type"))
+	}
+}

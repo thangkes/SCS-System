@@ -279,6 +279,7 @@
     setPendingCount(p.pending);
     $('#nav-rules').textContent = p.rules_pending || '';
     const changed = p.changed || [];
+    let urgent = false; // cảnh báo mới mở / vừa nâng mức: vẽ lại ngay, không chờ gom
     if (liveSeen === null) {
       liveSeen = new Map(changed.map((a) => [a.id, SEV_RANK[a.severity] || 0]));
     } else {
@@ -287,19 +288,25 @@
         const prev = liveSeen.get(a.id);
         liveSeen.set(a.id, Math.max(rank, prev || 0));
         // Chỉ báo cảnh báo mới hoặc vừa lên mức cao hơn (cảnh báo cũ lặp lại thì không báo nữa).
-        if (prev === undefined || rank > prev) notifyAlert(a);
+        if (prev === undefined || rank > prev) {
+          notifyAlert(a);
+          urgent = true;
+        }
       }
     }
-    scheduleLive();
+    scheduleLive(urgent);
   }
 
-  // scheduleLive: tải lại trang đang xem khi có thay đổi, gom nhiều pulse liền nhau (tối đa 1 lần / 3 giây),
-  // bỏ qua lúc đang mở hộp thoại / chi tiết máy / đang gõ (lần pulse sau sẽ tải).
+  // scheduleLive: tải lại trang đang xem khi có thay đổi, gom nhiều pulse liền nhau (tối đa 1 lần / giây);
+  // urgent (cảnh báo mới mở / vừa nâng mức) thì tải ngay. Bỏ qua lúc đang mở hộp thoại / chi tiết máy / đang gõ
+  // (lần pulse sau sẽ tải).
   let liveTimer = null;
   let liveLast = 0;
-  function scheduleLive() {
-    if (!liveReload || liveTimer) return;
-    const wait = Math.max(0, 3000 - (Date.now() - liveLast));
+  function scheduleLive(urgent) {
+    if (!liveReload) return;
+    if (urgent && liveTimer) { clearTimeout(liveTimer); liveTimer = null; }
+    if (liveTimer) return;
+    const wait = urgent ? 0 : Math.max(0, 1000 - (Date.now() - liveLast));
     liveTimer = setTimeout(() => {
       liveTimer = null;
       const busy = $('#dialog').open || $('#drawer').classList.contains('open') ||

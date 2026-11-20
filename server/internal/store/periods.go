@@ -506,21 +506,39 @@ func resolvePeriod(ctx context.Context, tx pgx.Tx, pol periods.Policy, periodID 
 	return audit(ctx, tx, by, "period.resolve", deviceID, "", map[string]any{"period_id": periodID, "note": note, "resolution": resolution})
 }
 
+// AlertLevel: mức của giai đoạn cảnh báo đang mở của máy ("" = không có).
+func (g *Registry) AlertLevel(ctx context.Context, deviceID int64) (string, error) {
+	var sev *string
+	err := g.pool.QueryRow(ctx, `SELECT severity FROM device_periods
+		WHERE device_id = $1 AND ended_at IS NULL AND kind = 'alert'`, deviceID).Scan(&sev)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	return deref(sev), err
+}
+
 func (g *Registry) Pulse(ctx context.Context, since time.Time) (app.Pulse, error) {
 	var p app.Pulse
-	var last *time.Time
+	var last, lastOpen, lastAck *time.Time
 	err := g.pool.QueryRow(ctx, `SELECT
 		count(*) FILTER (WHERE acked_at IS NULL),
 		count(*) FILTER (WHERE acked_at IS NULL AND severity IN ('high', 'critical')),
+		count(*) FILTER (WHERE acked_at IS NULL AND severity = 'critical'),
 		count(*) FILTER (WHERE acked_at IS NULL AND kind = 'offline'),
 		(SELECT count(*) FROM devices WHERE status = 'pending'),
-		greatest(max(last_at), max(acked_at))
-		FROM alerts`).Scan(&p.OpenAlerts, &p.Serious, &p.Offline, &p.Pending, &last)
+		greatest(max(last_at), max(acked_at)), max(created_at), max(acked_at)
+		FROM alerts`).Scan(&p.OpenAlerts, &p.Serious, &p.Critical, &p.Offline, &p.Pending, &last, &lastOpen, &lastAck)
 	if err != nil {
 		return p, err
 	}
 	if last != nil {
 		p.LastChange = *last
+	}
+	if lastOpen != nil {
+		p.LastOpen = *lastOpen
+	}
+	if lastAck != nil {
+		p.LastAck = *lastAck
 	}
 	p.Changed = []app.Alert{}
 	if since.IsZero() || !p.LastChange.After(since) {

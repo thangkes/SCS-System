@@ -125,8 +125,8 @@ func TestParseJournal(t *testing.T) {
 func TestQueue(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "q.jsonl")
 	q := openQueue(path)
-	q.push(protocol.LogEvent{RuleID: "A", Severity: "low", Count: 1})
-	q.push(protocol.LogEvent{RuleID: "B", Severity: "critical", Count: 1})
+	q.push(protocol.LogEvent{RuleID: "A", Severity: "low", Count: 1}, false)
+	q.push(protocol.LogEvent{RuleID: "B", Severity: "critical", Count: 1}, true)
 	select {
 	case <-q.kick:
 	default:
@@ -142,7 +142,7 @@ func TestQueue(t *testing.T) {
 	}
 	// Đầy: bỏ sự kiện thường cũ nhất, giữ sự kiện nặng.
 	for i := 0; i < maxQueue+10; i++ {
-		q.push(protocol.LogEvent{RuleID: "L", Severity: "low", Count: 1})
+		q.push(protocol.LogEvent{RuleID: "L", Severity: "low", Count: 1}, false)
 	}
 	batch, hot := q.peek(maxQueue)
 	if q.len() != maxQueue || !hot || batch[0].RuleID != "B" {
@@ -177,7 +177,7 @@ func TestSender(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go s.sender(ctx)
-	s.q.push(protocol.LogEvent{RuleID: "R", Severity: "high", Count: 1, Time: time.Now()})
+	s.q.push(protocol.LogEvent{RuleID: "R", Severity: "high", Count: 1, Time: time.Now()}, true)
 	deadline := time.Now().Add(8 * time.Second)
 	for {
 		fs.mu.Lock()
@@ -194,7 +194,7 @@ func TestSender(t *testing.T) {
 	fs.mu.Lock()
 	fs.fail = true
 	fs.mu.Unlock()
-	s.q.push(protocol.LogEvent{RuleID: "R", Severity: "critical", Count: 1, Time: time.Now()})
+	s.q.push(protocol.LogEvent{RuleID: "R", Severity: "critical", Count: 1, Time: time.Now()}, true)
 	time.Sleep(sendHot + time.Second)
 	if s.q.len() != 1 {
 		t.Fatalf("mất mạng phải giữ sự kiện: còn %d", s.q.len())

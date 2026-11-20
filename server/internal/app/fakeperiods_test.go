@@ -216,6 +216,17 @@ func (f *fakeRegistry) resolveLocked(pid int64, by, note string) error {
 	return nil
 }
 
+func (f *fakeRegistry) AlertLevel(_ context.Context, id int64) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, p := range f.periods {
+		if p.DeviceID == id && p.Open() && p.Kind == periods.KindAlert {
+			return p.Severity, nil
+		}
+	}
+	return "", nil
+}
+
 func (f *fakeRegistry) Pulse(_ context.Context, since time.Time) (Pulse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

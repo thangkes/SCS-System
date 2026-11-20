@@ -81,8 +81,8 @@ func TestPeriodsThroughHandlers(t *testing.T) {
 		{RuleID: "SVC-FAILED-01", Severity: "medium", Time: now, Line: "cups.service: Failed", Count: 1},
 		{RuleID: "../lạ", Severity: "medium", Time: now, Count: 1}, // bỏ
 		{RuleID: "X-01", Severity: "khẩn", Time: now, Count: 1},    // bỏ
-	})); w.Code != 200 {
-		t.Fatalf("logs medium: %d %s", w.Code, w.Body)
+	})); w.Code != 200 || strings.Contains(w.Body.String(), "alert_severity") {
+		t.Fatalf("logs medium (máy vẫn OK, không có alert_severity): %d %s", w.Code, w.Body)
 	}
 	tl = timelineOf(t, reg, id)
 	if len(tl.Periods) != 1 || tl.Periods[0].Events != 1 || tl.Periods[0].Rules["SVC-FAILED-01"].Sample != "cups.service: Failed" {
@@ -91,8 +91,8 @@ func TestPeriodsThroughHandlers(t *testing.T) {
 
 	if w := postLogs(d, cert, logPacket(t, a, dev, []protocol.LogEvent{
 		{RuleID: "SSH-ROOT-LOGIN-01", Severity: "high", Time: now, Line: "Accepted password for root\x1b[31m", Count: 1},
-	})); w.Code != 200 {
-		t.Fatalf("logs high: %d", w.Code)
+	})); w.Code != 200 || !strings.Contains(w.Body.String(), `"alert_severity":"high"`) {
+		t.Fatalf("logs high (server báo máy đang cảnh báo high để agent thôi gửi gấp): %d %s", w.Code, w.Body)
 	}
 	tl = timelineOf(t, reg, id)
 	if len(tl.Periods) != 2 || tl.Periods[0].Kind != periods.KindAlert || tl.Periods[1].EndedAt.IsZero() {
