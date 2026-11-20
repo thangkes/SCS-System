@@ -56,9 +56,12 @@ func TestHealthz(t *testing.T) {
 		}
 		var body map[string]string
 		json.Unmarshal(rec.Body.Bytes(), &body)
-		wantVer := map[string]string{"ingest": "", "admin": "test"}[role] // 6222 công khai: không lộ phiên bản
-		if body["status"] != "ok" || body["role"] != role || body["version"] != wantVer {
-			t.Errorf("%s /healthz body = %v", role, body)
+		// Chưa đăng nhập: chỉ status, không lộ phiên bản / vai trò (cả 6222 lẫn 7222).
+		if body["status"] != "ok" || body["role"] != "" || body["version"] != "" {
+			t.Errorf("%s /healthz chưa đăng nhập = %v", role, body)
+		}
+		if rec := do(t, h, "GET", "/readyz", nil); strings.Contains(rec.Body.String(), "checks") || strings.Contains(rec.Body.String(), "role") {
+			t.Errorf("%s /readyz chưa đăng nhập không được lộ chi tiết: %s", role, rec.Body)
 		}
 		if rec.Header().Get("X-Request-Id") == "" {
 			t.Errorf("%s thiếu X-Request-Id", role)
@@ -66,6 +69,22 @@ func TestHealthz(t *testing.T) {
 		if rec := do(t, h, "GET", "/readyz", nil); rec.Code != 200 {
 			t.Errorf("%s /readyz = %d", role, rec.Code)
 		}
+	}
+	// Đã đăng nhập web quản trị: thấy đủ phiên bản, vai trò, chi tiết phụ thuộc (trang Hệ thống).
+	auth := map[string]string{"Authorization": "Bearer " + testToken}
+	var body map[string]string
+	json.Unmarshal(do(t, AdminHandler(d), "GET", "/healthz", auth).Body.Bytes(), &body)
+	if body["version"] != "test" || body["role"] != "admin" {
+		t.Errorf("admin /healthz đã đăng nhập = %v", body)
+	}
+	if rec := do(t, AdminHandler(d), "GET", "/readyz", auth); !strings.Contains(rec.Body.String(), "checks") {
+		t.Errorf("admin /readyz đã đăng nhập phải có checks: %s", rec.Body)
+	}
+	// Cổng agent (6222) không bao giờ trả chi tiết, kể cả có token.
+	body = map[string]string{}
+	json.Unmarshal(do(t, IngestHandler(d), "GET", "/healthz", auth).Body.Bytes(), &body)
+	if body["version"] != "" {
+		t.Errorf("6222 không được lộ phiên bản: %v", body)
 	}
 }
 

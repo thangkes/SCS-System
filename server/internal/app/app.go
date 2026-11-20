@@ -96,7 +96,7 @@ var ingestInflight = struct{ enroll, agent, logs int }{
 // bị loại trước, không chiếm chỗ của agent thật.
 func IngestHandler(d Deps) http.Handler {
 	mux := http.NewServeMux()
-	httpx.MountHealth(mux, "ingest", "", d.ReadyChecks, d.Log) // cổng công khai: không lộ phiên bản
+	httpx.MountHealth(mux, "ingest", "", d.ReadyChecks, d.Log, nil) // cổng công khai: chỉ trả status
 
 	cert := requireClientCert(d)
 	enroll := httpx.Limit("enroll", ingestInflight.enroll, d.Log)
@@ -123,7 +123,11 @@ func IngestHandler(d Deps) http.Handler {
 // Mỗi thao tác ghi cần một mức quyền; mức cao hơn (số nhỏ hơn) làm được mọi việc của mức thấp hơn.
 func AdminHandler(d Deps) http.Handler {
 	mux := http.NewServeMux()
-	httpx.MountHealth(mux, "admin", d.Version, d.ReadyChecks, d.Log)
+	// Chỉ người đã đăng nhập mới thấy phiên bản / chi tiết phụ thuộc (trang Hệ thống); chưa đăng nhập chỉ có status.
+	httpx.MountHealth(mux, "admin", d.Version, d.ReadyChecks, d.Log, func(r *http.Request) bool {
+		_, ok := d.Auth.Identify(r)
+		return ok
+	})
 	web.Mount(mux) // giao diện ở "/" và "/static/"
 	d.Auth.Mount(mux)
 

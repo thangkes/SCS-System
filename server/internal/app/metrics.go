@@ -315,8 +315,12 @@ func (a reportAPI) reportCSV(w http.ResponseWriter, r *http.Request) {
 	for _, rec := range data {
 		line := make([]string, len(rec))
 		for i, v := range rec {
-			if v != nil {
-				line[i] = fmt.Sprint(v)
+			switch x := v.(type) {
+			case nil:
+			case string:
+				line[i] = csvSafe(x) // ô chữ: chặn chèn công thức (đồng bộ với báo cáo sự cố); ô số giữ nguyên
+			default:
+				line[i] = fmt.Sprint(x)
 			}
 		}
 		cw.Write(line)

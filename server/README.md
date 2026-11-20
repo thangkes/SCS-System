@@ -130,8 +130,14 @@ mới 90 ngày (serial cũ hết hiệu lực, hạn lưu ở `devices.cert_expi
 Agent bản mới tự làm khi chứng chỉ còn dưới 30 ngày (thử lại mỗi giờ; đã hết hạn thì thử mỗi lần gọi, không gửi
 chứng chỉ hết hạn lúc bắt tay TLS); lần cấp phải giữ lượt tải. Trang Agent có thẻ **Chứng chỉ máy** (đã hết hạn / còn
 dưới 30 ngày / không rõ, hạn sớm nhất); chi tiết máy hiện hạn chứng chỉ. `/readyz` chưa kiểm NATS.
-`/readyz` dùng lại kết quả kiểm trong 2 giây (gọi dồn dập không làm cạn pool DB). `/healthz` trên cổng
-agent (công khai) không trả phiên bản.
+`/readyz` dùng lại kết quả kiểm trong 2 giây (gọi dồn dập không làm cạn pool DB). **Chưa đăng nhập** `/healthz` và
+`/readyz` chỉ trả `{"status": ...}` — không lộ phiên bản, vai trò, tên phụ thuộc (pentest 2026-11-20); người đã đăng
+nhập web quản trị (7222) thấy đủ (trang Hệ thống). Cổng agent (6222) không bao giờ trả chi tiết.
+
+**Chống gửi lại gói (R3):** mọi gói agent (heartbeat, lô sự kiện, đăng ký / gia hạn) có nonce 16 byte; sau khi kiểm chữ
+ký, server nhớ (máy / khóa, nonce) trong cửa sổ giờ hợp lệ (±5 phút + dư) và trả `409` cho gói trùng. Gửi lại gói gia hạn
+sẽ làm server cấp chứng chỉ mới (chứng chỉ máy đang dùng mất hiệu lực) — nay bị chặn. Bộ nhớ trong RAM: khởi động lại
+server thì quên (còn tối đa 5 phút cho gói bắt được trước lúc khởi động lại).
 
 ## Đăng ký máy (agent) và chứng chỉ
 

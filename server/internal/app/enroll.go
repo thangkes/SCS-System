@@ -68,6 +68,11 @@ func enrollHandler(d Deps) http.Handler {
 			httpx.WriteError(w, http.StatusUnauthorized, "chữ ký không hợp lệ")
 			return
 		}
+		// Chống gửi lại gói đăng ký / gia hạn (gửi lại gói gia hạn sẽ làm server cấp chứng chỉ mới cho máy).
+		if !validNonce(env.Nonce) || !replays.fresh("key:"+body.PublicKey, env.Nonce, time.Now()) {
+			httpx.WriteError(w, http.StatusConflict, "gói đã được nhận trước đó (gửi lại) — bỏ qua")
+			return
+		}
 		fp := body.Components.Hash()
 		if env.Fingerprint != fp {
 			httpx.WriteError(w, http.StatusBadRequest, "fingerprint không khớp các thành phần")

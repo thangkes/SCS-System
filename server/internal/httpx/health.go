@@ -25,15 +25,21 @@ var ReadyCacheTTL = 2 * time.Second
 //	GET /healthz  tiến trình còn sống (không gọi phụ thuộc nào)
 //	GET /readyz   sẵn sàng nhận việc (chạy các Check; lỗi → 503 để LB bỏ node này ra)
 //
-// version rỗng thì không trả phiên bản (cổng công khai không để lộ phiên bản).
+// Chưa đăng nhập (detail nil hoặc trả false) chỉ trả {"status": ...}: không lộ phiên bản, vai trò, tên các phụ
+// thuộc (pentest 2026-11-20). detail(r) true (người đã đăng nhập web quản trị) thì trả đủ: role, version (nếu khác
+// rỗng), checks.
 // /readyz chạy tối đa một lượt kiểm tại một thời điểm, kết quả dùng lại trong ReadyCacheTTL.
 // Chi tiết lỗi chỉ ghi vào log, và chỉ ghi khi trạng thái đổi (ok → lỗi, lỗi → ok)
 // để load balancer gọi mỗi vài giây không làm đầy log khi DB đang chết.
-func MountHealth(mux *http.ServeMux, role, version string, checks []Check, log *slog.Logger) {
+func MountHealth(mux *http.ServeMux, role, version string, checks []Check, log *slog.Logger, detail func(*http.Request) bool) {
+	full := func(r *http.Request) bool { return detail != nil && detail(r) }
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		body := map[string]string{"status": "ok", "role": role}
-		if version != "" {
-			body["version"] = version
+		body := map[string]string{"status": "ok"}
+		if full(r) {
+			body["role"] = role
+			if version != "" {
+				body["version"] = version
+			}
 		}
 		WriteJSON(w, http.StatusOK, body)
 	})
@@ -84,6 +90,9 @@ func MountHealth(mux *http.ServeMux, role, version string, checks []Check, log *
 	}
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		code, body := check() // ghi trả lời ngoài khóa: client chậm không chặn người khác
+		if !full(r) {
+			body = map[string]any{"status": body["status"]}
+		}
 		WriteJSON(w, code, body)
 	})
 }

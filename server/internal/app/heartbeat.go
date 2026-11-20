@@ -106,6 +106,11 @@ func readAgentPacket(d Deps, w http.ResponseWriter, r *http.Request, typ string)
 		httpx.WriteError(w, http.StatusUnauthorized, "chữ ký không hợp lệ")
 		return env, 0, false
 	}
+	if !validNonce(env.Nonce) || !replays.fresh(env.DeviceID, env.Nonce, time.Now()) {
+		d.Log.Warn("gói gửi lại (nonce trùng) hoặc nonce sai: từ chối", "device", id, "loai", typ, "ip", remoteAddr(r))
+		httpx.WriteError(w, http.StatusConflict, "gói đã được nhận trước đó (gửi lại) — bỏ qua")
+		return env, 0, false
+	}
 	return env, id, true
 }
 
