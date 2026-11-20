@@ -139,6 +139,25 @@ rồi `sudo systemctl restart scs-server`; thử gửi bằng
 `sudo -u scs /opt/scs-server/scs-server mail-test -to <gmail-cua-ban> -env-file /etc/scs-server/server.env` (chạy từ thư mục `/`). Trang đăng nhập sẽ có thêm tab **Email** và **Đăng ký**; tài khoản mới phải
 được quản trị gốc (đăng nhập bằng `scs-login-code`, đặt được mọi mức) hoặc người mức 1 (chỉ đặt mức 5–7) duyệt ở trang **Tài khoản**.
 
+**Đặt dữ liệu DB lên ổ khác** (ổ hệ thống nhỏ, có ổ dữ liệu riêng, ví dụ gắn ở `/data`): PostgreSQL chạy trong Docker,
+nên chuyển **thư mục dữ liệu của Docker** sang ổ đó — làm **trước** menu mục 2 (hoặc trước khi có dữ liệu thật):
+
+```bash
+grep -E '\s/data\s' /etc/fstab                     # ổ phải tự gắn khi khởi động lại; chưa có thì thêm (dùng UUID: blkid)
+sudo systemctl stop docker docker.socket
+sudo mkdir -p /data/docker && sudo chmod 711 /data/docker
+[ -d /var/lib/docker ] && sudo rsync -aHAX /var/lib/docker/ /data/docker/
+echo '{ "data-root": "/data/docker" }' | sudo tee /etc/docker/daemon.json   # đã có file thì thêm khóa data-root vào
+sudo mkdir -p /etc/systemd/system/docker.service.d
+printf '[Unit]\nRequiresMountsFor=/data\n' | sudo tee /etc/systemd/system/docker.service.d/scs-data.conf
+sudo systemctl daemon-reload && sudo systemctl start docker
+docker info --format '{{.DockerRootDir}}'           # phải ra /data/docker
+```
+
+`RequiresMountsFor` giữ Docker chờ ổ `/data` gắn xong mới chạy (không thì Docker tạo thư mục trống trên ổ hệ thống và DB
+"mất"). Chạy ổn rồi mới xóa bản cũ: `sudo rm -rf /var/lib/docker`. Menu mục 1 / 2 kiểm dung lượng trống đúng ổ chứa
+thư mục dữ liệu Docker.
+
 ### 1.6 Cập nhật server
 
 ```bash

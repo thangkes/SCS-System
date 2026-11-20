@@ -169,14 +169,23 @@ check_system() {
 		die "Không có sudo và không phải root" "Chạy bằng root hoặc cài sudo"
 	fi
 
-	local disk_gb
-	disk_gb="$(df -BG --output=avail /var/lib 2>/dev/null | tail -n1 | tr -dc '0-9' || true)"
+	# Dữ liệu DB nằm trong thư mục dữ liệu của Docker (mặc định /var/lib/docker; đổi được sang ổ khác bằng
+	# "data-root" trong /etc/docker/daemon.json): kiểm đúng ổ chứa thư mục đó.
+	local disk_gb data_dir=/var/lib
+	if command -v docker >/dev/null 2>&1; then
+		local droot
+		droot="$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || sudo docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)"
+		if [[ -n "$droot" && -d "$droot" ]]; then
+			data_dir="$droot"
+		fi
+	fi
+	disk_gb="$(df -BG --output=avail "$data_dir" 2>/dev/null | tail -n1 | tr -dc '0-9' || true)"
 	if [[ -z "$disk_gb" ]]; then
-		warn "Không đọc được dung lượng trống của /var/lib"
+		warn "Không đọc được dung lượng trống của $data_dir"
 	elif (( disk_gb < MIN_DISK_GB )); then
-		err "Dung lượng trống /var/lib còn ${disk_gb}GB, cần ít nhất ${MIN_DISK_GB}GB (Docker image + dữ liệu DB)"
+		err "Dung lượng trống $data_dir còn ${disk_gb}GB, cần ít nhất ${MIN_DISK_GB}GB (Docker image + dữ liệu DB) — ổ khác còn trống thì chuyển thư mục dữ liệu Docker sang đó (\"data-root\" trong /etc/docker/daemon.json, xem INSTALL.md)"
 	else
-		ok "Dung lượng trống /var/lib: ${disk_gb}GB"
+		ok "Dung lượng trống $data_dir (dữ liệu Docker / DB): ${disk_gb}GB"
 	fi
 
 	local ram_mb
