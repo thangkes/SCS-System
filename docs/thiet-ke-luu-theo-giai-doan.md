@@ -118,7 +118,8 @@ Ví dụ 5.000 máy, heartbeat ngẫu nhiên 5–30 phút (trung bình 17,5 phú
 `heartbeats` cộng mỗi sự kiện một dòng, rồi phải nén và xóa theo ngày.
 
 **Đo thật (19/11/2026, khoảng 150 máy):** 5–15 heartbeat / phút (tính toán ≈ 8,6), CPU máy server 1–5%,
-RAM `scs-server` 25–35 MB, DB 13 MB.
+RAM `scs-server` 25–35 MB, DB 13 MB. **(20/11/2026, khoảng 400 máy):** 16–20 heartbeat / phút (tính toán ≈ 23), CPU
+trung bình 3%, RAM `scs-server` 37–42 MB, DB 16,9 MB (tăng ~1,3 MB / ngày) — dữ liệu tăng chậm đúng như thiết kế.
 
 ## 10. Giữ dữ liệu
 

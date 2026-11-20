@@ -11,7 +11,7 @@ và sự kiện log về **SCS-Server**; admin duyệt máy và theo dõi trên 
 and matched log events to SCS-Server, where admins approve machines and watch alerts on a web console.
 Code comments and docs are in Vietnamese.*
 
-> Trạng thái: giai đoạn 1, **đang chạy thật** từ 11/2026 (hơn 220 máy, xem [số đo thực tế](#số-đo-thực-tế)).
+> Trạng thái: giai đoạn 1, **đang chạy thật** từ 11/2026 (khoảng 400 máy, xem [số đo thực tế](#số-đo-thực-tế)).
 > Vẫn đang phát triển tiếp.
 > Đang chuyển sang **cụm nhiều server ngang hàng**: thiết kế đã chốt ở
 > [docs/thiet-ke-cum-server.md](docs/thiet-ke-cum-server.md). Đã có mốc C1 (khóa node, cổng 5222,
@@ -81,38 +81,43 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 | **Sức khỏe máy (A2)**: agent gửi trạng thái máy trong mỗi heartbeat (RAM, swap, tải, nhiệt độ, dung lượng + inode từng phân vùng, phân vùng chỉ đọc, ổ vật lý + lỗi I/O, RAID, NTP, dịch vụ) — không cần thêm quyền. Server liệt kê **ghi nhận để tham khảo** (không chấm mức) — **tách khỏi cảnh báo** (không mở cảnh báo, không tô viền siêu thị). Web: menu riêng **Sức khỏe máy** (nhóm Tham khảo: đếm máy có / không có ghi nhận, lọc theo loại ghi nhận, bấm mở chi tiết máy), thẻ "Tình trạng máy" trong chi tiết máy, cột Sức khỏe và ô lọc ở trang Máy. Chưa đọc SMART. Cần agent bản mới | Đã có, chưa chạy thật |
 | **Agent quét log liên tục** theo bộ rule (file trong /var/log nhớ vị trí, nhận ra xoay vòng; journald qua `journalctl`), hàng đợi trên đĩa khi mất mạng, gửi sự kiện: high / critical sau vài giây, còn lại mỗi phút | Đã có (A3), đang chạy thật |
 | **Server phát bộ rule**: gán bộ đã ký cho tất cả máy / siêu thị / máy trên trang Rule; agent nhận qua heartbeat, tự tải, kiểm chữ ký, cài rồi quét theo bộ mới | Đã có (M7), đang chạy thật |
-| **Gia hạn chứng chỉ máy** (hạn 90 ngày): agent tự gia hạn khi còn dưới 30 ngày bằng cách gửi lại gói đăng ký với chính khóa máy (chứng chỉ đã hết hạn vẫn gia hạn được); qua lượt tải; web hiện số máy sắp / đã hết hạn và hạn từng máy. **Cần phát hành bản agent mới cho mọi máy trước khi chứng chỉ đầu tiên hết hạn** — agent bản cũ không tự gia hạn | Đã có, chưa tới lúc gia hạn thật (cần agent bản mới trên máy) |
+| **Gia hạn chứng chỉ máy** (hạn 90 ngày): agent tự gia hạn khi còn dưới 30 ngày bằng cách gửi lại gói đăng ký với chính khóa máy (chứng chỉ đã hết hạn vẫn gia hạn được); qua lượt tải; web hiện số máy sắp / đã hết hạn và hạn từng máy. **Cần phát hành bản agent mới cho mọi máy trước khi chứng chỉ đầu tiên hết hạn** — agent bản cũ không tự gia hạn | Đang chạy thật (cấp lại 90 ngày, web hiện hạn từng máy) |
 | **Sao lưu DB định kỳ** ngày 1 và 16 hằng tháng (≈ 15 ngày, giữ 6 bản), sao lưu tay và hướng dẫn khôi phục ở menu mục 18; mỗi lần cập nhật tự chạy test SQL trên DB riêng `scs_test` trước khi cài | Đã có; kiểm SQL khi cập nhật đã chạy thật, lịch sao lưu chờ lần chạy đầu (01/12) |
 | **Thông báo bản server mới** cho quản trị gốc và mức 1 (chỉ đề xuất, không tự cài): timer kiểm GitHub 6 giờ / lần, web hiện "Có bản mới" và danh sách thay đổi từ bản đang chạy; cài vẫn bằng menu mục 4. **Sửa lỗi**: nới thời gian sống phiên giờ kéo dài cả phiên đang mở (trước chỉ rút ngắn, phiên cũ vẫn hết sau 24 giờ) | Đã có, chưa chạy thật |
 | **Cập nhật server tự kiểm SQL trên PostgreSQL + TimescaleDB thật** (DB riêng `scs_test`) trước khi cài; lỗi thì không cài, giữ bản cũ. Lần chạy đầu bắt được lỗ hổng ràng buộc DB (hostname TN1/TN2 thiếu hậu tố lọt qua khi vai trò NULL, sửa ở migration 0014) và deadlock khi xóa hypertable (bộ chạy migration nay tự chạy lại) | Đã có |
-| **Duyệt và thay thế máy cũ** khi cài lại máy: máy chờ duyệt trùng hostname / vị trí TN với máy đang hoạt động thì thẻ chờ duyệt hiện "Cài lại máy", so sánh phần cứng (serial mainboard / hệ thống, MAC); nút "Duyệt và thay thế" thu hồi máy cũ + duyệt máy mới trong một thao tác, chuyển nhóm thử và cấu hình riêng (dịch vụ, nhãn, bộ rule), chi tiết máy mới mở được "lịch sử máy cũ" (migration 0019). Mức 3 trở lên; duyệt tự động không tự thay thế | Đã có, chưa chạy thật |
+| **Duyệt và thay thế máy cũ** khi cài lại máy: máy chờ duyệt trùng hostname / vị trí TN với máy đang hoạt động thì thẻ chờ duyệt hiện "Cài lại máy", so sánh phần cứng (serial mainboard / hệ thống, MAC); nút "Duyệt và thay thế" thu hồi máy cũ + duyệt máy mới trong một thao tác, chuyển nhóm thử và cấu hình riêng (dịch vụ, nhãn, bộ rule), chi tiết máy mới mở được "lịch sử máy cũ" (migration 0019). Mức 3 trở lên; duyệt tự động không tự thay thế | Đang chạy thật |
 | **SMART ổ cứng** (NVMe + SATA, không cần smartmontools): tác vụ root riêng `scs-agent-smart.timer` mỗi ngày, chỉ giữ CAP_SYS_RAWIO + CAP_SYS_ADMIN, mở ổ chỉ đọc, không mạng; agent chỉ đọc file kết quả. Ghi nhận tham khảo: ổ tự báo hỏng, SSD dùng ≥ 90% tuổi thọ, sector đã thay / chờ thay, lỗi media NVMe, lỗi CRC (cáp). Ổ ảo của card RAID phần cứng / ổ USB / ổ SAS ghi lý do không đọc được. Máy đang chạy cần chạy bộ cài agent một lần với `--smart-only` (menu agent mục 9). Trang **Sức khỏe máy** có thẻ **SMART ổ cứng**: đếm và lọc máy đọc được / chưa cài tác vụ / agent cũ / kết quả cũ hơn 3 ngày / không đọc được ổ, kèm cột SMART; chi tiết máy nói rõ vì sao chưa có SMART | Đã có, chưa chạy thật |
 | **Kiểm thiết bị trong LAN theo rule** (rule nguồn `probe`, schema 3): agent ping (ICMP, không cần thêm quyền) hoặc mở kết nối TCP tới router (`{gateway}`), máy in, đầu ghi… **chỉ khi bộ rule đã ký yêu cầu**; kết quả thành dòng `probe icmp <ip> down …` cho rule khớp / đếm / báo như log. Giới hạn: chỉ IPv4 nội bộ cố định, ≤ 16 đích cả bộ, nhịp ≥ 60 giây (server kiểm lúc ký, agent kiểm lại); server không phát bộ schema 3 cho agent cũ; máy tắt bằng `SCS_PROBES=off` | Đã có, chưa chạy thật (cần phát hành bản agent mới) |
 | **Giảm độ trễ thông báo**: agent chỉ gửi gấp (~1 giây) sự kiện làm máy chuyển trạng thái, cùng mức thì gom mỗi phút (server trả mức cảnh báo đang mở); server đánh thức luồng thông báo ngay khi ghi, trạng thái đổi đẩy ngay, số đếm gom mỗi phút; trình duyệt vẽ ngay cảnh báo mới / nâng mức; file giao diện có ETag + gzip, JSON API quản trị nén gzip. Sự cố nặng lên web sau ~1–2 giây | Đã có, chưa chạy thật (phần agent cần phát hành bản mới) |
 | **Nạp bản agent không khởi động lại server** (menu mục 19, `scripts/release-agent.sh`): build agent trong thư mục tạm, test, chép vào `/opt/scs-server/agent`; server tự kiểm thư mục mỗi phút và nạp, ký vào kho phát hành — phiên web và kết nối agent giữ nguyên. Đổi phần server / giao thức / DB thì cảnh báo, dùng mục 4 | Đã có, chưa chạy thật |
 | **Chép nguyên server sang máy khác qua SSH** (menu mục 20, `scripts/move-server.sh`): DB, CA, khóa phát hành, cấu hình, dữ liệu; giữ CA nên agent không phải cài lại; dừng và tắt tự chạy server cũ, kiểm SHA-256 hai đầu, xóa bản tạm bằng `shred` | Đã có, chưa chạy thật |
-| **Server kiểm chứng chỉ máy**: còn dưới 14 ngày mà chưa gia hạn → cảnh báo "Chứng chỉ máy sắp hết hạn" (cao), hết hạn → "đã hết hạn" (nghiêm trọng), tự đóng khi gia hạn xong (migration 0018). Agent tự xin lại chứng chỉ khi server không nhận chứng chỉ còn hạn (tối đa mỗi giờ); lệnh `scs-agent renew` gia hạn tay; `scs-agent status` hiện hạn chứng chỉ | Đã có, chưa chạy thật |
+| **Server kiểm chứng chỉ máy**: còn dưới 14 ngày mà chưa gia hạn → cảnh báo "Chứng chỉ máy sắp hết hạn" (cao), hết hạn → "đã hết hạn" (nghiêm trọng), tự đóng khi gia hạn xong (migration 0018). Agent tự xin lại chứng chỉ khi server không nhận chứng chỉ còn hạn (tối đa mỗi giờ); lệnh `scs-agent renew` gia hạn tay; `scs-agent status` hiện hạn chứng chỉ | Đã có, đang chạy (cảnh báo chỉ hiện khi có máy chạm ngưỡng 14 ngày) |
 | Kiểm nonce chống gửi lại gói (R3): server nhớ nonce trong cửa sổ hiệu lực của gói (±5 phút) và từ chối gói trùng (409) — heartbeat, lô sự kiện, đăng ký / gia hạn; chỉ ghi sau khi kiểm chữ ký; nhớ trong RAM (khởi động lại thì quên) | Đã có (không cần cập nhật agent) |
-| **Khóa đăng nhập theo IP / thiết bị** (sai mã 5 lần → 24 giờ; sai tên quá 10 lần / 24 giờ → 7 ngày; IP siêu thị khóa theo trình duyệt, quá 3 trình duyệt → khóa IP), lưu DB, gỡ trên web hoặc `scs-login-code -unlock`. **Mức 1 quản lý tài khoản mức 5–7** (duyệt, đổi mức, khóa, từ chối đăng ký), không đụng mức 1–4 | Đã có, chưa chạy thật |
+| **Khóa đăng nhập theo IP / thiết bị** (sai mã 5 lần → 24 giờ; sai tên quá 10 lần / 24 giờ → 7 ngày; IP siêu thị khóa theo trình duyệt, quá 3 trình duyệt → khóa IP), lưu DB, gỡ trên web hoặc `scs-login-code -unlock`. **Mức 1 quản lý tài khoản mức 5–7** (duyệt, đổi mức, khóa, từ chối đăng ký), không đụng mức 1–4 | Đang chạy thật, đã kiểm đúng thiết kế |
 | Tăng cứng thêm web quản trị khi mở ra Internet: chứng chỉ tự ký; mã SSH vẫn còn khóa chung toàn hệ thống (20 lần sai / 5 phút) | Chưa có |
 
-Đã chạy trên Ubuntu + PostgreSQL / TimescaleDB thật: migration 0001–0014, heartbeat ngẫu nhiên, quét log và phát bộ
-rule, phân lượt tải (bản agent và bộ rule đúng 4 lượt, ≤ 20 Mbit/s), báo cáo server, cập nhật server có kiểm SQL trên
-`scs_test`. Chưa kiểm thật: gia hạn chứng chỉ (chưa máy nào tới hạn), khôi phục DB từ bản sao lưu, cụm nhiều server.
+Đã chạy trên Ubuntu + PostgreSQL / TimescaleDB thật (khoảng 400 máy): migration 0001–0020, heartbeat ngẫu nhiên, quét log
+và phát bộ rule, phân lượt tải (bản agent và bộ rule đúng 4 lượt, ≤ 20 Mbit/s), báo cáo server, cập nhật server có kiểm SQL
+trên `scs_test` (đã chặn đúng hai lỗi trước khi cài), **gia hạn chứng chỉ máy 90 ngày**, **duyệt và thay thế máy cũ**,
+**khóa đăng nhập theo IP / thiết bị**. Chưa kiểm thật: khôi phục DB từ bản sao lưu, chép server sang máy khác (menu mục 20),
+cụm nhiều server, các phần agent mới (SMART, kiểm thiết bị theo rule, gửi gấp theo trạng thái — cần phát hành bản agent).
 
 ## Số đo thực tế
 
-Đo trên server thật ngày 19/11/2026, khoảng **150 máy**, agent gọi heartbeat ngẫu nhiên 5–30 phút:
+Đo trên server thật ngày 20/11/2026, khoảng **400 máy** (398 máy đã duyệt, 363 máy gọi về trong 30 phút gần nhất),
+agent gọi heartbeat ngẫu nhiên 5–30 phút; số liệu báo cáo server 24 giờ:
 
-| Chỉ số | Đo được | Ghi chú |
-|---|---|---|
-| Heartbeat | 5–15 lần / phút | khớp tính toán: 150 máy ÷ 17,5 phút trung bình ≈ 8,6 lần / phút |
-| CPU máy server | 1–5% | |
-| RAM `scs-server` | 25–35 MB | |
-| Dung lượng DB | 13 MB | nhờ lưu theo giai đoạn (chỉ ghi khi có thay đổi) |
-| Phân lượt tải | đúng 4 lượt, ≤ 20 Mbit/s | quan sát khi phát bản agent và bộ rule; chỉ số không biến động lớn |
+| Chỉ số | Khoảng 400 máy (20/11) | Khoảng 150 máy (19/11) | Ghi chú |
+|---|---|---|---|
+| Heartbeat | 16–20 lần / phút (~25.800 / ngày) | 5–15 lần / phút | khớp tính toán: 400 máy ÷ 17,5 phút trung bình ≈ 23 lần / phút |
+| CPU máy server | trung bình 3%, đỉnh 37,7% (vài lần ngắn) | 1–5% | máy 4 lõi |
+| RAM `scs-server` | 37–42 MB | 25–35 MB | RAM cả máy ~19% của 7,3 GB, gần như phẳng |
+| Dung lượng DB | 16,9 MB (tăng ~1,3 MB / ngày) | 13 MB | nhờ lưu theo giai đoạn (chỉ ghi khi có thay đổi) |
+| Băng thông | gửi trung bình 0,74 Mbit/s, đỉnh 7,3; nhận đỉnh 15 Mbit/s | — | đỉnh lúc phát bản agent / bộ rule (phân lượt ≤ 20 Mbit/s) |
+| Kết nối agent cùng lúc | tối đa 2 | — | mỗi agent chỉ mở vài giây khi gọi về |
+| Sự kiện log | ~1.550 / ngày (~0,9 / phút) | — | |
 
-Nay đã hơn 220 máy (chưa đo lại); theo cùng cách tính, heartbeat khoảng 220 ÷ 17,5 ≈ 12–13 lần / phút.
+Tải tăng gần tuyến tính theo số heartbeat như ước lượng; RAM server gần như không đổi theo số máy.
 
 ## Định hướng tương lai (chưa triển khai)
 

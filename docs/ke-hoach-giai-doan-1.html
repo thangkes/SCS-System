@@ -574,6 +574,7 @@ rules:
   <p>Từ 2026-11-12 ưu tiên làm cụm (C1 trở đi) trước các mốc còn lại của bản một server (A3, M4, M5, M7). Phần nhận dữ liệu của từng server không đổi nên các mốc đó dùng lại được trong cụm.</p>
   <p>Sau phần phát triển: kiểm thử bảo mật (giả mạo máy, replay, bản cập nhật giả), pilot 100–200 máy ở 20–30 cửa hàng (tiêu chí: heartbeat thành công trên 99%, agent dùng dưới 5% CPU), rồi mở rộng theo vùng.</p>
   <p><strong>Kết quả chạy thật (19/11/2026, khoảng 150 máy):</strong> 5–15 heartbeat / phút, CPU máy server 1–5%, RAM scs-server 25–35 MB, DB 13 MB; phân lượt tải đúng 4 lượt, ≤ 20 Mbit/s.</p>
+  <p><strong>Kết quả chạy thật (20/11/2026, khoảng 400 máy):</strong> 16–20 heartbeat / phút (~25.800 / ngày), CPU máy server trung bình 3% (đỉnh 37,7%), RAM scs-server 37–42 MB, DB 16,9 MB (tăng ~1,3 MB / ngày), gửi trung bình 0,74 Mbit/s. Đã chạy thật: gia hạn chứng chỉ máy 90 ngày, duyệt và thay thế máy cũ, khóa đăng nhập theo IP / thiết bị (đúng thiết kế).</p>
 </section>
 
 <section id="cau-hoi">
