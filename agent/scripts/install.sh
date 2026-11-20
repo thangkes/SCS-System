@@ -283,6 +283,11 @@ fi
 if [[ -z "$WATCH" && -r "$ETC_DIR/agent.env.bak" ]]; then
 	WATCH="$(sed -n 's/^SCS_WATCH_SERVICES=//p' "$ETC_DIR/agent.env.bak" | tail -n1)"
 fi
+# Giữ lựa chọn tắt kiểm thiết bị (SCS_PROBES=off) khi cài lại.
+PROBES=on
+if [[ -r "$ETC_DIR/agent.env.bak" ]] && grep -qiE '^SCS_PROBES=(off|0|false|no)[[:space:]]*$' "$ETC_DIR/agent.env.bak"; then
+	PROBES=off
+fi
 umask 027
 cat >"$ETC_DIR/agent.env" <<EOF
 # Cấu hình SCS-Agent (tạo bởi scripts/install.sh; sửa xong: systemctl restart scs-agent)
@@ -292,6 +297,8 @@ SCS_KEY_DIR=$ETC_DIR
 SCS_STATE_DIR=$DATA_DIR
 SCS_WATCH_SERVICES=$WATCH
 SCS_LOG_LEVEL=info
+# Kiểm thiết bị trong LAN (ping / mở cổng) khi bộ rule đã ký yêu cầu: on | off (off = tắt hẳn trên máy này)
+SCS_PROBES=$PROBES
 EOF
 chown root:"$SVC_USER" "$ETC_DIR/agent.env"
 chmod 640 "$ETC_DIR/agent.env"

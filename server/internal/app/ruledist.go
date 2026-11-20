@@ -1,13 +1,16 @@
 package app
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 
+	"github.com/thangkes/SCS-System/common/protocol"
 	"github.com/thangkes/SCS-System/common/rules"
 	"github.com/thangkes/SCS-System/server/internal/httpx"
 	"github.com/thangkes/SCS-System/server/internal/rulestore"
@@ -48,6 +51,36 @@ func ruleBundleFor(d Deps, v string) ([]byte, error) {
 		}
 	}
 	return b, nil
+}
+
+// capRules: schema bộ rule cao nhất agent đọc được (khả năng "rules/<n>" trong heartbeat); 0 = không quét log.
+func capRules(caps []string) int {
+	for _, c := range caps {
+		if v, ok := strings.CutPrefix(c, protocol.CapRulesPrefix); ok {
+			n, _ := strconv.Atoi(v)
+			return n
+		}
+	}
+	return 0
+}
+
+// bundleSchema: schema của bộ rule đã ký (không ghi = 1). Không đọc được thì trả số rất lớn (không phát).
+func bundleSchema(b []byte) int {
+	var bd rules.Bundle
+	if json.Unmarshal(b, &bd) != nil {
+		return 1 << 30
+	}
+	data, err := base64.StdEncoding.DecodeString(bd.Payload)
+	if err != nil {
+		return 1 << 30
+	}
+	var s struct {
+		Schema int `json:"schema"`
+	}
+	if json.Unmarshal(data, &s) != nil {
+		return 1 << 30
+	}
+	return max(s.Schema, 1)
 }
 
 func hasCap(caps []string, prefix string) bool {

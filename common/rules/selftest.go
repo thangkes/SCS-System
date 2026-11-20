@@ -19,8 +19,12 @@ func (s *RuleSet) RunTests() []string {
 			continue
 		}
 		// Không aggregate, không cooldown: mỗi dòng khớp báo ngay, các dòng không ảnh hưởng nhau.
+		unit := r.Unit
+		if r.Source == SourceProbe {
+			unit = r.ID // dòng kiểm thiết bị mang mã rule đã yêu cầu
+		}
 		feed := func(text string) bool {
-			return len(e.Feed(Line{Source: r.Source, Unit: r.Unit, Text: text})) > 0
+			return len(e.Feed(Line{Source: r.Source, Unit: unit, Text: text})) > 0
 		}
 		for _, l := range r.Tests.Match {
 			if !feed(l) {

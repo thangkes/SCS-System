@@ -215,6 +215,57 @@ Lưu ý:
   `journalctl -o verbose --since -1h | grep -B30 'chuỗi cần tìm' | grep -E '_SYSTEMD_UNIT|_TRANSPORT|MESSAGE='`
 - Agent chỉ được đọc file trong `/var/log/`. Đường dẫn có `..`, dấu cách hay ký tự lạ đều bị từ chối.
 
+### 5.1 Nguồn `probe`: kiểm thiết bị trong LAN (schema 3)
+
+Agent tự kiểm thiết bị (router, máy in, đầu ghi, máy khác trong siêu thị) **chỉ khi bộ rule đã ký yêu cầu**, rồi đưa
+kết quả vào rule như một dòng log:
+
+```yaml
+schema: 3
+rules:
+  - id: NET-GW-DOWN-01
+    title: Mất kết nối tới router siêu thị
+    severity: high
+    source: probe
+    probe:
+      kind: icmp                 # icmp (ping) | tcp (mở kết nối tới cổng)
+      targets: ["{gateway}"]     # IPv4 nội bộ cố định, hoặc {gateway} = router mặc định của máy
+      every_s: 120               # nhịp kiểm (mặc định 120, tối thiểu 60)
+      timeout_ms: 1500           # chờ trả lời (mặc định 1500, tối đa 5000)
+    match: 'probe icmp (?P<ip>\S+) down'
+    aggregate: { window_s: 600, threshold: 3, group_by: ip }   # mất 3 lần trong 10 phút mới báo
+    cooldown_s: 3600
+    tests:
+      match: ['probe icmp 192.168.1.1 down timeout']
+      no_match: ['probe icmp 192.168.1.1 up rtt=3ms']
+
+  - id: NET-PRINTER-01
+    title: Máy in không phản hồi
+    severity: medium
+    source: probe
+    probe: { kind: tcp, targets: ["192.168.1.50"], port: 9100, every_s: 300 }
+    match: 'probe tcp (?P<ip>\S+):9100 down'
+```
+
+Dòng agent sinh ra (chỉ đưa vào **đúng rule** đã yêu cầu, không ghi ra đĩa):
+
+| Dòng | Khi nào |
+|---|---|
+| `probe icmp 192.168.1.1 down timeout` | mỗi lần không đáp (lý do: `timeout`, `refused`, `unreachable`, `error`) |
+| `probe tcp 192.168.1.50:9100 down refused` | cổng đóng / không mở được |
+| `probe icmp 192.168.1.1 up rtt=3ms` | **chỉ khi vừa hồi lại** sau lần down |
+
+Giới hạn (server kiểm lúc ký, agent kiểm lại trước khi chạy — vượt là bỏ cả bộ):
+
+- Đích chỉ là **IPv4 nội bộ cố định** (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) hoặc `{gateway}`; không dải IP, không
+  tên miền, không IP công khai. IP thật của `{gateway}` cũng phải là IP nội bộ, không thì agent không kiểm.
+- Tổng **≤ 16 đích** (kiểu + đích + cổng) trong cả bộ rule; nhịp **≥ 60 giây**; kiểm tuần tự từng đích; lần đầu lệch
+  ngẫu nhiên trong một nhịp để các máy không kiểm cùng lúc.
+- Cần `schema: 3`. Agent cũ không đọc được thì server **không phát** bộ đó cho máy ấy (máy giữ bộ đang chạy).
+- Không cần thêm quyền: ICMP dùng socket ping không đặc quyền của Linux (`net.ipv4.ping_group_range`, Ubuntu mặc định cho
+  phép); máy không cho thì agent ghi log cảnh báo, không sinh dòng `down` giả. TCP chỉ mở rồi đóng kết nối.
+- Người có root trên máy tắt hẳn bằng `SCS_PROBES=off` trong `/etc/scs-agent/agent.env` (server không đổi được).
+
 ## 6. Viết regex cho match / exclude
 
 Regex dùng cú pháp **RE2** (của Go). RE2 chạy tuyến tính theo độ dài dòng, nên không có regex nào làm treo agent. Đổi lại, không có lookahead `(?=...)`, lookbehind `(?<=...)` và backreference `\1`: dùng `exclude` để thay cho "khớp A nhưng không có B".
@@ -572,10 +623,14 @@ sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journa
 | `applies_to` | 8 khóa, 16 giá trị mỗi khóa |
 | Nhãn máy đặt trên web mỗi cấp | 16 |
 | Bộ rule đã ký | 1 MB |
+| Rule `probe`: số đích cả bộ / nhịp / timeout | 16 / ≥ 60 giây / ≤ 5000 ms; chỉ IPv4 nội bộ hoặc `{gateway}` |
 
 ## 14. An toàn
 
-- Rule **chỉ đọc log và khớp regex**. Không có trường nào để chạy lệnh, gọi mạng hay đọc file ngoài `/var/log`. Bộ rule dù bị sửa cũng không làm được gì trên máy ngoài việc báo sai.
+- Rule **chỉ đọc log và khớp regex**. Không có trường nào để chạy lệnh hay đọc file ngoài `/var/log`. Ngoại lệ duy nhất
+  gửi gói tin ra mạng là rule nguồn `probe` (schema 3): agent ping / mở kết nối tới **tối đa 16 IP nội bộ cố định** (hoặc
+  router mặc định), nhịp ≥ 60 giây — không dải IP, không tên miền, không IP công khai, nên không biến thành công cụ dò
+  mạng; máy tắt được bằng `SCS_PROBES=off`. Bộ rule dù bị sửa cũng không làm được gì trên máy ngoài việc báo sai.
 - Agent chỉ nhận bộ rule **có chữ ký** của khóa phát hành server (cùng khóa ký bản agent, nhưng khác "ngữ cảnh ký" nên chữ ký bộ rule không dùng thay được cho chữ ký bản agent và ngược lại). Agent kiểm lại toàn bộ nội dung y như server, sai một chỗ là bỏ cả bộ.
 - Regex RE2 không làm treo agent dù viết kém. Các giới hạn ở [mục 13](#13-giới-hạn) giữ RAM / CPU agent thấp.
 - Sự kiện gửi lên server kèm dòng log khớp (`sample`). Đừng viết rule khớp những dòng chứa mật khẩu hay dữ liệu khách hàng. Nếu phải theo dõi loại dòng đó, đặt nhóm có tên để lấy riêng phần cần (ví dụ mã lỗi) và cân nhắc kỹ.

@@ -168,7 +168,8 @@ func heartbeatHandler(d Deps) http.Handler {
 			failing := needUpdate && body.UpdateError != nil && body.UpdateError.Version == rel.Version
 			ruleV := ""
 			if v := plan.RuleSet; v != "" && d.Rules != nil && hasCap(body.Capabilities, protocol.CapRulesPrefix) {
-				if _, err := ruleBundleFor(d, v); err == nil {
+				// Chỉ phát bộ agent đọc được: agent cũ gặp schema mới sẽ từ chối, tải lại mãi và tốn lượt tải.
+				if b, err := ruleBundleFor(d, v); err == nil && bundleSchema(b) <= capRules(body.Capabilities) {
 					ruleV = v
 				}
 			}

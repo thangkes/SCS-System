@@ -33,6 +33,9 @@ type Config struct {
 	// ReleasePub: khóa công khai phát hành của server (root sở hữu, đóng trong gói cài). Agent chỉ
 	// chạy bản cập nhật có chữ ký đúng khóa này; không có file thì không tự cập nhật.
 	ReleasePub string
+	// Probes: cho phép agent tự kiểm thiết bị trong LAN khi bộ rule đã ký yêu cầu (rule nguồn probe).
+	// SCS_PROBES=off tắt hẳn trên máy này (file agent.env do root giữ, server không đổi được). Mặc định bật.
+	Probes bool
 }
 
 // Load đọc file cấu hình (path rỗng = DefaultFile, không có file thì dùng mặc định) rồi biến môi trường.
@@ -68,6 +71,13 @@ func Load(path string) (*Config, error) {
 		LogLevel: get("SCS_LOG_LEVEL", "info"),
 
 		ReleasePub: get("SCS_RELEASE_PUB", "/opt/scs-agent/release.pub"),
+	}
+	switch strings.ToLower(get("SCS_PROBES", "on")) {
+	case "on", "1", "true", "yes":
+		c.Probes = true
+	case "off", "0", "false", "no":
+	default:
+		return nil, fmt.Errorf("SCS_PROBES không hợp lệ (on | off): %q", get("SCS_PROBES", ""))
 	}
 	for _, s := range strings.Split(get("SCS_WATCH_SERVICES", ""), ",") {
 		if s = strings.TrimSpace(s); s != "" {

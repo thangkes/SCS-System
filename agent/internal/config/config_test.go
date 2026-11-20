@@ -42,6 +42,23 @@ export SCS_LOG_LEVEL=debug   # ghi chi tiết
 	}
 }
 
+// SCS_PROBES: mặc định bật; off tắt hẳn kiểm thiết bị trên máy; giá trị lạ bị từ chối.
+func TestProbesSwitch(t *testing.T) {
+	clearEnv(t)
+	p := writeConf(t, "SCS_SERVER=https://203.0.113.10:16222\n")
+	if c, err := Load(p); err != nil || !c.Probes {
+		t.Fatalf("mặc định bật: %+v %v", c, err)
+	}
+	p = writeConf(t, "SCS_SERVER=https://203.0.113.10:16222\nSCS_PROBES=off\n")
+	if c, err := Load(p); err != nil || c.Probes {
+		t.Fatalf("off phải tắt: %+v %v", c, err)
+	}
+	p = writeConf(t, "SCS_PROBES=maybe\n")
+	if _, err := Load(p); err == nil {
+		t.Fatal("giá trị lạ phải bị từ chối")
+	}
+}
+
 func TestLoadRejects(t *testing.T) {
 	cases := map[string]string{
 		"http thường":         "SCS_SERVER=http://203.0.113.10:6222",

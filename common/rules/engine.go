@@ -8,8 +8,8 @@ import (
 	"unicode/utf8"
 )
 
-// Line: một dòng log đưa vào Engine. Source là đường dẫn file hoặc "journald"; Unit là unit
-// systemd của dòng journal ("kernel" cho log kernel).
+// Line: một dòng log đưa vào Engine. Source là đường dẫn file, "journald" hoặc "probe"; Unit là unit
+// systemd của dòng journal ("kernel" cho log kernel), hoặc mã rule đã yêu cầu kiểm (nguồn probe).
 type Line struct {
 	Source string
 	Unit   string
@@ -105,6 +105,9 @@ type SourceSpec struct {
 func (e *Engine) Sources() []SourceSpec {
 	var out []SourceSpec
 	for src, rs := range e.bySource {
+		if src == SourceProbe {
+			continue // agent tự kiểm (Probes), không phải nguồn log cần đọc
+		}
 		sp := SourceSpec{Source: src}
 		if src == SourceJournald {
 			all := false
@@ -145,6 +148,9 @@ func (e *Engine) Feed(l Line) []Event {
 	var out []Event
 	for _, c := range e.bySource[l.Source] {
 		if c.Source == SourceJournald && c.Unit != "" && c.Unit != l.Unit {
+			continue
+		}
+		if c.Source == SourceProbe && c.ID != l.Unit { // kết quả kiểm chỉ đưa vào đúng rule đã yêu cầu
 			continue
 		}
 		m := c.match.FindStringSubmatch(text)

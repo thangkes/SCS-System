@@ -271,7 +271,8 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		log.Info("đã được duyệt, bắt đầu gửi heartbeat", "device_id", st.DeviceID, "dia_chi", c.Servers())
 		// Quét log liên tục theo bộ rule đang cài, gửi sự kiện lên server (mốc A3).
 		sc := &watch.Scanner{Log: log.With("phan", "quet-log"), StateDir: cfg.StateDir, ReleasePub: cfg.ReleasePub,
-			Client: c, DeviceID: st.DeviceID, Fingerprint: func() string { comps, _ := sysinfo.Components(); return comps.Hash() }}
+			Client: c, DeviceID: st.DeviceID, Fingerprint: func() string { comps, _ := sysinfo.Components(); return comps.Hash() },
+			Probes: cfg.Probes}
 		scanCtx, stopScan := context.WithCancel(ctx)
 		scanDone := make(chan struct{})
 		go func() { defer close(scanDone); sc.Run(scanCtx) }()

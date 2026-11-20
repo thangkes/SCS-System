@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/thangkes/SCS-System/agent/internal/identity"
+	"github.com/thangkes/SCS-System/agent/internal/probe"
 	"github.com/thangkes/SCS-System/agent/internal/scan"
 	"github.com/thangkes/SCS-System/common/protocol"
 	"github.com/thangkes/SCS-System/common/rules"
@@ -50,6 +51,8 @@ type Scanner struct {
 	Client      Sender
 	DeviceID    string
 	Fingerprint func() string
+	// Probes: cho phép kiểm thiết bị khi bộ rule yêu cầu (SCS_PROBES; tắt thì bỏ qua rule nguồn probe).
+	Probes bool
 
 	active atomic.Value // string
 	q      *queue
@@ -188,6 +191,22 @@ func (s *Scanner) scan(ctx context.Context, e *rules.Engine) {
 			t := &tailer{path: sp.Source, pos: s.pos, out: lines, log: s.Log}
 			t.run(ctx)
 		}()
+	}
+	if specs := e.Probes(); len(specs) > 0 {
+		if !s.Probes {
+			s.Log.Info("bộ rule có rule kiểm thiết bị nhưng máy này tắt (SCS_PROBES=off): bỏ qua", "rule", len(specs))
+		} else {
+			n := 0
+			for _, sp := range specs {
+				n += len(sp.Probe.Targets)
+			}
+			s.Log.Info("kiểm thiết bị theo bộ rule", "rule", len(specs), "dich", n)
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				(&probe.Runner{Log: s.Log, Out: lines}).Run(ctx, specs)
+			}()
+		}
 	}
 	tick := time.NewTicker(savePos)
 	defer tick.Stop()

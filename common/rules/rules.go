@@ -42,13 +42,14 @@ const (
 	MaxApplyKeys  = 8
 	MaxApplyVals  = 16
 	// SchemaMax: schema cao nhất bản này đọc được. Agent báo "rules/<SchemaMax>" trong heartbeat.
-	SchemaMax = 2
+	SchemaMax = 3
 )
 
 // RuleSet: một bộ rule, gán cho nhóm máy. Version đổi mỗi lần sửa để agent biết phải tải lại.
 type RuleSet struct {
-	// Schema: phiên bản cấu trúc bộ rule (bỏ trống = 1). Dùng tags / applies_to thì phải là 2;
-	// agent cũ (chỉ hiểu schema 1) từ chối cả bộ có trường lạ và giữ bộ đang dùng.
+	// Schema: phiên bản cấu trúc bộ rule (bỏ trống = 1). Dùng tags / applies_to thì phải ≥ 2; rule
+	// nguồn probe (agent tự kiểm thiết bị) thì phải là 3. Agent cũ đọc không được schema mới thì từ chối
+	// cả bộ và giữ bộ đang dùng.
 	Schema      int    `json:"schema,omitempty"`
 	Name        string `json:"name"`
 	Version     string `json:"version"`
@@ -61,8 +62,11 @@ type Rule struct {
 	ID       string `json:"id"`
 	Title    string `json:"title,omitempty"`
 	Severity string `json:"severity"`
-	// Source: đường dẫn file tuyệt đối trong /var/log, hoặc "journald".
+	// Source: đường dẫn file tuyệt đối trong /var/log, "journald", hoặc "probe" (agent tự kiểm thiết bị,
+	// cần Probe và schema 3 — xem probe.go).
 	Source string `json:"source"`
+	// Probe: cách kiểm khi Source là "probe".
+	Probe *Probe `json:"probe,omitempty"`
 	// Unit: chỉ dùng với journald; so với trường _SYSTEMD_UNIT của dòng journal (tiến trình nào
 	// ghi dòng đó, ví dụ ssh.service), hoặc "kernel" cho log kernel (_TRANSPORT=kernel).
 	// Bỏ trống = mọi dòng journal.
@@ -146,10 +150,16 @@ func (s *RuleSet) Validate() error {
 		if (len(r.Tags) > 0 || r.AppliesTo != nil) && s.Schema < 2 {
 			add("%s: tags / applies_to cần khai \"schema: 2\" ở đầu bộ rule (agent cũ không đọc được)", where)
 		}
+		if r.Source == SourceProbe && s.Schema < ProbeSchema {
+			add("%s: source probe cần khai \"schema: %d\" ở đầu bộ rule (agent cũ không chạy được)", where, ProbeSchema)
+		}
 		if seen[r.ID] {
 			add("%s: id bị trùng", where)
 		}
 		seen[r.ID] = true
+	}
+	if n := s.probeTargets(); n > MaxProbeTargets {
+		add("probe: cả bộ rule kiểm %d đích, tối đa %d (gộp bớt hoặc tách bộ rule theo nhóm máy)", n, MaxProbeTargets)
 	}
 	if len(errs) > 0 {
 		return errs
@@ -169,13 +179,27 @@ func (r *Rule) validate() []string {
 	if !slices.Contains(Severities, r.Severity) {
 		add("severity %q: phải là một trong %s", r.Severity, strings.Join(Severities, ", "))
 	}
+	if r.Probe != nil && r.Source != SourceProbe {
+		add("probe: chỉ dùng khi source là probe")
+	}
 	switch {
+	case r.Source == SourceProbe:
+		if r.Probe == nil {
+			add("source probe: thiếu probe (kind, targets)")
+		} else {
+			for _, e := range r.Probe.validate() {
+				add("%s", e)
+			}
+		}
+		if r.Unit != "" {
+			add("unit: chỉ dùng khi source là journald")
+		}
 	case r.Source == SourceJournald:
 		if r.Unit != "" && !unitRe.MatchString(r.Unit) {
 			add("unit %q: không phải tên unit systemd hợp lệ", r.Unit)
 		}
 	case r.Source == "":
-		add("source: thiếu (đường dẫn file trong /var/log hoặc journald)")
+		add("source: thiếu (đường dẫn file trong /var/log, journald hoặc probe)")
 	default:
 		if !ValidLogPath(r.Source) {
 			add("source %q: phải là đường dẫn file tuyệt đối trong /var/log, không có .. hay ký tự đặc biệt", r.Source)

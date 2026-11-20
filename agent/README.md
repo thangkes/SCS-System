@@ -81,7 +81,10 @@ SCS_WATCH_SERVICES=pos.service             # dịch vụ cần báo trạng thá
 # SCS_KEY_DIR=/etc/scs-agent                   # khóa riêng + chứng chỉ (quyền 600)
 # SCS_STATE_DIR=/var/lib/scs-agent             # trạng thái, vị trí đọc log, hàng đợi
 # SCS_LOG_LEVEL=info
+SCS_PROBES=on                                # off = tắt hẳn kiểm thiết bị trong LAN (rule nguồn probe) trên máy này
 ```
+
+`agent.env` thuộc root (640, nhóm scs-agent): agent và server không đổi được. Cài lại agent giữ nguyên `SCS_PROBES=off`.
 
 ## Đăng ký
 
