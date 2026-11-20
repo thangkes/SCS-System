@@ -25,11 +25,11 @@ func sampleIncidents(now time.Time) []IncidentRow {
 	return []IncidentRow{
 		{ID: 3, Hostname: "12345-TN1-PRI", StoreCode: "12345", StoreName: "Siêu thị A", Kind: periods.KindAlert, Severity: "critical",
 			StartedAt: now.Add(-2 * time.Hour), Events: 5, Rules: map[string]*periods.RuleSum{"DISK-IO-ERR-01": {Count: 4}, "SVC-01": {Count: 1}},
-			Note: "=CMD()"},
+			Note: "=CMD()", Handling: periods.HandlingWaitingInfo},
 		{ID: 2, Hostname: "12345-TN2-SEC", StoreCode: "12345", Kind: periods.KindOffline, StartedAt: now.Add(-5 * time.Hour),
 			EndedAt: now.Add(-4 * time.Hour), ClosedBy: "system"},
 		{ID: 1, Hostname: "67890-TN1-PRI", StoreCode: "67890", Kind: periods.KindAlert, Severity: "high", StartedAt: now.Add(-30 * time.Hour),
-			EndedAt: now.Add(-6 * time.Hour), ClosedBy: "admin:An", Events: 2, Rules: map[string]*periods.RuleSum{"DISK-IO-ERR-01": {Count: 2}}},
+			EndedAt: now.Add(-6 * time.Hour), ClosedBy: "admin:An", Resolution: periods.ResolutionConfirmed, Events: 2, Rules: map[string]*periods.RuleSum{"DISK-IO-ERR-01": {Count: 2}}},
 	}
 }
 
@@ -42,7 +42,8 @@ func TestSummarizeIncidents(t *testing.T) {
 	if sum["total"] != 3 || sum["alerts"] != 2 || sum["offline"] != 1 || sum["open"] != 1 {
 		t.Fatalf("đếm: %+v", sum)
 	}
-	if sum["severity"].(map[string]int)["critical"] != 1 || sum["closed"].(map[string]int)["admin"] != 1 || sum["closed"].(map[string]int)["system"] != 1 {
+	if sum["severity"].(map[string]int)["critical"] != 1 || sum["closed"].(map[string]int)["admin"] != 1 || sum["closed"].(map[string]int)["system"] != 1 ||
+		sum["closed"].(map[string]int)["confirmed"] != 1 || sum["handling"].(map[string]int)[periods.HandlingWaitingInfo] != 1 {
 		t.Fatalf("mức / cách đóng: %+v", sum)
 	}
 	if sum["max_minutes"].(float64) != 1440 || sum["avg_minutes"].(float64) != 750 {
@@ -85,7 +86,8 @@ func TestIncidentReportAPI(t *testing.T) {
 	}
 	w = get("/admin/v1/incidents/report.csv" + q)
 	body := w.Body.String()
-	if w.Code != 200 || !strings.HasPrefix(body, "\xef\xbb\xbf") || !strings.Contains(body, "'=CMD()") || !strings.Contains(body, "Admin xử lý: An") ||
+	if w.Code != 200 || !strings.HasPrefix(body, "\xef\xbb\xbf") || !strings.Contains(body, "'=CMD()") || !strings.Contains(body, "Xác nhận sự cố: An") ||
+		!strings.Contains(body, "Đang mở — Chờ thông tin") ||
 		!strings.Contains(w.Header().Get("Content-Disposition"), "bao-cao-su-co_") {
 		t.Fatalf("CSV: %d %s", w.Code, body)
 	}

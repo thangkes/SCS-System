@@ -15,7 +15,8 @@ var _ app.IncidentStore = (*Registry)(nil)
 func (g *Registry) IncidentReport(ctx context.Context, from, to time.Time, limit int) ([]app.IncidentRow, bool, error) {
 	rows, err := g.pool.Query(ctx, `
 		SELECT p.id, p.device_id, d.hostname, coalesce(d.store_code, ''), coalesce(s.name, ''), p.kind, coalesce(p.severity, ''),
-		       p.started_at, p.ended_at, p.events, p.rules, coalesce(p.closed_by, ''), coalesce(p.note, ''), p.offline_since
+		       p.started_at, p.ended_at, p.events, p.rules, coalesce(p.closed_by, ''), coalesce(p.note, ''), p.offline_since,
+		       coalesce(p.resolution, ''), coalesce(p.handling, ''), coalesce(p.handling_note, '')
 		FROM device_periods p JOIN devices d ON d.id = p.device_id LEFT JOIN stores s ON s.code = d.store_code
 		WHERE p.kind <> 'ok' AND p.started_at >= $1 AND p.started_at < $2
 		ORDER BY p.started_at DESC, p.id DESC LIMIT $3`, from, to, limit+1)
@@ -29,7 +30,7 @@ func (g *Registry) IncidentReport(ctx context.Context, from, to time.Time, limit
 		var ended, offline *time.Time
 		var rules []byte
 		if err := rows.Scan(&r.ID, &r.DeviceID, &r.Hostname, &r.StoreCode, &r.StoreName, &r.Kind, &r.Severity, &r.StartedAt,
-			&ended, &r.Events, &rules, &r.ClosedBy, &r.Note, &offline); err != nil {
+			&ended, &r.Events, &rules, &r.ClosedBy, &r.Note, &offline, &r.Resolution, &r.Handling, &r.HandlingNote); err != nil {
 			return nil, false, err
 		}
 		if ended != nil {

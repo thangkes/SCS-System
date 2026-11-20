@@ -59,7 +59,10 @@ type Registry interface {
 	// ListPeriods: dòng thời gian của một máy, mới nhất trước. LastSeen: lần cuối nghe máy.
 	ListPeriods(ctx context.Context, deviceID int64, limit int) (Timeline, error)
 	// ResolvePeriod: admin "Đã xử lý" một cảnh báo đang mở (đóng cảnh báo trong alerts luôn).
-	ResolvePeriod(ctx context.Context, periodID int64, by, note string) error
+	// resolution: periods.ResolutionFixed (Đã xử lý) | periods.ResolutionConfirmed (Xác nhận sự cố).
+	ResolvePeriod(ctx context.Context, periodID int64, by, note, resolution string) error
+	// SetHandling: Chờ thông tin / Đã gửi report cho sự cố đang mở (sự cố vẫn mở).
+	SetHandling(ctx context.Context, periodID int64, status, by, note string) error
 	// Pulse: số liệu nhanh cho thông báo tức thời trên web (một câu SQL nhỏ, gọi vài giây một lần
 	// khi có trình duyệt đang mở) và các cảnh báo đang mở có thay đổi sau since (tối đa 20).
 	Pulse(ctx context.Context, since time.Time) (Pulse, error)
@@ -184,6 +187,11 @@ type Alert struct {
 	PeriodID int64 `json:"period_id,omitempty"`
 	// Reasons: lý do của cảnh báo sự cố (tối đa 3 rule nặng nhất của giai đoạn, kèm dòng log mẫu).
 	Reasons []AlertReason `json:"reasons,omitempty"`
+	// Trạng thái xử lý của sự cố (giai đoạn) đang mở: waiting_info | reported.
+	Handling     string    `json:"handling,omitempty"`
+	HandlingBy   string    `json:"handling_by,omitempty"`
+	HandlingAt   time.Time `json:"handling_at,omitzero"`
+	HandlingNote string    `json:"handling_note,omitempty"`
 }
 
 // AlertReason: một rule đã báo trong giai đoạn cảnh báo.

@@ -135,6 +135,7 @@ func TestNoPrivilegeEscalation(t *testing.T) {
 		{"POST", "/admin/v1/agent/rollout", auth.LevelAgents},
 		{"POST", "/admin/v1/agent/servers", auth.LevelServers},
 		{"POST", "/admin/v1/periods/1/resolve", auth.LevelIncidents},
+		{"POST", "/admin/v1/periods/1/handling", auth.LevelIncidents},
 		{"POST", "/admin/v1/alerts/1/ack", auth.LevelIncidents},
 		{"POST", "/admin/v1/devices/1/test-ring", auth.LevelAgentInfo},
 		{"POST", "/admin/v1/agent/config", auth.LevelAgentInfo},

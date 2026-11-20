@@ -653,8 +653,8 @@
         <div class="grid-kpi rp-kpi">
           ${kpi('Sự cố', fmtNum(sm.total), `${fmtNum(sm.alerts)} sự cố log · ${fmtNum(sm.offline)} mất liên lạc`)}
           ${kpi('Nghiêm trọng', fmtNum(sev.critical || 0), `${fmtNum(sev.high || 0)} mức cao · ${fmtNum(sev.medium || 0)} trung bình`, sev.critical ? 'is-bad' : sev.high ? 'is-warn' : '')}
-          ${kpi('Đang mở', fmtNum(sm.open), 'chưa đóng tới lúc xem', sm.open ? 'is-warn' : '')}
-          ${kpi('Cách đóng', fmtNum(closed.admin || 0), `admin xử lý · ${fmtNum(closed.auto || 0)} tự đóng · ${fmtNum(closed.system || 0)} hệ thống đóng`)}
+          ${kpi('Đang mở', fmtNum(sm.open), `${fmtNum((sm.handling || {}).waiting_info || 0)} chờ thông tin · ${fmtNum((sm.handling || {}).reported || 0)} đã gửi report`, sm.open ? 'is-warn' : '')}
+          ${kpi('Cách đóng', fmtNum(closed.admin || 0), `admin đóng: ${fmtNum(closed.fixed || 0)} đã xử lý · ${fmtNum(closed.confirmed || 0)} xác nhận sự cố · ${fmtNum(closed.auto || 0)} tự đóng · ${fmtNum(closed.system || 0)} hệ thống đóng`)}
           ${kpi('Thời gian tới khi đóng', fmtMin(sm.avg_minutes), `trung bình · trung vị ${fmtMin(sm.median_minutes)} · lâu nhất ${fmtMin(sm.max_minutes)}`)}
         </div>
         ${sm.total ? `<div class="card rp-charts rp-one">
@@ -669,7 +669,7 @@
         <div class="card">
           <div class="card-head"><h2>Chi tiết</h2><span class="sub">${sm.total > j.rows.length ? `${j.rows.length} / ${fmtNum(sm.total)} sự cố mới nhất — đủ trong file Excel / CSV` : `${fmtNum(sm.total)} sự cố`}</span></div>
           <div class="table-wrap"><table class="rp-table">
-            <thead><tr><th>Bắt đầu</th><th>Máy</th><th>Loại / mức</th><th>Rule chính</th><th class="num">Sự kiện</th><th>Kết thúc</th><th class="hide-sm">Đóng bởi</th></tr></thead>
+            <thead><tr><th>Bắt đầu</th><th>Máy</th><th>Loại / mức</th><th>Rule chính</th><th class="num">Sự kiện</th><th>Kết thúc</th><th class="hide-sm">Xử lý</th></tr></thead>
             <tbody>${j.rows.map((r) => {
               const main = Object.entries(r.rules || {}).sort((a, b) => b[1].count - a[1].count)[0];
               return `<tr class="clickable" data-dev="${esc(r.device_id)}">
@@ -679,7 +679,7 @@
                 <td>${main ? `<span class="mono">${esc(main[0])}</span>${(r.titles || {})[main[0]] ? `<span class="sub">${esc(r.titles[main[0]])}</span>` : ''}` : '—'}</td>
                 <td class="num">${fmtNum(r.events)}</td>
                 <td>${r.ended_at ? `${esc(fmtD(new Date(r.ended_at)))}<span class="sub">sau ${esc(fmtDur(new Date(r.ended_at) - new Date(r.started_at)))}</span>` : '<strong>đang mở</strong>'}</td>
-                <td class="hide-sm">${esc(closedText(r.closed_by || ''))}${r.note ? `<span class="sub">${esc(r.note)}</span>` : ''}</td></tr>`;
+                <td class="hide-sm">${r.ended_at ? esc(closedText(r.closed_by || '', r.resolution)) : handlingPill(r)}${(r.ended_at ? r.note : r.handling_note) ? `<span class="sub">${esc(r.ended_at ? r.note : r.handling_note)}</span>` : ''}</td></tr>`;
             }).join('')}</tbody></table></div>
         </div>` : '<div class="card soon"><p>Không có sự cố nào bắt đầu trong khoảng này.</p></div>'}
         <p class="hint print-only">In lúc ${esc(fmtD(new Date()))} từ web quản trị SCS-System.</p>`;
@@ -1565,11 +1565,88 @@
     if (h < 48) return `${h} giờ${m % 60 ? ` ${m % 60} phút` : ''}`;
     return `${Math.floor(h / 24)} ngày${h % 24 ? ` ${h % 24} giờ` : ''}`;
   }
-  function closedText(by) {
+
+  // ---------------------------------------------------------------- xử lý sự cố
+  // Sự cố đang mở: Chờ thông tin / Đã gửi report (VẪN MỞ, bắt buộc ghi chú; high vẫn tự đóng khi yên, critical cần
+  // người đóng) — hoặc đóng: Đã xử lý / Xác nhận sự cố (đóng nhanh sự cố một lần).
+  const HANDLING = { waiting_info: ['pill-warn', 'Chờ thông tin'], reported: ['pill-info', 'Đã gửi report'] };
+  const RESOLUTION = { fixed: 'Đã xử lý', confirmed: 'Xác nhận sự cố' };
+  function handlingPill(x) {
+    const h = HANDLING[x && x.handling];
+    if (!h) return '';
+    const tip = [x.handling_note, x.handling_by && `${x.handling_by}${x.handling_at ? ` · ${fmtFull(x.handling_at)}` : ''}`].filter(Boolean).join('\n');
+    return `<span class="pill ${h[0]} no-dot" title="${esc(tip)}">${esc(h[1])}</span>`;
+  }
+  // handleIncident: hộp chọn cách xử lý một sự cố (giai đoạn cảnh báo đang mở). Trả true khi đã đổi.
+  async function handleIncident(periodId, cur) {
+    const opt = (v, label, hint, checked) => `<label class="radio-row"><input type="radio" name="hd-act" value="${v}"${checked ? ' checked' : ''}>
+      <span><strong>${esc(label)}</strong><span class="sub">${esc(hint)}</span></span></label>`;
+    const shown = confirmBox('Xử lý sự cố', `
+      <div class="radio-list">
+        ${opt('waiting_info', 'Chờ thông tin', 'Sự cố vẫn mở — chờ siêu thị / người phụ trách phản hồi', cur === 'waiting_info')}
+        ${opt('reported', 'Đã gửi report', 'Sự cố vẫn mở — đã báo lên cấp trên / kỹ thuật / nhà cung cấp', cur === 'reported')}
+        ${opt('fixed', 'Đã xử lý', 'Đóng sự cố: đã sửa xong', !cur)}
+        ${opt('confirmed', 'Xác nhận sự cố', 'Đóng nhanh: sự cố một lần, không cần làm gì thêm', false)}
+      </div>
+      <label class="field">Ghi chú <span class="sub" id="hd-need">(tùy chọn)</span>
+        <input id="hd-note" maxlength="500" placeholder="chờ ai / chờ gì, gửi report cho ai, số phiếu…"></label>
+      <p class="hint">Sự cố mức cao vẫn tự đóng khi yên đủ lâu; mức nghiêm trọng cần người đóng.</p>`, 'Lưu');
+    // Ghi chú bắt buộc khi sự cố vẫn mở (Chờ thông tin / Đã gửi report).
+    const needNote = () => {
+      const v = (document.querySelector('input[name="hd-act"]:checked') || {}).value;
+      const need = v === 'waiting_info' || v === 'reported';
+      $('#hd-need').textContent = need ? '(bắt buộc)' : '(tùy chọn)';
+    };
+    document.querySelectorAll('input[name="hd-act"]').forEach((r) => r.addEventListener('change', needNote));
+    needNote();
+    if (!(await shown)) return false;
+    const act = (document.querySelector('input[name="hd-act"]:checked') || {}).value;
+    const note = (($('#hd-note') && $('#hd-note').value) || '').trim();
+    if (!act) return false;
+    try {
+      if (act === 'waiting_info' || act === 'reported') {
+        if (!note) { toast('Cần ghi chú: chờ ai / chờ gì, hoặc gửi report cho ai'); return false; }
+        await postJSON(`/admin/v1/periods/${periodId}/handling`, { status: act, note });
+        toast(`Đã đặt: ${HANDLING[act][1]}`);
+      } else {
+        await postJSON(`/admin/v1/periods/${periodId}/resolve`, { note, resolution: act });
+        toast(`Đã đóng sự cố: ${RESOLUTION[act]}`);
+        refreshAlertCount();
+      }
+      return true;
+    } catch (err) {
+      toast(`Không lưu được: ${err.message}`);
+      return false;
+    }
+  }
+  // confirmIncident: "Xác nhận sự cố" — đóng nhanh một sự cố một lần (một bước xác nhận, không cần ghi chú).
+  async function confirmIncident(periodId) {
+    if (!(await confirmBox('Xác nhận sự cố?', '<p>Đóng nhanh sự cố này (sự cố một lần, không cần xử lý thêm). Sự cố quay lại thì mở cảnh báo mới.</p>',
+      'Xác nhận sự cố'))) return false;
+    try {
+      await postJSON(`/admin/v1/periods/${periodId}/resolve`, { resolution: 'confirmed' });
+      toast('Đã xác nhận sự cố');
+      refreshAlertCount();
+      return true;
+    } catch (err) {
+      toast(`Không lưu được: ${err.message}`);
+      return false;
+    }
+  }
+  // handlingLogHTML: lịch sử xử lý trong dòng thời gian.
+  function handlingLogHTML(p) {
+    const log = p.handling_log || [];
+    if (!log.length) return '';
+    const label = (to) => (HANDLING[to] ? HANDLING[to][1] : RESOLUTION[to] || to);
+    return `<details class="period-rest"><summary class="sub">Lịch sử xử lý (${log.length})</summary><ul class="period-rules">${log.slice().reverse().map((s) =>
+      `<li><span class="sub">${esc(fmtFull(s.at))}</span> <strong>${esc(label(s.to))}</strong> · ${esc(s.by)}${s.note ? ` — ${esc(s.note)}` : ''}</li>`).join('')}</ul></details>`;
+  }
+
+  function closedText(by, resolution) {
     if (!by) return '';
     if (by === 'auto') return 'tự đóng';
     if (by === 'system') return 'tự chuyển';
-    return `${by.replace(/^admin:/, '')} xử lý`;
+    return `${by.replace(/^admin:/, '')} · ${resolution === 'confirmed' ? 'xác nhận sự cố' : 'đã xử lý'}`;
   }
   // statusDiff: những gì đổi so với lần trước (lần đầu: in đủ), dạng dễ đọc.
   const STATUS_LABEL = { os: 'Hệ điều hành', kernel: 'Kernel', agent: 'Agent', rules: 'Bộ rule', ip: 'IP', time_synced: 'Đồng bộ giờ' };
@@ -1637,14 +1714,18 @@
           <span class="sub">${esc(fmtTime(start))} → ${open ? '<strong>đang mở</strong>' : esc(fmtTime(end))} · ${esc(fmtDur(end - start))}</span>
           ${p.events ? `<span class="sub">${fmtNum(p.events)} sự kiện</span>` : ''}
           ${p.offline_since ? '<span class="pill pill-warn no-dot">đang mất liên lạc</span>' : ''}
-          ${!open && p.closed_by ? `<span class="sub">${esc(closedText(p.closed_by))}</span>` : ''}
-          ${open && p.kind === 'alert' ? `<button class="btn btn-sm btn-primary" data-resolve="${p.id}"${adminOnly(LV.incidents)}>Đã xử lý</button>
+          ${!open && p.closed_by ? `<span class="sub">${esc(closedText(p.closed_by, p.resolution))}</span>` : ''}
+          ${open && p.kind === 'alert' ? `${handlingPill(p)}
+            <button class="btn btn-sm btn-primary" data-handle="${p.id}" data-cur="${esc(p.handling || '')}"${adminOnly(LV.incidents)}>Xử lý…</button>
+            <button class="btn btn-sm" data-confirm-inc="${p.id}"${adminOnly(LV.incidents)}>Xác nhận sự cố</button>
             <span class="sub">${p.severity === 'critical' ? 'chỉ admin đóng' : `tự đóng khi yên ${esc(fmtDur(policy.autoclose_min * 60000))}`}</span>` : ''}
         </div>
         ${all.length ? `<ul class="period-rules">${all.slice(0, TL_RULES).map(ruleLi).join('')}</ul>` : ''}
         ${rest.length ? `<details class="period-rest"><summary class="sub">và ${fmtNum(rest.length)} rule khác</summary>
           <ul class="period-rules">${rest.map(ruleLi).join('')}</ul></details>` : ''}
         ${p.note ? `<p class="hint">Ghi chú: ${esc(p.note)}</p>` : ''}
+        ${open && p.handling_note ? `<p class="hint">${esc(HANDLING[p.handling] ? HANDLING[p.handling][1] : '')}: ${esc(p.handling_note)}</p>` : ''}
+        ${handlingLogHTML(p)}
       </li>`;
     };
     const changes = tl.status_changes || []; // server trả tối đa 50 lần gần nhất
@@ -1661,21 +1742,15 @@
     if (tlMore) tlMore.addEventListener('click', () => loadTimeline(d, shown + TL_PAGE, shownChanges));
     const chMore = box.querySelector('[data-ch-more]');
     if (chMore) chMore.addEventListener('click', () => loadTimeline(d, shown, shownChanges + 10));
-    box.querySelectorAll('[data-resolve]').forEach((b) => b.addEventListener('click', async () => {
-      if (!(await confirmBox('Đã xử lý sự cố này?',
-        '<p>Đóng giai đoạn cảnh báo và bắt đầu giai đoạn OK mới.</p><label class="field">Ghi chú (tùy chọn)<input id="resolve-note" maxlength="500"></label>',
-        'Đã xử lý'))) return;
-      const note = ($('#resolve-note') && $('#resolve-note').value) || '';
+    box.querySelectorAll('[data-handle]').forEach((b) => b.addEventListener('click', async () => {
       b.disabled = true;
-      try {
-        await postJSON(`/admin/v1/periods/${b.dataset.resolve}/resolve`, { note });
-        toast('Đã đóng sự cố');
-        refreshAlertCount();
-        loadTimeline(d, shown, shownChanges);
-      } catch (err) {
-        b.disabled = false;
-        toast(`Không đóng được: ${err.message}`);
-      }
+      if (await handleIncident(b.dataset.handle, b.dataset.cur)) loadTimeline(d, shown, shownChanges);
+      else b.disabled = false;
+    }));
+    box.querySelectorAll('[data-confirm-inc]').forEach((b) => b.addEventListener('click', async () => {
+      b.disabled = true;
+      if (await confirmIncident(b.dataset.confirmInc)) loadTimeline(d, shown, shownChanges);
+      else b.disabled = false;
     }));
   }
 
@@ -1764,7 +1839,7 @@
   async function pageAlerts() {
     setTitle('Cảnh báo');
     const page = view;
-    const state = { sev: '', all: false, list: [], page: 0, policy: { autoclose_min: 1440, offline_min: 15 } };
+    const state = { sev: '', handling: '', all: false, list: [], page: 0, policy: { autoclose_min: 1440, offline_min: 15 } };
     const AL_PAGE = 30;
     page.innerHTML = `
       <div class="card">
@@ -1773,6 +1848,10 @@
             <button class="chip active" data-sev="">Tất cả</button>
             ${Object.entries(SEV).map(([k, [, l]]) => `<button class="chip" data-sev="${k}">${esc(l)}</button>`).join('')}
           </div>
+          <select id="al-handling" aria-label="Lọc trạng thái xử lý">
+            <option value="">Mọi trạng thái xử lý</option><option value="none">Chưa có trạng thái</option>
+            <option value="waiting_info">Chờ thông tin</option><option value="reported">Đã gửi report</option>
+          </select>
           <label class="check"><input type="checkbox" id="al-all"> Hiện cả cảnh báo đã xác nhận</label>
           <span class="count" id="al-count"></span>
         </div>
@@ -1784,7 +1863,8 @@
       </div>`;
 
     const render = () => {
-      const all = state.list.filter((a) => !state.sev || a.severity === state.sev);
+      const all = state.list.filter((a) => (!state.sev || a.severity === state.sev) &&
+        (!state.handling || (state.handling === 'none' ? !a.handling : a.handling === state.handling)));
       const pages = Math.max(1, Math.ceil(all.length / AL_PAGE));
       state.page = Math.min(state.page, pages - 1);
       const rows = all.slice(state.page * AL_PAGE, state.page * AL_PAGE + AL_PAGE);
@@ -1796,12 +1876,15 @@
         <tr${a.device_id ? ` class="clickable" data-dev="${esc(a.device_id)}" title="Bấm để xem tình trạng máy"` : ''}>
           <td>${pill(SEV[a.severity] || SEV.low)}</td>
           <td><span class="strong mono">${esc(a.hostname || '—')}</span>${a.store_code ? `<span class="sub">Siêu thị ${esc(storeLabel(a.store_code))}</span>` : ''}</td>
-          <td class="reasons-cell"><div class="reason-kind">${esc(KIND[a.kind] || a.kind)}</div>${reasonsHTML(a, 3)}</td>
+          <td class="reasons-cell"><div class="reason-kind">${esc(KIND[a.kind] || a.kind)} ${a.acked_at ? '' : handlingPill(a)}</div>${!a.acked_at && a.handling_note ? `<div class="sub">${esc(a.handling_note)}</div>` : ''}${reasonsHTML(a, 3)}</td>
           <td class="num hide-sm">${a.occurrences}</td>
           <td>${esc(ago(new Date(a.last_at)))}</td>
           <td>${a.acked_at
             ? `<span class="sub">${a.kind === 'event' ? 'Đã đóng' : 'Đã xác nhận'} · ${esc(a.acked_by)}</span>`
-            : `<button class="btn btn-sm${a.kind === 'event' ? ' btn-primary' : ''}" data-ack="${a.id}" data-kind="${esc(a.kind)}"${adminOnly(LV.incidents)}>${a.kind === 'event' ? 'Đã xử lý' : 'Xác nhận'}</button>
+            : a.kind === 'event' && a.period_id
+              ? `<button class="btn btn-sm btn-primary" data-handle="${a.period_id}" data-cur="${esc(a.handling || '')}"${adminOnly(LV.incidents)}>Xử lý…</button>
+                 <button class="btn btn-sm" data-confirm-inc="${a.period_id}"${adminOnly(LV.incidents)}>Xác nhận sự cố</button>`
+              : `<button class="btn btn-sm${a.kind === 'event' ? ' btn-primary' : ''}" data-ack="${a.id}" data-kind="${esc(a.kind)}"${adminOnly(LV.incidents)}>${a.kind === 'event' ? 'Đã xử lý' : 'Xác nhận'}</button>
                ${a.kind === 'event' ? `<span class="sub">${a.severity === 'critical' ? 'Chỉ admin đóng' : `Tự đóng khi yên ${esc(fmtDur(state.policy.autoclose_min * 60000))}`}</span>` : ''}`}</td>
         </tr>`).join('') || `<tr><td colspan="6" class="empty">Không có cảnh báo${state.all ? '' : ' đang mở'}.</td></tr>`;
     };
@@ -1835,7 +1918,16 @@
     $('#al-all').addEventListener('change', (e) => { state.all = e.target.checked; state.page = 0; load(); });
     $('#al-prev').addEventListener('click', () => { state.page--; render(); });
     $('#al-next').addEventListener('click', () => { state.page++; render(); });
+    $('#al-handling').addEventListener('change', (e) => { state.handling = e.target.value; state.page = 0; render(); });
     $('#al-rows').addEventListener('click', async (e) => {
+      const hb = e.target.closest('[data-handle], [data-confirm-inc]');
+      if (hb) {
+        if (hb.disabled) return;
+        hb.disabled = true;
+        const done = hb.dataset.handle ? await handleIncident(hb.dataset.handle, hb.dataset.cur) : await confirmIncident(hb.dataset.confirmInc);
+        if (done) { state.sig = ''; load(); } else hb.disabled = false;
+        return;
+      }
       const b = e.target.closest('[data-ack]');
       if (!b) { // bấm vào dòng (không phải nút): mở tình trạng máy
         const tr = e.target.closest('tr[data-dev]');

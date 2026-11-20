@@ -91,6 +91,31 @@ type Period struct {
 	LastSerious  time.Time           `json:"last_serious,omitzero"`  // alert: sự kiện high / critical gần nhất
 	ClosedBy     string              `json:"closed_by,omitempty"`
 	Note         string              `json:"note,omitempty"`
+	// Trạng thái xử lý của sự cố đang mở (admin đặt; không ảnh hưởng tự đóng) và lý do admin đóng.
+	// Gói này không đọc / ghi các trường dưới: kho (store) lưu riêng (migration 0021).
+	Handling     string         `json:"handling,omitempty"` // HandlingWaitingInfo | HandlingReported
+	HandlingBy   string         `json:"handling_by,omitempty"`
+	HandlingAt   time.Time      `json:"handling_at,omitzero"`
+	HandlingNote string         `json:"handling_note,omitempty"`
+	HandlingLog  []HandlingStep `json:"handling_log,omitempty"`
+	Resolution   string         `json:"resolution,omitempty"` // ResolutionFixed | ResolutionConfirmed (admin đóng)
+}
+
+// Trạng thái xử lý sự cố đang mở (sự cố vẫn mở) và lý do admin đóng.
+const (
+	HandlingWaitingInfo = "waiting_info" // Chờ thông tin
+	HandlingReported    = "reported"     // Đã gửi report
+	ResolutionFixed     = "fixed"        // Đã xử lý
+	ResolutionConfirmed = "confirmed"    // Xác nhận sự cố (đóng nhanh sự cố một lần)
+	MaxHandlingLog      = 50
+)
+
+// HandlingStep: một lần đổi trạng thái xử lý / đóng sự cố (lịch sử hiện trong dòng thời gian).
+type HandlingStep struct {
+	At   time.Time `json:"at"`
+	By   string    `json:"by"`
+	To   string    `json:"to"` // waiting_info | reported | fixed | confirmed
+	Note string    `json:"note,omitempty"`
 }
 
 // Open: giai đoạn còn mở.

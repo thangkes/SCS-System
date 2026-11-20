@@ -457,7 +457,8 @@ func (g *Registry) ListAlerts(ctx context.Context, includeAcked bool) ([]app.Ale
 	rows, err := g.pool.Query(ctx, `
 		SELECT a.id, coalesce(a.device_id, 0), coalesce(d.hostname, ''), coalesce(a.store_code, d.store_code, ''),
 		       a.kind, a.severity, a.created_at, a.last_at, a.occurrences, a.detail, a.acked_at, coalesce(a.acked_by, ''),
-		       coalesce(a.period_id, 0),
+		       coalesce(a.period_id, 0), coalesce(hp.handling, ''), coalesce(hp.handling_by, ''), hp.handling_at,
+		       coalesce(hp.handling_note, ''),
 		       CASE WHEN a.period_id IS NULL THEN NULL ELSE (
 		         SELECT jsonb_agg(x) FROM (
 		           SELECT r.key AS rule, r.value->>'severity' AS severity,
@@ -468,7 +469,7 @@ func (g *Registry) ListAlerts(ctx context.Context, includeAcked bool) ([]app.Ale
 		           ORDER BY CASE r.value->>'severity' WHEN 'critical' THEN 5 WHEN 'high' THEN 4 WHEN 'medium' THEN 3
 		                    WHEN 'low' THEN 2 ELSE 1 END DESC, 3 DESC
 		           LIMIT 3) x) END
-		FROM alerts a LEFT JOIN devices d ON d.id = a.device_id
+		FROM alerts a LEFT JOIN devices d ON d.id = a.device_id LEFT JOIN device_periods hp ON hp.id = a.period_id
 		WHERE $1 OR a.acked_at IS NULL
 		ORDER BY a.last_at DESC
 		LIMIT 500`, includeAcked)
@@ -479,11 +480,15 @@ func (g *Registry) ListAlerts(ctx context.Context, includeAcked bool) ([]app.Ale
 	var out []app.Alert
 	for rows.Next() {
 		var a app.Alert
-		var acked *time.Time
+		var acked, hndAt *time.Time
 		var detail, reasons []byte
 		if err := rows.Scan(&a.ID, &a.DeviceID, &a.Hostname, &a.StoreCode, &a.Kind, &a.Severity, &a.CreatedAt,
-			&a.LastAt, &a.Occurrences, &detail, &acked, &a.AckedBy, &a.PeriodID, &reasons); err != nil {
+			&a.LastAt, &a.Occurrences, &detail, &acked, &a.AckedBy, &a.PeriodID, &a.Handling, &a.HandlingBy, &hndAt,
+			&a.HandlingNote, &reasons); err != nil {
 			return nil, err
+		}
+		if hndAt != nil {
+			a.HandlingAt = *hndAt
 		}
 		if len(reasons) > 0 {
 			_ = json.Unmarshal(reasons, &a.Reasons) // lỗi định dạng thì bỏ phần lý do, vẫn hiện cảnh báo
@@ -514,7 +519,7 @@ func (g *Registry) AckAlert(ctx context.Context, id int64, by string) error {
 		}
 		// Cảnh báo của một giai đoạn alert đang mở: xác nhận = "Đã xử lý" (đóng giai đoạn, mở OK).
 		if kind == "event" && periodID != nil {
-			err := resolvePeriod(ctx, tx, g.policy(), *periodID, by, "")
+			err := resolvePeriod(ctx, tx, g.policy(), *periodID, by, "", periods.ResolutionFixed)
 			if !errors.Is(err, app.ErrWrongState) {
 				return err
 			}

@@ -8,10 +8,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/thangkes/SCS-System/server/internal/auth"
 	"github.com/thangkes/SCS-System/server/internal/httpx"
+	"github.com/thangkes/SCS-System/server/internal/periods"
 )
 
 // deviceAPI: API cho trang Chờ duyệt / Máy trên web quản trị.
@@ -260,24 +262,88 @@ func (a deviceAPI) timeline(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "timeline": tl, "policy": a.policy()})
 }
 
-// resolve: POST /admin/v1/periods/{id}/resolve {note} — "Đã xử lý" một cảnh báo đang mở (cả mức critical).
+// resolve: POST /admin/v1/periods/{id}/resolve {note, resolution} — đóng một cảnh báo đang mở (cả mức critical).
+// resolution: "fixed" (Đã xử lý, mặc định) | "confirmed" (Xác nhận sự cố — đóng nhanh sự cố một lần).
 func (a deviceAPI) resolve(w http.ResponseWriter, r *http.Request) {
 	id, ok := a.id(w, r)
 	if !ok {
 		return
 	}
 	var req struct {
-		Note string `json:"note"`
+		Note       string `json:"note"`
+		Resolution string `json:"resolution"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req) // ghi chú tùy chọn
-	if len(req.Note) > 500 || !utf8.ValidString(req.Note) {
-		httpx.WriteError(w, http.StatusBadRequest, "ghi chú tối đa 500 ký tự")
+	note, ok := cleanNote(w, req.Note, false)
+	if !ok {
+		return
+	}
+	switch req.Resolution {
+	case "":
+		req.Resolution = periods.ResolutionFixed
+	case periods.ResolutionFixed, periods.ResolutionConfirmed:
+	default:
+		httpx.WriteError(w, http.StatusBadRequest, "cách đóng không hợp lệ (fixed | confirmed)")
 		return
 	}
 	by := actor(r)
-	if a.fail(w, a.d.Registry.ResolvePeriod(r.Context(), id, by, strings.TrimSpace(req.Note)), "xử lý cảnh báo") {
+	if a.fail(w, a.d.Registry.ResolvePeriod(r.Context(), id, by, note, req.Resolution), "xử lý cảnh báo") {
 		return
 	}
-	a.d.Log.Warn("admin xử lý cảnh báo (đóng giai đoạn)", "giai_doan", id, "boi", by)
+	a.d.Log.Warn("admin đóng sự cố", "giai_doan", id, "boi", by, "cach", req.Resolution)
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handling: POST /admin/v1/periods/{id}/handling {status, note} — Chờ thông tin / Đã gửi report cho sự cố
+// đang mở. Sự cố VẪN MỞ và tự đóng theo mức như cũ (high tự đóng khi yên, critical cần người đóng). Bắt buộc ghi chú.
+func (a deviceAPI) handling(w http.ResponseWriter, r *http.Request) {
+	id, ok := a.id(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Status string `json:"status"`
+		Note   string `json:"note"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "nội dung không đọc được")
+		return
+	}
+	if req.Status != periods.HandlingWaitingInfo && req.Status != periods.HandlingReported {
+		httpx.WriteError(w, http.StatusBadRequest, "trạng thái không hợp lệ (waiting_info | reported)")
+		return
+	}
+	note, ok := cleanNote(w, req.Note, true)
+	if !ok {
+		return
+	}
+	by := actor(r)
+	if a.fail(w, a.d.Registry.SetHandling(r.Context(), id, req.Status, by, note), "đặt trạng thái xử lý") {
+		return
+	}
+	a.d.Log.Info("admin đặt trạng thái xử lý sự cố", "giai_doan", id, "boi", by, "trang_thai", req.Status)
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// cleanNote: ghi chú ≤ 500 ký tự, UTF-8 hợp lệ, bỏ ký tự điều khiển; required = bắt buộc có nội dung.
+func cleanNote(w http.ResponseWriter, s string, required bool) (string, bool) {
+	s = strings.TrimSpace(s)
+	if !utf8.ValidString(s) || utf8.RuneCountInString(s) > 500 {
+		httpx.WriteError(w, http.StatusBadRequest, "ghi chú tối đa 500 ký tự")
+		return "", false
+	}
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' {
+			return ' '
+		}
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
+	if required && strings.TrimSpace(s) == "" {
+		httpx.WriteError(w, http.StatusBadRequest, "cần ghi chú (chờ ai / chờ gì, gửi report cho ai)")
+		return "", false
+	}
+	return strings.TrimSpace(s), true
 }

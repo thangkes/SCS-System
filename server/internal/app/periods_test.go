@@ -112,8 +112,35 @@ func TestPeriodsThroughHandlers(t *testing.T) {
 		t.Fatalf("cảnh báo của giai đoạn: %+v", alerts)
 	}
 
-	// Admin xác nhận cảnh báo trên web = "Đã xử lý": đóng giai đoạn cảnh báo, mở OK.
 	h := AdminHandler(d)
+	post := func(path, body string) int {
+		t.Helper()
+		req := httptest.NewRequest("POST", path, strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	// Chờ thông tin / Đã gửi report: bắt buộc ghi chú, trạng thái hợp lệ; sự cố VẪN MỞ.
+	pid := strconv.FormatInt(tl.Periods[0].ID, 10)
+	if c := post("/admin/v1/periods/"+pid+"/handling", `{"status":"waiting_info","note":"  "}`); c != 400 {
+		t.Fatalf("thiếu ghi chú phải bị từ chối: %d", c)
+	}
+	if c := post("/admin/v1/periods/"+pid+"/handling", `{"status":"done","note":"x"}`); c != 400 {
+		t.Fatalf("trạng thái lạ phải bị từ chối: %d", c)
+	}
+	if c := post("/admin/v1/periods/"+pid+"/resolve", `{"resolution":"maybe"}`); c != 400 {
+		t.Fatalf("cách đóng lạ phải bị từ chối: %d", c)
+	}
+	if c := post("/admin/v1/periods/"+pid+"/handling", `{"status":"reported","note":"đã gửi kỹ thuật\u0007 phiếu 12"}`); c != 200 {
+		t.Fatalf("đặt Đã gửi report: %d", c)
+	}
+	if p := timelineOf(t, reg, id).Periods[0]; !p.Open() || p.Handling != periods.HandlingReported ||
+		p.HandlingNote != "đã gửi kỹ thuật phiếu 12" || len(p.HandlingLog) != 1 {
+		t.Fatalf("sau Đã gửi report sự cố vẫn mở, có ghi chú (bỏ ký tự điều khiển): %+v", p)
+	}
+
+	// Admin xác nhận cảnh báo trên web = "Đã xử lý": đóng giai đoạn cảnh báo, mở OK.
 	req := httptest.NewRequest("POST", "/admin/v1/alerts/"+strconv.FormatInt(ev.ID, 10)+"/ack", nil)
 	req.Header.Set("Authorization", "Bearer "+testToken)
 	rec := httptest.NewRecorder()

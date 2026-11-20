@@ -135,6 +135,7 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("GET /admin/v1/devices/{id}", view(httpx.NotImplemented("M6")))
 	mux.Handle("GET /admin/v1/devices/{id}/periods", view(http.HandlerFunc(dev.timeline)))
 	mux.Handle("POST /admin/v1/periods/{id}/resolve", incidents(http.HandlerFunc(dev.resolve)))
+	mux.Handle("POST /admin/v1/periods/{id}/handling", incidents(http.HandlerFunc(dev.handling)))
 	mux.Handle("POST /admin/v1/devices/{id}/approve", agents(http.HandlerFunc(dev.approve)))
 	mux.Handle("POST /admin/v1/devices/{id}/replace", agents(http.HandlerFunc(dev.replace)))
 	mux.Handle("POST /admin/v1/devices/{id}/reject", agents(http.HandlerFunc(dev.reject)))

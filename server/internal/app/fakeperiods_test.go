@@ -167,10 +167,34 @@ func (f *fakeRegistry) ListPeriods(_ context.Context, id int64, limit int) (Time
 	return tl, nil
 }
 
-func (f *fakeRegistry) ResolvePeriod(_ context.Context, pid int64, by, note string) error {
+func (f *fakeRegistry) ResolvePeriod(_ context.Context, pid int64, by, note, resolution string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.resolveLocked(pid, by, note)
+	if err := f.resolveLocked(pid, by, note); err != nil {
+		return err
+	}
+	for _, q := range f.periods {
+		if q.ID == pid {
+			q.Resolution = resolution
+		}
+	}
+	return nil
+}
+
+func (f *fakeRegistry) SetHandling(_ context.Context, pid int64, status, by, note string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, q := range f.periods {
+		if q.ID == pid {
+			if !q.Open() || q.Kind != periods.KindAlert {
+				return ErrWrongState
+			}
+			q.Handling, q.HandlingBy, q.HandlingNote, q.HandlingAt = status, by, note, time.Now()
+			q.HandlingLog = append(q.HandlingLog, periods.HandlingStep{At: q.HandlingAt, By: by, To: status, Note: note})
+			return nil
+		}
+	}
+	return ErrNotFound
 }
 
 func (f *fakeRegistry) resolveLocked(pid int64, by, note string) error {

@@ -19,16 +19,24 @@ import (
 // không ghi chồng lên nhau.
 
 const periodCols = `id, device_id, kind, started_at, ended_at, severity, events, rules, offline_since,
-	last_serious, closed_by, note`
+	last_serious, closed_by, note, handling, handling_by, handling_at, handling_note, handling_log, resolution`
 
 func scanPeriod(row pgx.Row) (*periods.Period, error) {
 	var p periods.Period
 	var ended, offline, serious *time.Time
-	var sev, closed, note *string
-	var rules []byte
+	var sev, closed, note, hnd, hndBy, hndNote, resolution *string
+	var hndAt *time.Time
+	var rules, hndLog []byte
 	if err := row.Scan(&p.ID, &p.DeviceID, &p.Kind, &p.StartedAt, &ended, &sev, &p.Events, &rules, &offline,
-		&serious, &closed, &note); err != nil {
+		&serious, &closed, &note, &hnd, &hndBy, &hndAt, &hndNote, &hndLog, &resolution); err != nil {
 		return nil, err
+	}
+	p.Handling, p.HandlingBy, p.HandlingNote, p.Resolution = deref(hnd), deref(hndBy), deref(hndNote), deref(resolution)
+	if hndAt != nil {
+		p.HandlingAt = *hndAt
+	}
+	if len(hndLog) > 2 {
+		_ = json.Unmarshal(hndLog, &p.HandlingLog) // lịch sử hỏng thì bỏ, vẫn hiện giai đoạn
 	}
 	if ended != nil {
 		p.EndedAt = *ended
@@ -419,11 +427,44 @@ func (g *Registry) ListPeriods(ctx context.Context, deviceID int64, limit int) (
 	return tl, crows.Err()
 }
 
-func (g *Registry) ResolvePeriod(ctx context.Context, periodID int64, by, note string) error {
-	return g.tx(ctx, func(tx pgx.Tx) error { return resolvePeriod(ctx, tx, g.policy(), periodID, by, note) })
+func (g *Registry) ResolvePeriod(ctx context.Context, periodID int64, by, note, resolution string) error {
+	return g.tx(ctx, func(tx pgx.Tx) error { return resolvePeriod(ctx, tx, g.policy(), periodID, by, note, resolution) })
 }
 
-func resolvePeriod(ctx context.Context, tx pgx.Tx, pol periods.Policy, periodID int64, by, note string) error {
+// SetHandling: đặt trạng thái xử lý cho sự cố đang mở (Chờ thông tin / Đã gửi report). Sự cố vẫn mở, tự đóng
+// theo mức như cũ. Ghi lịch sử (≤ MaxHandlingLog mục) và nhật ký thao tác.
+func (g *Registry) SetHandling(ctx context.Context, periodID int64, status, by, note string) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		var deviceID int64
+		var kind string
+		var ended *time.Time
+		var from *string
+		err := tx.QueryRow(ctx, `SELECT device_id, kind, ended_at, handling FROM device_periods WHERE id = $1 FOR UPDATE`,
+			periodID).Scan(&deviceID, &kind, &ended, &from)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return app.ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if kind != periods.KindAlert || ended != nil {
+			return app.ErrWrongState
+		}
+		step, _ := json.Marshal([]periods.HandlingStep{{At: time.Now().UTC(), By: by, To: status, Note: note}})
+		if _, err := tx.Exec(ctx, `UPDATE device_periods SET handling = $2, handling_by = $3, handling_at = now(),
+			handling_note = $4, handling_log = (
+			  SELECT coalesce(jsonb_agg(e ORDER BY n), '[]') FROM (
+			    SELECT e, n FROM jsonb_array_elements(handling_log || $5::jsonb) WITH ORDINALITY AS x(e, n)
+			    ORDER BY n DESC LIMIT $6) y)
+			WHERE id = $1`, periodID, status, by, note, step, periods.MaxHandlingLog); err != nil {
+			return err
+		}
+		return audit(ctx, tx, by, "period.handling", deviceID, "", map[string]any{
+			"period_id": periodID, "from": deref(from), "to": status, "note": note})
+	})
+}
+
+func resolvePeriod(ctx context.Context, tx pgx.Tx, pol periods.Policy, periodID int64, by, note, resolution string) error {
 	var deviceID int64
 	err := tx.QueryRow(ctx, `SELECT device_id FROM device_periods WHERE id = $1`, periodID).Scan(&deviceID)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -451,7 +492,18 @@ func resolvePeriod(ctx context.Context, tx pgx.Tx, pol periods.Policy, periodID 
 	if _, err := applyPeriod(ctx, tx, cur, r); err != nil {
 		return err
 	}
-	return audit(ctx, tx, by, "period.resolve", deviceID, "", map[string]any{"period_id": periodID, "note": note})
+	if resolution != periods.ResolutionConfirmed {
+		resolution = periods.ResolutionFixed
+	}
+	step, _ := json.Marshal([]periods.HandlingStep{{At: now.UTC(), By: by, To: resolution, Note: note}})
+	if _, err := tx.Exec(ctx, `UPDATE device_periods SET resolution = $2, handling_log = (
+		  SELECT coalesce(jsonb_agg(e ORDER BY n), '[]') FROM (
+		    SELECT e, n FROM jsonb_array_elements(handling_log || $3::jsonb) WITH ORDINALITY AS x(e, n)
+		    ORDER BY n DESC LIMIT $4) y)
+		WHERE id = $1`, periodID, resolution, step, periods.MaxHandlingLog); err != nil {
+		return err
+	}
+	return audit(ctx, tx, by, "period.resolve", deviceID, "", map[string]any{"period_id": periodID, "note": note, "resolution": resolution})
 }
 
 func (g *Registry) Pulse(ctx context.Context, since time.Time) (app.Pulse, error) {

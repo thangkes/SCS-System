@@ -470,6 +470,10 @@ td select { height: 30px; font-size: 13px; max-width: 190px; }
 /* ---------- Máy: gom theo mã siêu thị, viền màu theo trạng thái ---------- */
 .toolbar .right { margin-left: auto; }
 .dev-filters { padding-top: 10px; padding-bottom: 10px; }
+.radio-list { display: grid; gap: 6px; margin-bottom: 10px; }
+.radio-row { display: flex; gap: 8px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.radio-row input { margin-top: 3px; }
+.radio-row .sub { display: block; }
 .sub.person { display: block; font-weight: 400; }
 .sub.person strong { color: var(--text); }
 .dev-filters input { width: 170px; }

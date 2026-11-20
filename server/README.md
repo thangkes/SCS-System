@@ -278,7 +278,15 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
   admin đóng (web: **Đã xử lý**). Quá `SCS_OFFLINE_AFTER` (60m; agent gọi về ngẫu nhiên 5–30 phút, tính theo giây) không nghe máy: **mất liên lạc**, tự đóng khi máy gửi lại.
 - Agent gửi sự kiện qua `POST /v1/logs` (lô đã ký, tối đa 500 sự kiện; high / critical sau vài giây, còn lại mỗi phút). Tiến trình `worker`
   (hoặc `all`) kiểm mỗi phút.
-- API web: `GET /admin/v1/devices/{id}/periods`, `POST /admin/v1/periods/{id}/resolve`.
+- **Xử lý sự cố** (trang Cảnh báo và dòng thời gian của máy, mức Xác nhận sự cố), bấm từng sự cố:
+  - **Chờ thông tin** / **Đã gửi report**: sự cố **vẫn mở**, bắt buộc ghi chú (chờ ai / chờ gì, gửi cho ai, số phiếu); hiện
+    nhãn trạng thái, lọc được trên trang Cảnh báo. Tự đóng vẫn như cũ: mức cao tự đóng khi yên đủ lâu, nghiêm trọng cần người đóng.
+  - **Đã xử lý**: đóng sự cố (ghi chú tùy chọn). **Xác nhận sự cố**: đóng nhanh sự cố một lần (một bước xác nhận).
+  - Mỗi lần đổi ghi lịch sử trong sự cố (≤ 50 mục, hiện ở dòng thời gian) và nhật ký thao tác (`period.handling`,
+    `period.resolve`). Báo cáo sự cố tách cách đóng: đã xử lý / xác nhận sự cố / tự đóng / hệ thống; đếm sự cố đang mở chờ
+    thông tin / đã gửi report. Migration 0021 (`handling*`, `resolution`; sự cố admin đóng trước đây tính là "đã xử lý").
+- API web: `GET /admin/v1/devices/{id}/periods`, `POST /admin/v1/periods/{id}/resolve {note, resolution: fixed|confirmed}`,
+  `POST /admin/v1/periods/{id}/handling {status: waiting_info|reported, note}`.
 - Cảnh báo sự cố hiện luôn **lý do** (Tổng quan → "Cảnh báo mới" và trang Cảnh báo): tối đa 3 rule nặng nhất của giai
   đoạn, mỗi rule có tiêu đề (tra trong kho rule, đọc lại tối đa mỗi phút), mã rule, số lần, lần cuối và dòng log mẫu
   (tối đa 400 ký tự). Bấm vào cảnh báo mở chi tiết máy (tình trạng, dòng thời gian, thao tác).

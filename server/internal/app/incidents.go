@@ -36,7 +36,10 @@ type IncidentRow struct {
 	ClosedBy     string                      `json:"closed_by,omitempty"`
 	Note         string                      `json:"note,omitempty"`
 	OfflineSince time.Time                   `json:"offline_since,omitzero"`
-	Titles       map[string]string           `json:"titles,omitempty"` // tiêu đề rule (kho rule / sức khỏe cũ)
+	Resolution   string                      `json:"resolution,omitempty"`    // fixed | confirmed (admin đóng)
+	Handling     string                      `json:"handling,omitempty"`      // waiting_info | reported
+	HandlingNote string                      `json:"handling_note,omitempty"` //
+	Titles       map[string]string           `json:"titles,omitempty"`        // tiêu đề rule (kho rule / sức khỏe cũ)
 }
 
 // IncidentStore: kho đọc sự cố (PostgreSQL). Trả tối đa limit dòng mới nhất và có bị cắt không.
@@ -109,7 +112,7 @@ type incBucket struct {
 // summarizeIncidents tính tổng hợp cho trang báo cáo.
 func summarizeIncidents(rows []IncidentRow, from, to time.Time, step int, now time.Time) map[string]any {
 	sev := map[string]int{}
-	closed := map[string]int{}
+	closed, handling := map[string]int{}, map[string]int{}
 	var alerts, offline, open int
 	var durs []float64
 	stores, devices, rules := map[string]*countItem{}, map[string]*countItem{}, map[string]*countItem{}
@@ -143,6 +146,9 @@ func summarizeIncidents(rows []IncidentRow, from, to time.Time, step int, now ti
 		}
 		if r.EndedAt.IsZero() {
 			open++
+			if r.Handling != "" {
+				handling[r.Handling]++
+			}
 		} else {
 			durs = append(durs, r.EndedAt.Sub(r.StartedAt).Minutes())
 			switch {
@@ -150,6 +156,11 @@ func summarizeIncidents(rows []IncidentRow, from, to time.Time, step int, now ti
 				closed["auto"]++
 			case strings.HasPrefix(r.ClosedBy, "admin:"):
 				closed["admin"]++
+				if r.Resolution == periods.ResolutionConfirmed {
+					closed["confirmed"]++
+				} else {
+					closed["fixed"]++
+				}
 			default:
 				closed["system"]++
 			}
@@ -202,7 +213,7 @@ func summarizeIncidents(rows []IncidentRow, from, to time.Time, step int, now ti
 	}
 	sort.Slice(series, func(i, j int) bool { return series[i].At.Before(series[j].At) })
 	sum := map[string]any{"total": len(rows), "alerts": alerts, "offline": offline, "open": open, "severity": sev,
-		"closed": closed, "stores": len(stores), "devices": len(devices)}
+		"closed": closed, "handling": handling, "stores": len(stores), "devices": len(devices)}
 	if len(durs) > 0 {
 		sort.Float64s(durs)
 		var t float64
@@ -235,14 +246,22 @@ func (a incidentAPI) report(w http.ResponseWriter, r *http.Request) {
 var incKind = map[string]string{periods.KindAlert: "Sự cố (log)", periods.KindOffline: "Mất liên lạc"}
 var incSev = map[string]string{"critical": "Nghiêm trọng", "high": "Cao", "medium": "Trung bình", "low": "Thấp", "info": "Thông tin"}
 
-func closedText(c string) string {
+var incHandling = map[string]string{periods.HandlingWaitingInfo: "Chờ thông tin", periods.HandlingReported: "Đã gửi report"}
+
+func closedText(c, resolution, handling string) string {
 	switch {
 	case c == "":
+		if h := incHandling[handling]; h != "" {
+			return "Đang mở — " + h
+		}
 		return "Đang mở"
 	case c == periods.ClosedAuto:
 		return "Tự đóng (yên đủ lâu)"
 	case strings.HasPrefix(c, "admin:"):
-		return "Admin xử lý: " + strings.TrimPrefix(c, "admin:")
+		if resolution == periods.ResolutionConfirmed {
+			return "Xác nhận sự cố: " + strings.TrimPrefix(c, "admin:")
+		}
+		return "Đã xử lý: " + strings.TrimPrefix(c, "admin:")
 	}
 	return "Hệ thống đóng"
 }
@@ -281,9 +300,17 @@ func incidentTable(rows []IncidentRow) ([]string, [][]any) {
 			offSince = r.OfflineSince.Local().Format(layout)
 		}
 		out = append(out, []any{r.ID, incKind[r.Kind], incSev[r.Severity], r.StartedAt.Local().Format(layout), ended, dur, r.Hostname,
-			r.StoreCode, r.StoreName, r.Events, main, mainTitle, strings.Join(parts, "; "), offSince, closedText(r.ClosedBy), r.Note})
+			r.StoreCode, r.StoreName, r.Events, main, mainTitle, strings.Join(parts, "; "), offSince, closedText(r.ClosedBy, r.Resolution, r.Handling), noteText(r)})
 	}
 	return head, out
+}
+
+// noteText: ghi chú khi đóng; sự cố đang mở có trạng thái xử lý thì lấy ghi chú của trạng thái đó.
+func noteText(r IncidentRow) string {
+	if r.EndedAt.IsZero() && r.HandlingNote != "" {
+		return r.HandlingNote
+	}
+	return r.Note
 }
 
 func incidentName(from, to time.Time, ext string) string {
