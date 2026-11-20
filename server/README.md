@@ -285,6 +285,9 @@ Thiết kế: [docs/thiet-ke-luu-theo-giai-doan.md](../docs/thiet-ke-luu-theo-gi
   - Mỗi lần đổi ghi lịch sử trong sự cố (≤ 50 mục, hiện ở dòng thời gian) và nhật ký thao tác (`period.handling`,
     `period.resolve`). Báo cáo sự cố tách cách đóng: đã xử lý / xác nhận sự cố / tự đóng / hệ thống; đếm sự cố đang mở chờ
     thông tin / đã gửi report. Migration 0021 (`handling*`, `resolution`; sự cố admin đóng trước đây tính là "đã xử lý").
+- **Kế hoạch (chưa làm):** ghép nhiều sự cố thành một sự cố gộp (xử lý một lần cho cả nhóm), rồi rule phía server tự
+  ghép / nâng mức / báo theo siêu thị, rule, số máy trong một khoảng thời gian — rule server không được đóng hay ẩn sự cố.
+  Chi tiết: `docs/ke-hoach-giai-doan-1.html`.
 - API web: `GET /admin/v1/devices/{id}/periods`, `POST /admin/v1/periods/{id}/resolve {note, resolution: fixed|confirmed}`,
   `POST /admin/v1/periods/{id}/handling {status: waiting_info|reported, note}`.
 - Cảnh báo sự cố hiện luôn **lý do** (Tổng quan → "Cảnh báo mới" và trang Cảnh báo): tối đa 3 rule nặng nhất của giai
