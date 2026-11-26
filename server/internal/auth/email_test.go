@@ -32,7 +32,7 @@ func (s *memAccounts) AccountTaken(_ context.Context, u, e string) (bool, error)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, a := range s.m {
-		if a.Username == u || a.Email == e {
+		if a.Username == u || (e != "" && a.Email == e) {
 			return true, nil
 		}
 	}

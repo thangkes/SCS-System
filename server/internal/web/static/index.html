@@ -18,12 +18,45 @@
       <div><strong>SCS-System</strong><span>Spider Control Scanning</span></div>
     </div>
     <div class="login-tabs" role="tablist" id="login-tabs" hidden>
-      <button type="button" role="tab" data-login-tab="email">Email</button>
+      <button type="button" role="tab" data-login-tab="totp" hidden>App xác thực</button>
+      <button type="button" role="tab" data-login-tab="email" hidden>Email</button>
       <button type="button" role="tab" data-login-tab="register">Đăng ký</button>
+      <button type="button" role="tab" data-login-tab="setup" hidden>Cài app</button>
       <button type="button" role="tab" data-login-tab="ssh">Mã SSH</button>
     </div>
     <p id="login-error" class="form-error" hidden></p>
     <p id="login-ok" class="form-ok" hidden></p>
+
+    <!-- Đăng nhập bằng tài khoản: mã 6 số trong app xác thực trên điện thoại -->
+    <form id="totp-form" class="login-pane" data-pane="totp" autocomplete="off" hidden>
+      <label for="totp-user">Tên đăng nhập</label>
+      <input id="totp-user" maxlength="32" autocomplete="username" spellcheck="false" autocapitalize="off" required>
+      <label for="totp-code">Mã trong app xác thực</label>
+      <input id="totp-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" placeholder="000 000" maxlength="7" spellcheck="false" required>
+      <p class="hint">Mở Google / Microsoft Authenticator, nhập mã 6 số của dòng <strong>SCS-System</strong>. Mã đổi mỗi 30 giây, mỗi mã dùng một lần.</p>
+      <button type="submit" class="btn btn-primary btn-block" id="totp-btn">Đăng nhập</button>
+    </form>
+
+    <!-- Cài app xác thực: mã cài đặt do quản trị gửi → mã QR → xác nhận mã đầu tiên -->
+    <form id="setup-form" class="login-pane" data-pane="setup" autocomplete="off" hidden>
+      <div id="setup-start" class="login-pane">
+        <label for="setup-user">Tên đăng nhập</label>
+        <input id="setup-user" maxlength="32" autocomplete="username" spellcheck="false" autocapitalize="off">
+        <label for="setup-code">Mã cài đặt (8 số, quản trị gửi)</label>
+        <input id="setup-code" class="code-input" inputmode="numeric" placeholder="0000 0000" maxlength="9" spellcheck="false">
+        <p class="hint">Cài trước app <strong>Google Authenticator</strong> hoặc <strong>Microsoft Authenticator</strong> trên điện thoại. Mã cài đặt hạn 15 phút, dùng một lần.</p>
+      </div>
+      <div id="setup-qr" class="login-pane" hidden>
+        <p>1. Trong app bấm <strong>+</strong> → <strong>Quét mã QR</strong>:</p>
+        <img id="setup-qr-img" class="qr-img" alt="Mã QR cài app xác thực" width="246" height="246">
+        <p class="hint">Không quét được: chọn <strong>Nhập khóa thiết lập</strong>, tên <span id="setup-acct" class="mono"></span>, khóa:</p>
+        <p id="setup-secret" class="mono setup-secret"></p>
+        <label for="setup-confirm">2. Nhập mã 6 số app vừa hiện</label>
+        <input id="setup-confirm" class="code-input" inputmode="numeric" autocomplete="one-time-code" placeholder="000 000" maxlength="7" spellcheck="false">
+        <p class="hint">Trang này chỉ hiện một lần, hạn 10 phút. Không chụp màn hình hay gửi mã QR cho ai.</p>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="setup-btn">Mở mã QR</button>
+    </form>
 
     <!-- Đăng nhập bằng tài khoản: mã gửi về email đã đăng ký -->
     <form id="email-form" class="login-pane" data-pane="email" autocomplete="off" hidden>
@@ -42,9 +75,9 @@
     <form id="reg-form" class="login-pane" data-pane="register" autocomplete="off" hidden>
       <label for="reg-user">Tên đăng nhập (chỉ chữ số 0–9)</label>
       <input id="reg-user" maxlength="32" placeholder="vd: 12345" inputmode="numeric" pattern="[0-9]{3,32}" title="Chỉ chữ số 0–9, từ 3 tới 32 số" autocomplete="username" spellcheck="false" autocapitalize="off" required>
-      <p class="hint">3–32 ký tự: chữ thường không dấu, số, dấu . _ -</p>
-      <label for="reg-email">Email</label>
-      <input id="reg-email" type="email" maxlength="254" autocomplete="email" spellcheck="false" required>
+      <p class="hint">3–32 chữ số, ví dụ mã nhân viên.</p>
+      <label for="reg-email" id="reg-email-l">Email</label>
+      <input id="reg-email" type="email" maxlength="254" autocomplete="email" spellcheck="false">
       <p class="hint" id="reg-domains"></p>
       <div id="reg-code-f" class="login-pane" hidden>
         <label for="reg-code">Mã xác minh gửi về email</label>
@@ -52,7 +85,7 @@
         <p class="hint">Hạn 5 phút, chỉ nhập được một lần.</p>
       </div>
       <button type="submit" class="btn btn-primary btn-block" id="reg-btn">Gửi mã xác minh</button>
-      <p class="hint">Sau khi xác minh, quản trị duyệt tài khoản và đặt quyền thì mới đăng nhập được.</p>
+      <p class="hint">Sau khi đăng ký, quản trị duyệt tài khoản và đặt quyền thì mới đăng nhập được.</p>
     </form>
 
     <!-- Quản trị gốc: mã lấy bằng SSH trên máy server -->

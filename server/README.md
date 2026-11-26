@@ -487,6 +487,7 @@ scs-server login-code -watch   # tự in mã mới mỗi phút, Ctrl+C để tho
 
 Ngoài mã lấy qua SSH, người dùng có thể đăng ký tài khoản bằng email (mặc định chỉ nhận `@gmail.com`,
 `SCS_ACCOUNT_DOMAINS`). Không có mật khẩu: mỗi lần đăng nhập server gửi một mã 6 số về email đã đăng ký.
+Khi mạng chặn SMTP, dùng **app xác thực** (mục "Đăng nhập bằng app xác thực" bên dưới) — không cần email.
 
 | Mức | Quyền | Thao tác trên web / API |
 |---|---|---|
@@ -543,6 +544,35 @@ Số nhỏ hơn là quyền cao hơn, và mức trên làm được mọi việc
   `SCS_SMTP_*` trống vào `server.env`.
 - Bảng `accounts` (migration 0007): tên, email, trạng thái, mức quyền, ai duyệt, lần đăng nhập cuối. Mọi thay đổi
   ghi vào bảng `audit` (`account.register`, `account.update`, `account.delete`).
+
+### Đăng nhập bằng app xác thực (TOTP, không cần email)
+
+Dùng khi server không gửi được mail (mạng chặn SMTP). App: Google Authenticator, Microsoft Authenticator hoặc app
+TOTP bất kỳ (RFC 6238: SHA-1, 6 số, 30 giây). Điện thoại và server không cần kết nối với nhau hay với Internet.
+
+1. **Đăng ký:** tab **Đăng ký** → tên đăng nhập (chữ số) → tài khoản **chờ duyệt** (email không bắt buộc).
+2. **Duyệt:** trang **Tài khoản** → chọn mức quyền → **Duyệt** → **Tạo mã cài app**: mã 8 số, hạn 15 phút, dùng một
+   lần. Gửi riêng cho đúng người (Zalo / Teams). Mã này chỉ mở được trang mã QR, không cho vào hệ thống.
+3. **Cài app:** tab **Cài app** → tên đăng nhập + mã cài đặt → quét mã QR (hoặc gõ khóa dạng chữ) → nhập mã 6 số
+   đầu tiên → lưu khóa và đăng nhập luôn. Trang QR chỉ hiện một lần, hạn 10 phút, sai 5 lần thì phải xin mã mới.
+4. **Đăng nhập:** tab **App xác thực** → tên đăng nhập + mã 6 số đang hiện trong app.
+5. **Mất / đổi điện thoại:** **Đặt lại app** (xóa khóa, cắt phiên ngay) rồi **Tạo mã cài app** mới. **Cài lại app**
+   (không đặt lại) giữ app cũ dùng được tới khi app mới xác nhận xong; xác nhận xong thì cắt mọi phiên cũ.
+
+Bảo mật:
+- Khóa bí mật 160 bit mỗi tài khoản, lưu trong DB **đã mã hóa AES-256-GCM** (tên đăng nhập là dữ liệu kèm: bản mã
+  chép sang tài khoản khác không giải được). Khóa giải mã là file `SCS_TOTP_KEY` (mặc định
+  `/etc/scs-server/pki/totp.key`, quyền 600, install.sh tự tạo; menu mục 20 chép cùng `/etc/scs-server`). Chỉ lộ
+  bản sao lưu DB thì chưa tạo được mã; lộ cả DB lẫn file khóa thì tạo được mã của mọi tài khoản.
+- Mã đã dùng không dùng lại được: DB giữ bước 30 giây cuối cùng đã dùng (`totp_last_step`), cập nhật có điều kiện
+  nên hai request cùng mã chỉ một cái qua. Nhận lệch ±30 giây giữa giờ server và điện thoại.
+- Chống dò: 20 lần nhập mã / IP / 15 phút, 10 lần / tài khoản / 15 phút, cộng khóa IP / thiết bị chung (sai nhiều
+  trên một tài khoản thì khóa 24 giờ). Đăng nhập sai luôn trả cùng một câu (không lộ tài khoản có hay chưa cài app).
+- Mã QR tạo ngay trên server (`internal/auth/qr.go`, không thư viện ngoài, không gọi dịch vụ tạo QR trên mạng).
+- **Giờ server phải đúng** (lệch quá ~1 phút thì mọi mã bị từ chối): kiểm `timedatectl` (NTP đồng bộ).
+- Không chống lừa đảo: ai đọc mã cho người khác trong 30 giây thì người đó vào được — mức này ngang mã gửi qua email.
+- Nhật ký thao tác: `totp.setup`, `totp.reset`; log server ghi tạo mã cài đặt (ai tạo), cài app, đăng nhập sai.
+- Migration 0022: `email` không còn bắt buộc; thêm `totp_secret`, `totp_last_step`, `totp_enabled_at`.
 
 ### Mã nguồn giao diện
 

@@ -35,6 +35,11 @@ type Manager struct {
 	EmailDomains []string // tên miền email được đăng ký (rỗng = mọi tên miền)
 	email        *emailAuth
 
+	// Đăng nhập bằng app xác thực (TOTP, totpflow.go): TOTP nil hoặc TOTPKeys nil = tắt.
+	TOTP     *TOTPSealer
+	TOTPKeys TOTPStore
+	totp     *totpAuth
+
 	// Khóa đăng nhập theo IP / thiết bị (blocks.go). Blocks nil = chỉ trong RAM; SiteIP nil = không có IP
 	// siêu thị (luôn khóa theo IP).
 	Blocks BlockStore
@@ -45,7 +50,7 @@ type Manager struct {
 // NewManager tạo bộ đăng nhập. apiToken rỗng thì không nhận Bearer token.
 func NewManager(apiToken string, log *slog.Logger) *Manager {
 	m := &Manager{Codes: NewCodes(), lim: newLimiter(time.Now), sess: newSessions(time.Now), log: log, email: newEmailAuth(),
-		guard: newGuard(time.Now)}
+		guard: newGuard(time.Now), totp: newTOTPAuth()}
 	if apiToken != "" {
 		m.apiToken, m.hasToken = sha256.Sum256([]byte(apiToken)), true
 	}
@@ -144,6 +149,7 @@ func (m *Manager) Mount(mux *http.ServeMux) {
 	mux.Handle("GET /admin/v1/login-blocks", m.RequireLevel(LevelCluster)(http.HandlerFunc(m.listBlocks)))
 	mux.Handle("POST /admin/v1/login-blocks/remove", m.RequireLevel(LevelCluster)(http.HandlerFunc(m.removeBlock)))
 	m.mountEmail(mux)
+	m.mountTOTP(mux)
 }
 
 func setSessionCookie(w http.ResponseWriter, r *http.Request, cookie string) {

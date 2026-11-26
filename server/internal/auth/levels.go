@@ -70,6 +70,8 @@ type Account struct {
 	// MaxSessions: số phiên mở cùng lúc; đăng nhập thêm thì phiên cũ nhất bị cắt. Chỉ quản trị gốc đặt.
 	SessionHours int `json:"session_hours"`
 	MaxSessions  int `json:"max_sessions"`
+	// TOTP: đã cài app xác thực (khóa bí mật không bao giờ trả ra ngoài).
+	TOTP bool `json:"totp"`
 }
 
 // Giới hạn phiên của tài khoản (khớp CHECK trong migration 0013).

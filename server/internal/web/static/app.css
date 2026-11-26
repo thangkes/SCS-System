@@ -161,9 +161,13 @@ label { font-weight: 600; font-size: 13px; }
 .form-ok { margin: 0; color: var(--ok); font-size: 13px; }
 .login-pane { display: grid; gap: 10px; }
 .login-pane[hidden] { display: none; }
-.login-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
+.login-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); }
 .login-tabs[hidden] { display: none; }
-.login-tabs button { height: 34px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
+.login-tabs button[hidden] { display: none; }
+.qr-img { display: block; margin: 4px auto; width: 246px; max-width: 100%; height: auto; border-radius: 8px; background: #fff; }
+.setup-secret { margin: 0; padding: 8px; border-radius: 8px; background: var(--bg); border: 1px solid var(--line); text-align: center; word-break: break-all; user-select: all; }
+.setup-code { font-size: 28px; letter-spacing: .15em; text-align: center; margin: 8px 0; user-select: all; }
+.login-tabs button { flex: 1 1 0; min-width: 84px; height: 34px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font: inherit; font-weight: 600; font-size: 13px; cursor: pointer; }
 .login-tabs button[aria-selected="true"] { background: var(--panel); color: var(--text); box-shadow: var(--shadow); }
 
 /* ---------- Khung ứng dụng ---------- */

@@ -178,7 +178,8 @@ func (m *Manager) mountEmail(mux *http.ServeMux) {
 // options: trang đăng nhập biết có đăng nhập / đăng ký bằng email không.
 func (m *Manager) options(w http.ResponseWriter, r *http.Request) {
 	ensureDevice(w, r)
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "email": m.EmailEnabled(), "domains": m.EmailDomains})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "email": m.EmailEnabled(), "domains": m.EmailDomains,
+		"totp": m.TOTPEnabled()})
 }
 
 func jsonPost(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -358,7 +359,7 @@ func (m *Manager) emailCodeReq(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a, err := m.Accounts.AccountByName(r.Context(), user)
-	if err != nil || a.Status != AccountActive || !ValidAccountLevel(a.Level) {
+	if err != nil || a.Status != AccountActive || !ValidAccountLevel(a.Level) || a.Email == "" {
 		if err != nil && !errors.Is(err, ErrNoAccount) {
 			m.log.Error("đọc tài khoản thất bại", "err", err)
 		} else {
@@ -453,7 +454,7 @@ func (m *Manager) listAccounts(w http.ResponseWriter, r *http.Request) {
 		names[int(l)] = n
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "accounts": list, "levels": names, "email": m.EmailEnabled(),
-		"assign_min": minLevel})
+		"totp": m.TOTPEnabled(), "assign_min": minLevel})
 }
 
 // changeAccount: POST /admin/v1/accounts/{username} {action: approve|level|disable|enable|delete, level}.
@@ -514,6 +515,28 @@ func (m *Manager) changeAccount(w http.ResponseWriter, r *http.Request) {
 		err = m.Accounts.UpdateAccount(r.Context(), user, AccountActive, a.Level, me.Name)
 	case "delete":
 		err = m.Accounts.DeleteAccount(r.Context(), user, me.Name)
+	case "totp_setup":
+		// Mã cài đặt app xác thực (8 số, 15 phút, một lần): quản trị gửi cho người dùng; chưa đổi khóa cũ cho
+		// tới khi người dùng quét QR và xác nhận.
+		if !m.TOTPEnabled() {
+			httpx.WriteError(w, http.StatusServiceUnavailable, "server chưa bật app xác thực (thiếu SCS_TOTP_KEY)")
+			return
+		}
+		if a.Status != AccountActive {
+			httpx.WriteError(w, http.StatusConflict, "chỉ tạo mã cài đặt cho tài khoản đang hoạt động: hãy duyệt / mở khóa trước")
+			return
+		}
+		code := m.issueSetupCode(user)
+		m.log.Warn("tạo mã cài đặt app xác thực", "user", user, "by", me.Name, "muc_nguoi_lam", int(me.Level))
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "setup_code": code,
+			"expires_s": int(setupCodeTTL.Seconds())})
+		return
+	case "totp_reset":
+		if m.TOTPKeys == nil {
+			httpx.WriteError(w, http.StatusServiceUnavailable, "server chưa bật app xác thực (thiếu SCS_TOTP_KEY)")
+			return
+		}
+		err = m.TOTPKeys.ClearTOTP(r.Context(), user, me.Name)
 	case "session":
 		// Thời gian sống phiên và số phiên: áp ngay cho phiên đang mở (rút hạn, cắt phiên cũ nhất nếu thừa),
 		// không cắt hết như đổi quyền.
@@ -545,7 +568,7 @@ func (m *Manager) changeAccount(w http.ResponseWriter, r *http.Request) {
 	n := m.sess.revokeAccount(user)
 	m.log.Warn("đổi tài khoản", "thao_tac", req.Action, "user", user, "muc", int(req.Level),
 		"by", me.Name, "muc_nguoi_lam", int(me.Level), "phien_bi_cat", n)
-	if req.Action == "approve" && m.Mail != nil {
+	if req.Action == "approve" && m.Mail != nil && a.Email != "" {
 		m.sendAsync(a.Email, "SCS-System: tài khoản đã được duyệt",
 			fmt.Sprintf("Tài khoản \"%s\" đã được duyệt với quyền: %s.\nĐăng nhập web quản trị bằng tên đăng nhập, mã sẽ được gửi về email này.\n",
 				user, LevelNames[req.Level]), "báo duyệt tài khoản")

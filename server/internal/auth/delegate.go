@@ -59,6 +59,10 @@ func delegateAllowed(me Session, a Account, action string, level Level) string {
 		}
 	case "session":
 		return "giới hạn phiên chỉ quản trị gốc đặt"
+	case "totp_setup", "totp_reset":
+		if a.Status == AccountPending {
+			return "tài khoản đang chờ: hãy duyệt"
+		}
 	}
 	return ""
 }

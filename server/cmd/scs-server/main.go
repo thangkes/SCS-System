@@ -296,7 +296,19 @@ func build(cmd string, cfg *config.Config, log *slog.Logger, base app.Deps) ([]r
 				Password: cfg.SMTPPassword.Value(), From: cfg.SMTPFrom}
 			al.Info("đăng nhập / đăng ký tài khoản bằng email: bật", "smtp", cfg.SMTPHost, "ten_mien", cfg.AccountDomains)
 		} else {
-			al.Info("chưa khai SCS_SMTP_HOST: tắt đăng nhập bằng email, chỉ đăng nhập bằng mã lấy qua SSH")
+			al.Info("chưa khai SCS_SMTP_HOST: tắt đăng nhập bằng email")
+		}
+		if cfg.TOTPKey != "" {
+			sealer, err := auth.LoadTOTPSealer(cfg.TOTPKey)
+			if err != nil {
+				return nil, fmt.Errorf("SCS_TOTP_KEY (%s): %w", cfg.TOTPKey, err)
+			}
+			if ts, ok := base.Registry.(auth.TOTPStore); ok && am.Accounts != nil {
+				am.TOTP, am.TOTPKeys = sealer, ts
+				al.Info("đăng nhập / đăng ký tài khoản bằng app xác thực (TOTP): bật")
+			}
+		} else {
+			al.Info("chưa khai SCS_TOTP_KEY: tắt đăng nhập bằng app xác thực")
 		}
 		// Thông báo tức thời cho web quản trị (luồng SSE, hỏi DB vài giây một lần khi có người xem).
 		base.Live = app.NewLive(app.Deps{Log: log.With("role", "live"), Registry: base.Registry, Rules: base.Rules})

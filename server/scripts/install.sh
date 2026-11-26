@@ -286,6 +286,19 @@ if [[ -d "$PKI_DIR" ]]; then
 	set_env SCS_RELEASE_KEY "$PKI_DIR/release.key"
 	install -o root -g root -m 644 "$PKI_DIR/release.pub" "$ETC_DIR/agent-release.pub"
 fi
+# Khóa mã hóa khóa app xác thực (TOTP) trong DB: 32 byte ngẫu nhiên, chỉ user dịch vụ đọc. Mất / đổi file này
+# thì mọi tài khoản phải cài lại app (quản trị bấm "Đặt lại app xác thực"); menu mục 20 chép cả file sang máy mới.
+if [[ -d "$PKI_DIR" ]]; then
+	if [[ ! -s "$PKI_DIR/totp.key" ]]; then
+		(umask 077 && od -An -tx1 -N32 /dev/urandom | tr -d ' 
+' >"$PKI_DIR/totp.key" && echo >>"$PKI_DIR/totp.key") ||
+			die "Không tạo được khóa app xác thực"
+		ok "Đã tạo khóa app xác thực: $PKI_DIR/totp.key"
+	fi
+	chown "$SVC_USER:$SVC_USER" "$PKI_DIR/totp.key"
+	chmod 600 "$PKI_DIR/totp.key"
+	[[ -n "$(env_value "$ENV_FILE" SCS_TOTP_KEY)" ]] || set_env SCS_TOTP_KEY "$PKI_DIR/totp.key"
+fi
 # Agent gọi về ngẫu nhiên 5–30 phút (từ 2026-11-18): hạn mất liên lạc cũ 30m (mặc định trước đây, có sẵn
 # trong .env) sẽ báo mất liên lạc oan, đổi sang 60m. Giá trị khác do admin tự đặt thì giữ nguyên.
 if [[ "$(env_value "$ENV_FILE" SCS_OFFLINE_AFTER)" == "30m" ]]; then

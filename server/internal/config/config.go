@@ -59,6 +59,9 @@ type Config struct {
 	SMTPFrom     string
 	// AccountDomains (SCS_ACCOUNT_DOMAINS): tên miền email được đăng ký tài khoản (mặc định gmail.com; "*" = mọi tên miền).
 	AccountDomains []string
+	// TOTPKey (SCS_TOTP_KEY): file khóa 32 byte (64 ký tự hex, quyền 600) mã hóa khóa app xác thực trong DB.
+	// Rỗng = tắt đăng nhập bằng app xác thực. install.sh tự tạo /etc/scs-server/pki/totp.key.
+	TOTPKey string
 	// ControlSocket: Unix socket để lệnh `scs-server login-code` lấy mã đăng nhập.
 	ControlSocket string
 	// AgentServers (SCS_AGENT_SERVERS): các địa chỉ agent dùng để gọi server, theo thứ tự ưu tiên
@@ -163,6 +166,7 @@ func Load() (*Config, error) {
 		SMTPPassword:   secret(get("SCS_SMTP_PASSWORD", "")),
 		SMTPFrom:       get("SCS_SMTP_FROM", ""),
 		AccountDomains: getDomains("SCS_ACCOUNT_DOMAINS", "gmail.com"),
+		TOTPKey:        get("SCS_TOTP_KEY", ""),
 
 		ControlSocket:    get("SCS_CONTROL_SOCKET", "data/run/control.sock"),
 		AgentServers:     getServers("SCS_AGENT_SERVERS", &errs),

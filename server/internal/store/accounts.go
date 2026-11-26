@@ -15,15 +15,15 @@ import (
 
 var _ auth.AccountStore = (*Registry)(nil)
 
-const accountCols = `id, username, email, status, COALESCE(level, 0), created_at, approved_at, COALESCE(approved_by, ''), last_login_at,
-	session_hours, max_sessions`
+const accountCols = `id, username, COALESCE(email, ''), status, COALESCE(level, 0), created_at, approved_at, COALESCE(approved_by, ''), last_login_at,
+	session_hours, max_sessions, totp_secret IS NOT NULL`
 
 func scanAccount(row pgx.Row) (auth.Account, error) {
 	var a auth.Account
 	var lv int16
 	var approved, last *time.Time
 	if err := row.Scan(&a.ID, &a.Username, &a.Email, &a.Status, &lv, &a.CreatedAt, &approved, &a.ApprovedBy, &last,
-		&a.SessionHours, &a.MaxSessions); err != nil {
+		&a.SessionHours, &a.MaxSessions, &a.TOTP); err != nil {
 		return a, err
 	}
 	a.Level = auth.Level(lv)
@@ -46,13 +46,13 @@ func (g *Registry) AccountByName(ctx context.Context, username string) (auth.Acc
 
 func (g *Registry) AccountTaken(ctx context.Context, username, email string) (bool, error) {
 	var n int
-	err := g.pool.QueryRow(ctx, `SELECT count(*) FROM accounts WHERE username = $1 OR email = $2`, username, email).Scan(&n)
+	err := g.pool.QueryRow(ctx, `SELECT count(*) FROM accounts WHERE username = $1 OR (email = $2 AND $2 <> '')`, username, email).Scan(&n)
 	return n > 0, err
 }
 
 func (g *Registry) CreateAccount(ctx context.Context, a auth.Account) error {
 	err := g.tx(ctx, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO accounts (username, email, status) VALUES ($1, $2, 'pending')`,
+		if _, err := tx.Exec(ctx, `INSERT INTO accounts (username, email, status) VALUES ($1, NULLIF($2, ''), 'pending')`,
 			a.Username, a.Email); err != nil {
 			return err
 		}
@@ -144,4 +144,55 @@ func (g *Registry) SetSessionLimits(ctx context.Context, username string, hours,
 		return audit(ctx, tx, by, "account.session_limits", 0, "", map[string]any{
 			"username": username, "session_hours": hours, "max_sessions": maxSessions})
 	})
+}
+
+// ---- app xác thực (cài đặt auth.TOTPStore)
+
+var _ auth.TOTPStore = (*Registry)(nil)
+
+func (g *Registry) TOTPSecret(ctx context.Context, username string) ([]byte, int64, error) {
+	var box []byte
+	var last int64
+	err := g.pool.QueryRow(ctx, `SELECT totp_secret, totp_last_step FROM accounts WHERE username = $1`, username).Scan(&box, &last)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, 0, auth.ErrNoAccount
+	}
+	return box, last, err
+}
+
+func (g *Registry) SetTOTP(ctx context.Context, username string, box []byte, step int64, by string) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE accounts SET totp_secret = $2, totp_last_step = $3, totp_enabled_at = now()
+			WHERE username = $1`, username, box, step)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return auth.ErrNoAccount
+		}
+		return audit(ctx, tx, by, "totp.setup", 0, "", map[string]any{"username": username})
+	})
+}
+
+func (g *Registry) ClearTOTP(ctx context.Context, username, by string) error {
+	return g.tx(ctx, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `UPDATE accounts SET totp_secret = NULL, totp_last_step = 0, totp_enabled_at = NULL
+			WHERE username = $1`, username)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return auth.ErrNoAccount
+		}
+		return audit(ctx, tx, by, "totp.reset", 0, "", map[string]any{"username": username})
+	})
+}
+
+func (g *Registry) UseTOTPStep(ctx context.Context, username string, step int64) (bool, error) {
+	tag, err := g.pool.Exec(ctx, `UPDATE accounts SET totp_last_step = $2
+		WHERE username = $1 AND totp_secret IS NOT NULL AND totp_last_step < $2`, username, step)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() == 1, nil
 }

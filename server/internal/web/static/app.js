@@ -2346,13 +2346,13 @@
     const others = list.filter((a) => a.status !== 'pending');
     const t = (v) => (v ? esc(fmtTime(new Date(v))) : '—');
     view.innerHTML = `
-      ${j.email ? '' : `<div class="card banner-warn"><p><strong>Server chưa cấu hình gửi mail</strong> (SCS_SMTP_* trong server.env): chưa ai đăng ký hay đăng nhập bằng email được.</p></div>`}
+      ${j.email || j.totp ? '' : `<div class="card banner-warn"><p><strong>Server chưa bật đăng nhập bằng tài khoản</strong>: chưa cấu hình gửi mail (SCS_SMTP_*) và chưa có khóa app xác thực (SCS_TOTP_KEY, tự tạo khi cập nhật server bằng menu mục 4).</p></div>`}
       <div class="card">
-        <div class="card-head"><h2>Chờ duyệt</h2><span class="sub">Đã xác minh email; chọn mức quyền rồi duyệt</span></div>
+        <div class="card-head"><h2>Chờ duyệt</h2><span class="sub">Chọn mức quyền rồi duyệt${j.totp ? '; duyệt xong bấm <strong>Tạo mã cài app</strong> và gửi mã cho người đó' : ''}</span></div>
         <div class="table-wrap"><table>
           <thead><tr><th>Tên đăng nhập</th><th>Email</th><th class="hide-sm">Đăng ký lúc</th><th>Mức quyền</th><th></th></tr></thead>
           <tbody id="acct-pending">${pending.map((a) => `<tr>
-            <td class="strong">${esc(a.username)}${personInfo(a.username, people)}</td><td class="mono">${esc(a.email)}</td><td class="hide-sm">${t(a.created_at)}</td>
+            <td class="strong">${esc(a.username)}${personInfo(a.username, people)}</td><td class="mono">${esc(a.email || '—')}</td><td class="hide-sm">${t(a.created_at)}</td>
             <td>${levelSelect(`lv-${a.username}`, LV.view, minLv)}</td>
             <td class="actions"><button class="btn btn-sm btn-danger" data-acct="delete" data-user="${esc(a.username)}">Từ chối</button>
               <button class="btn btn-sm btn-primary" data-acct="approve" data-user="${esc(a.username)}">Duyệt</button></td></tr>`).join('')
@@ -2366,18 +2366,22 @@
           <thead><tr><th>Tên đăng nhập</th><th class="hide-sm">Email</th><th>Trạng thái</th><th>Mức quyền</th>${root ? '<th>Phiên đăng nhập</th>' : ''}<th class="hide-sm">Đăng nhập cuối</th><th></th></tr></thead>
           <tbody>${others.map((a) => `<tr>
             <td class="strong">${esc(a.username)}${personInfo(a.username, people)}<span class="sub">duyệt bởi ${esc(a.approved_by || '—')}</span></td>
-            <td class="hide-sm mono">${esc(a.email)}</td>
-            <td>${a.status === 'active' ? '<span class="pill pill-ok no-dot">Hoạt động</span>' : '<span class="pill pill-bad no-dot">Đã khóa</span>'}</td>
+            <td class="hide-sm mono">${esc(a.email || '—')}</td>
+            <td>${a.status === 'active' ? '<span class="pill pill-ok no-dot">Hoạt động</span>' : '<span class="pill pill-bad no-dot">Đã khóa</span>'}
+              ${j.totp ? `<span class="sub">${a.totp ? 'Đã cài app xác thực' : 'Chưa cài app xác thực'}</span>` : ''}</td>
             <td>${levelSelect(`lv-${a.username}`, a.level, minLv)} <button class="btn btn-sm" data-acct="level" data-user="${esc(a.username)}">Đổi</button></td>
             ${root ? `<td>${sessCell(a)}</td>` : ''}
             <td class="hide-sm">${t(a.last_login)}</td>
             <td class="actions">${a.status === 'active'
               ? `<button class="btn btn-sm" data-acct="disable" data-user="${esc(a.username)}">Khóa</button>`
               : `<button class="btn btn-sm" data-acct="enable" data-user="${esc(a.username)}">Mở khóa</button>`}
+              ${j.totp && a.status === 'active' ? `<button class="btn btn-sm" data-acct="totp_setup" data-user="${esc(a.username)}">${a.totp ? 'Cài lại app' : 'Tạo mã cài app'}</button>` : ''}
+              ${j.totp && a.totp ? `<button class="btn btn-sm btn-danger" data-acct="totp_reset" data-user="${esc(a.username)}">Đặt lại app</button>` : ''}
               ${root ? `<button class="btn btn-sm btn-danger" data-acct="delete" data-user="${esc(a.username)}">Xóa</button>` : ''}</td></tr>`).join('')
               || `<tr><td colspan="${root ? 7 : 6}" class="empty">Chưa có tài khoản nào.</td></tr>`}</tbody>
         </table></div>
         ${root ? '' : '<p class="hint">Xóa tài khoản đang dùng, đặt giới hạn phiên và quản lý tài khoản mức 1–4 cần quản trị gốc.</p>'}
+        ${j.totp ? '<p class="hint">App xác thực: <strong>Tạo mã cài app</strong> sinh mã 8 số (hạn 15 phút, dùng một lần) — gửi riêng cho đúng người (Zalo / Teams); người đó vào trang đăng nhập, tab <strong>Cài app</strong>, nhập tên + mã, quét QR bằng Google / Microsoft Authenticator. App cũ vẫn dùng được tới khi cài xong app mới. Mất điện thoại: <strong>Đặt lại app</strong> (xóa khóa, đăng xuất ngay) rồi tạo mã mới.</p>' : ''}
         <p class="hint"${root ? '' : ' hidden'}>Phiên đăng nhập: mỗi phiên sống 1 giờ – 15 ngày tính từ lúc đăng nhập (mặc định 24 giờ, không gia hạn); mỗi tài khoản 1 – 20 phiên cùng lúc (mặc định 4) — đăng nhập thêm thì phiên cũ nhất bị cắt. Đổi giới hạn áp ngay cho phiên đang mở: hạn = lúc đăng nhập + thời gian mới (nới thì phiên đang mở được kéo dài, rút thì phiên quá thời gian mới hết ngay); phiên đăng nhập bằng mã SSH luôn 24 giờ.</p>
       </div>
       <div class="card"><div class="card-head"><h2>Các mức quyền</h2><span class="sub">Số nhỏ = quyền cao; mức trên làm được mọi việc của mức dưới</span></div>
@@ -2412,6 +2416,8 @@
       level: ['Đổi mức quyền?', `<p><strong>${esc(user)}</strong> → <strong>${esc(level)} · ${esc(LEVEL_NAMES[level])}</strong>. Phiên đang mở của tài khoản bị đăng xuất.</p>`, 'Đổi', false],
       disable: ['Khóa tài khoản?', `<p><strong>${esc(user)}</strong> bị đăng xuất ngay và không đăng nhập được tới khi mở khóa.</p>`, 'Khóa', true],
       enable: ['Mở khóa tài khoản?', `<p><strong>${esc(user)}</strong> đăng nhập lại được với mức quyền cũ.</p>`, 'Mở khóa', false],
+      totp_setup: ['Tạo mã cài app xác thực?', `<p>Sinh mã cài đặt cho <strong>${esc(user)}</strong> (hạn 15 phút, dùng một lần). Chỉ gửi mã cho đúng người đó: ai có mã trong 15 phút này cài được app cho tài khoản.</p>`, 'Tạo mã', false],
+      totp_reset: ['Đặt lại app xác thực?', `<p>Xóa khóa app xác thực của <strong>${esc(user)}</strong> và đăng xuất ngay. Muốn đăng nhập lại phải tạo mã cài app mới.</p>`, 'Đặt lại', true],
       delete: ['Xóa tài khoản?', `<p>Xóa hẳn <strong>${esc(user)}</strong>. Muốn dùng lại thì phải đăng ký lại.</p>`, 'Xóa', true],
       session: ['Đổi giới hạn phiên?', limits ? `<p><strong>${esc(user)}</strong>: mỗi phiên sống <strong>${esc(fmtDur(limits.session_hours * 3600e3))}</strong>, tối đa <strong>${esc(limits.max_sessions)}</strong> phiên cùng lúc.
         Áp ngay cho phiên đang mở: hạn tính lại từ lúc đăng nhập (nới thì được kéo dài, phiên nào quá thời gian mới thì hết), thừa phiên thì cắt phiên cũ nhất. Phiên còn lại không bị đăng xuất.</p>` : '', 'Lưu', false],
@@ -2419,8 +2425,14 @@
     if (!titles || !(await confirmBox(...titles))) return;
     b.disabled = true;
     try {
-      await postJSON(`/admin/v1/accounts/${encodeURIComponent(user)}`, { action: act, level, ...(limits || {}) });
-      toast('Đã lưu.');
+      const r = await postJSON(`/admin/v1/accounts/${encodeURIComponent(user)}`, { action: act, level, ...(limits || {}) });
+      if (act === 'totp_setup' && r.setup_code) {
+        const c = r.setup_code;
+        infoBox('Mã cài app xác thực', `<p>Tài khoản <strong>${esc(user)}</strong>:</p>
+          <p class="setup-code mono">${esc(c.slice(0, 4))} ${esc(c.slice(4))}</p>
+          <p>Hạn ${esc(Math.round((r.expires_s || 900) / 60))} phút, dùng một lần. Gửi riêng cho người đó; họ mở trang đăng nhập → tab <strong>Cài app</strong> → nhập tên đăng nhập và mã này → quét QR bằng app xác thực.</p>
+          <p class="hint">Mã chỉ hiện lần này, server không lưu mã (chỉ lưu dấu băm).</p>`);
+      } else toast('Đã lưu.');
     } catch (err) {
       toast(`Không lưu được: ${err.message}`);
     }
@@ -3361,7 +3373,9 @@
   // ---------------------------------------------------------------- đăng nhập
   const USER_KEY = 'scs-login-user';
   let emailOn = false; // server có gửi mail không (GET /auth/options)
+  let totpOn = false; // server bật app xác thực (TOTP) không
   let loginTab = 'ssh';
+  let setupToken = '';
 
   function loginMsg(err, ok) {
     const e = $('#login-error'), o = $('#login-ok');
@@ -3370,11 +3384,12 @@
   }
 
   function setLoginTab(tab) {
-    if (!emailOn) tab = 'ssh';
+    const avail = { ssh: true, email: emailOn, register: emailOn || totpOn, totp: totpOn, setup: totpOn };
+    if (!avail[tab]) tab = totpOn ? 'totp' : 'ssh';
     loginTab = tab;
     $$('[data-login-tab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.loginTab === tab)));
     $$('[data-pane]').forEach((f) => { f.hidden = f.dataset.pane !== tab; });
-    const focus = { email: '#email-user', register: '#reg-user', ssh: '#login-code' }[tab];
+    const focus = { email: '#email-user', register: '#reg-user', ssh: '#login-code', totp: '#totp-user', setup: '#setup-user' }[tab];
     $(focus).focus();
   }
 
@@ -3383,8 +3398,17 @@
     $('#email-btn').textContent = 'Gửi mã về email'; $('#email-resend').hidden = true;
     $('#email-user').readOnly = false;
     $('#reg-code-f').hidden = true; $('#reg-code').value = '';
-    $('#reg-btn').textContent = 'Gửi mã xác minh';
+    $('#reg-btn').textContent = emailOn ? 'Gửi mã xác minh' : 'Đăng ký';
     $('#reg-user').readOnly = false; $('#reg-email').readOnly = false;
+    resetSetupForm();
+  }
+
+  function resetSetupForm() {
+    setupToken = '';
+    $('#setup-start').hidden = false; $('#setup-qr').hidden = true;
+    $('#setup-qr-img').removeAttribute('src'); $('#setup-secret').textContent = '';
+    $('#setup-code').value = ''; $('#setup-confirm').value = '';
+    $('#setup-btn').textContent = 'Mở mã QR';
   }
 
   function showLogin(message) {
@@ -3395,8 +3419,11 @@
     $('#login-code').value = '';
     const name = $('#login-name');
     if (!name.value) name.value = local.get(NAME_KEY) || '';
-    const user = $('#email-user');
-    if (!user.value) user.value = local.get(USER_KEY) || '';
+    for (const id of ['#email-user', '#totp-user', '#setup-user']) {
+      const user = $(id);
+      if (!user.value) user.value = local.get(USER_KEY) || '';
+    }
+    $('#totp-code').value = '';
     resetEmailForms();
     setLoginTab(loginTab);
   }
@@ -3405,11 +3432,18 @@
     try {
       const j = await (await api('/auth/options')).json();
       emailOn = !!j.email;
-      $('#reg-domains').textContent = j.domains && j.domains.length ? `Chỉ nhận email @${j.domains.join(', @')}.` : '';
-    } catch { emailOn = false; }
-    $('#login-tabs').hidden = !emailOn;
-    if (emailOn && !local.get(NAME_KEY)) loginTab = 'email';
-    if (emailOn && local.get(USER_KEY)) loginTab = 'email';
+      totpOn = !!j.totp;
+      $('#reg-domains').textContent = emailOn && j.domains && j.domains.length ? `Chỉ nhận email @${j.domains.join(', @')}.` : '';
+    } catch { emailOn = false; totpOn = false; }
+    $('#login-tabs').hidden = !emailOn && !totpOn;
+    $$('[data-login-tab="email"]').forEach((b) => { b.hidden = !emailOn; });
+    $$('[data-login-tab="totp"], [data-login-tab="setup"]').forEach((b) => { b.hidden = !totpOn; });
+    // Đăng ký: có app xác thực thì email không bắt buộc (chỉ dùng khi server gửi được mail).
+    $('#reg-email').hidden = !emailOn; $('#reg-email-l').hidden = !emailOn;
+    $('#reg-email-l').textContent = totpOn ? 'Email (không bắt buộc: điền thì xác minh và đăng nhập được cả bằng email)' : 'Email';
+    $('#reg-btn').textContent = emailOn ? 'Gửi mã xác minh' : 'Đăng ký';
+    const def = totpOn ? 'totp' : 'email';
+    if ((emailOn || totpOn) && (!local.get(NAME_KEY) || local.get(USER_KEY))) loginTab = def;
   }
 
   // POST JSON cho trang đăng nhập: trả { ok, j } với câu báo lỗi của server.
@@ -3464,11 +3498,21 @@
     e.preventDefault();
     const btn = $('#reg-btn');
     const username = $('#reg-user').value.trim();
-    const email = $('#reg-email').value.trim().toLowerCase();
-    if (!username || !email) return;
+    const email = emailOn ? $('#reg-email').value.trim().toLowerCase() : '';
+    if (!username) return;
     if (!/^[0-9]{3,32}$/.test(username)) { loginMsg('Tên đăng nhập chỉ gồm chữ số 0–9, từ 3 tới 32 số.', ''); return; }
+    if (!email && !totpOn) { loginMsg('Nhập email.', ''); return; }
     btn.disabled = true;
     try {
+      if (!email) {
+        const r = await loginPost('/auth/totp/register', { username });
+        if (!r.ok) { loginMsg(r.err, ''); return; }
+        local.set(USER_KEY, username);
+        for (const id of ['#totp-user', '#setup-user', '#email-user']) $(id).value = username;
+        $('#reg-form').reset();
+        loginMsg('', r.j.message);
+        return;
+      }
       if ($('#reg-code-f').hidden) {
         const r = await loginPost('/auth/register', { username, email });
         if (!r.ok) { loginMsg(r.err, ''); return; }
@@ -3488,6 +3532,69 @@
       $('#email-user').value = username;
       $('#reg-form').reset();
       loginMsg('', r.j.message);
+    } catch {
+      loginMsg('Không kết nối được server.', '');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('#totp-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#totp-btn');
+    const username = $('#totp-user').value.trim().toLowerCase();
+    const code = $('#totp-code').value.replace(/\D/g, '');
+    if (!username) return;
+    if (code.length !== 6) { loginMsg('Mã gồm 6 chữ số.', ''); return; }
+    btn.disabled = true;
+    try {
+      const r = await loginPost('/auth/totp/login', { username, code });
+      $('#totp-code').value = '';
+      if (!r.ok) { loginMsg(r.err, ''); $('#totp-code').focus(); return; }
+      local.set(USER_KEY, username);
+      showApp();
+    } catch {
+      loginMsg('Không kết nối được server.', '');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  $('#setup-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#setup-btn');
+    btn.disabled = true;
+    try {
+      if (!setupToken) {
+        const username = $('#setup-user').value.trim().toLowerCase();
+        const code = $('#setup-code').value.replace(/\D/g, '');
+        if (!username) { loginMsg('Nhập tên đăng nhập.', ''); return; }
+        if (code.length !== 8) { loginMsg('Mã cài đặt gồm 8 chữ số.', ''); return; }
+        const r = await loginPost('/auth/totp/setup', { username, code });
+        $('#setup-code').value = '';
+        if (!r.ok) { loginMsg(r.err, ''); return; }
+        setupToken = r.j.token;
+        local.set(USER_KEY, username);
+        $('#setup-qr-img').src = r.j.qr;
+        $('#setup-secret').textContent = r.j.secret;
+        $('#setup-acct').textContent = r.j.account;
+        $('#setup-start').hidden = true; $('#setup-qr').hidden = false;
+        btn.textContent = 'Xác nhận và đăng nhập';
+        loginMsg('', '');
+        $('#setup-confirm').focus();
+        return;
+      }
+      const code = $('#setup-confirm').value.replace(/\D/g, '');
+      if (code.length !== 6) { loginMsg('Mã gồm 6 chữ số.', ''); return; }
+      const r = await loginPost('/auth/totp/confirm', { token: setupToken, code });
+      $('#setup-confirm').value = '';
+      if (!r.ok) {
+        loginMsg(r.err, '');
+        if (!(r.j.left > 0)) resetSetupForm();
+        return;
+      }
+      resetSetupForm();
+      showApp();
     } catch {
       loginMsg('Không kết nối được server.', '');
     } finally {
