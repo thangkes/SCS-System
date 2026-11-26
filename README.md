@@ -31,7 +31,8 @@ Code comments and docs are in Vietnamese.*
 
 - **Agent chỉ chủ động gọi lên server**; server không gửi lệnh xuống. Rule và bản cập nhật agent tự kéo về, kiểm chữ ký.
 - **Web quản trị phân 8 mức quyền** (0 quản trị gốc … 7 chỉ xem): quản trị gốc chỉ có khi lấy mã bằng SSH trên máy
-  server; người khác đăng ký tài khoản bằng Gmail, đăng nhập bằng mã gửi về mail, được quản trị gốc duyệt và đặt mức.
+  server; người khác đăng ký tài khoản, đăng nhập bằng **app xác thực** (Google / Microsoft Authenticator, không cần
+  mạng ra ngoài) hoặc mã gửi về mail, được quản trị gốc duyệt và đặt mức.
 - **Mọi máy phải được duyệt** trước khi gửi được dữ liệu: admin duyệt tay, hoặc **duyệt tự động** (công tắc, mặc định
   tắt) chỉ khi máy đúng hostname, thuộc siêu thị đã có thông tin và gửi từ IP WAN của siêu thị đó. Không có bí mật dùng
   chung trong source agent.
@@ -69,6 +70,7 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 | **Thông báo tức thời trên web** (không dùng dịch vụ ngoài): số trên thanh bên và trang đang xem tự cập nhật, cảnh báo mới hiện góc màn hình; bật nút chuông thì thêm thông báo hệ điều hành và tiếng báo cho mức cao / nghiêm trọng / mất liên lạc. Cần mở ít nhất một tab web | Đã có |
 | **Bộ rule đã áp dụng trên từng máy**: agent báo bộ đang cài (tên, phiên bản, SHA-256, chữ ký đúng / lỗi, số rule chạy trên máy) trong heartbeat; web hiện ở trang Máy, chi tiết máy, và số máy đang dùng mỗi bộ ở trang Rule. Cần agent bản mới | Đã có |
 | **Tài khoản web quản trị bằng Gmail và 8 mức quyền**: đăng ký → mã xác minh về mail → quản trị gốc (mã SSH) duyệt và đặt mức 1–7 (cụm server, rule, agent + bản cập nhật, địa chỉ server, xác nhận sự cố, thông tin agent, chỉ xem); đăng nhập bằng mã gửi về mail (5 phút, nhập một lần); trang **Tài khoản**; tên đăng ký chỉ chữ số; quản trị gốc đặt thời gian sống phiên (1 giờ – 15 ngày, mặc định 24 giờ) và số phiên cùng lúc (1 – 20, mặc định 4) cho từng tài khoản. Cần Gmail gửi mã (`SCS_SMTP_*`) | Đã có, đã lên server thật |
+| **Đăng nhập bằng app xác thực (TOTP)** khi mạng chặn SMTP: đăng ký không cần email → duyệt → quản trị **Tạo mã cài app** (8 số, 15 phút, một lần) → người dùng nhập mã, quét QR (tạo trên server, không thư viện ngoài), xác nhận mã đầu tiên; đăng nhập bằng mã 6 số trong Google / Microsoft Authenticator; **Đặt lại app** khi mất điện thoại. Khóa lưu DB mã hóa AES-256-GCM bằng file `SCS_TOTP_KEY` (cập nhật mục 4 tự tạo), mã đã dùng không dùng lại được (migration 0022) | Đã có, chưa chạy thật |
 | **Trang Máy gom theo mã siêu thị**, viền màu theo máy tệ nhất: đỏ = cần xử lý (cảnh báo nghiêm trọng, mất liên lạc), vàng = đang chờ xử lý (cảnh báo khác đang mở, máy chờ duyệt), xanh = OK; bấm mã siêu thị để xổ danh sách máy. **Bộ lọc mã kho / quản lý / trưởng nhóm** lọc tức thời theo thông tin siêu thị đã nạp (gợi ý sẵn, nhiều mã kho cách nhau dấu phẩy, gõ không dấu vẫn khớp; gõ đúng mã user thì khớp chính xác), ô "Siêu thị của tôi". **Ghép tài khoản với thông tin siêu thị**: người phụ trách ghi dạng "mã user - Tên", mã user trùng tên đăng nhập (chữ số) → trang Tài khoản (cả mục chờ duyệt) hiện tên thật và vai trò ở bao nhiêu siêu thị, bấm mở trang Máy đã lọc. **Tổng quan có khung Server** (chỉ xem): tốc độ / lưu lượng mạng, CPU, RAM, ổ đĩa, heartbeat và sự kiện mỗi phút, kết nối agent, dung lượng DB | Đã có |
 | **Thông tin siêu thị** trên web: tên, tổ chức, nhiều IP WAN, quản lý / phó quản lý / trưởng nhóm / phó phòng, ghi chú; tìm kiếm theo các trường này. **Cảnh báo hiện lý do** (rule, dòng log), bấm mở tình trạng máy | Đã có, đã lên server thật |
 | **Xử lý sự cố từng bước**: trên trang Cảnh báo và dòng thời gian máy, mỗi sự cố chọn **Chờ thông tin** / **Đã gửi report** (vẫn mở, bắt buộc ghi chú, có nhãn và ô lọc) hoặc đóng bằng **Đã xử lý** / **Xác nhận sự cố** (đóng nhanh sự cố một lần); tự đóng theo mức như cũ (cao tự đóng, nghiêm trọng cần người đóng); lịch sử xử lý trong sự cố + nhật ký thao tác (migration 0021) | Đã có, chưa chạy thật |
@@ -100,7 +102,8 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 và phát bộ rule, phân lượt tải (bản agent và bộ rule đúng 4 lượt, ≤ 20 Mbit/s), báo cáo server, cập nhật server có kiểm SQL
 trên `scs_test` (đã chặn đúng hai lỗi trước khi cài), **gia hạn chứng chỉ máy 90 ngày**, **duyệt và thay thế máy cũ**,
 **khóa đăng nhập theo IP / thiết bị**. Chưa kiểm thật: khôi phục DB từ bản sao lưu, chép server sang máy khác (menu mục 20),
-cụm nhiều server, các phần agent mới (SMART, kiểm thiết bị theo rule, gửi gấp theo trạng thái — cần phát hành bản agent).
+cụm nhiều server, các phần agent mới (SMART, kiểm thiết bị theo rule, gửi gấp theo trạng thái — cần phát hành bản agent),
+đăng nhập bằng app xác thực (migration 0022 trên PostgreSQL thật, quét QR bằng điện thoại thật).
 
 ## Số đo thực tế
 

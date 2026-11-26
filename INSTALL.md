@@ -28,6 +28,7 @@ Chạy bằng user thường hoặc root (thư mục code thuộc user nào thì
 **1** kiểm tra điều kiện, **2** cài Docker/Go/PostgreSQL/NATS, **3** cài dịch vụ (hỏi IP LAN, tùy chọn IP WAN /
 tên miền DDNS, dải mạng được vào web; gợi ý sẵn IP LAN và dải LAN của máy). Về sau: **4** cập nhật, **6** cho thêm dải mạng vào web,
 **8** lấy mã đăng nhập web, **9** xem trạng thái và log, **17** điền Gmail gửi mã để bật tài khoản web đăng nhập bằng email.
+Đăng nhập bằng app xác thực (không cần Gmail) bật sẵn sau khi cài / cập nhật, xem mục 1.5.
 
 ### 1.1 Chuẩn bị máy: Docker, Go, PostgreSQL + NATS (dùng cờ lệnh)
 
@@ -87,7 +88,7 @@ Script:
   `INTERNET` để xác nhận). Dòng lệnh: `sudo bash server/scripts/install.sh --admin-allow private` (hoặc
   `--admin-allow 10.10.0.0/16`, lặp lại được; `--admin-allow internet` = mọi IP, gõ thẳng `0.0.0.0/0` bị từ chối).
   Script thêm vào `SCS_ADMIN_ALLOW` và mở ufw cho đúng các dải đó nếu ufw đang bật.
-  **Mở cả Internet:** web chỉ được bảo vệ bằng mã 6 số (mã SSH, hoặc mã gửi về Gmail nếu bật tài khoản email, mục 1.5),
+  **Mở cả Internet:** web chỉ được bảo vệ bằng mã 6 số (mã SSH, mã trong app xác thực, hoặc mã gửi về Gmail nếu bật tài khoản email, mục 1.5),
   nhập sai mã 5 lần cho một tài khoản thì IP đó bị khóa 24 giờ, dò tên quá 10 lần / 24 giờ thì khóa 7 ngày (IP siêu thị khóa
   theo từng trình duyệt); người lạ vẫn có thể gửi mã SSH sai để khóa chung đăng nhập bằng mã SSH vài phút. Gỡ khóa: trang
   **Tài khoản** → "Khóa đăng nhập", hoặc trên server `sudo scs-login-code -unlock`. Chứng chỉ tự ký; router phải chuyển tiếp cổng 7222. An toàn hơn: VPN
@@ -138,6 +139,19 @@ Server cài từ bản cũ: cập nhật (mục 4) tự thêm khối `SCS_SMTP_*
 rồi `sudo systemctl restart scs-server`; thử gửi bằng
 `sudo -u scs /opt/scs-server/scs-server mail-test -to <gmail-cua-ban> -env-file /etc/scs-server/server.env` (chạy từ thư mục `/`). Trang đăng nhập sẽ có thêm tab **Email** và **Đăng ký**; tài khoản mới phải
 được quản trị gốc (đăng nhập bằng `scs-login-code`, đặt được mọi mức) hoặc người mức 1 (chỉ đặt mức 5–7) duyệt ở trang **Tài khoản**.
+
+**Đăng nhập bằng app xác thực** (khi mạng chặn SMTP; không cần Gmail): cài / cập nhật (mục 4) tự tạo
+`/etc/scs-server/pki/totp.key` (quyền 600, user `scs`) và điền `SCS_TOTP_KEY` trong `server.env`; trang đăng nhập có tab
+**App xác thực**, **Đăng ký** (không cần email) và **Cài app**. Quy trình:
+
+1. Người dùng đăng ký tên đăng nhập (chữ số) → chờ duyệt.
+2. Bạn đăng nhập bằng `scs-login-code` → trang **Tài khoản** → chọn mức → **Duyệt** → **Tạo mã cài app** → gửi mã 8 số
+   (hạn 15 phút, dùng một lần) riêng cho người đó.
+3. Người dùng: tab **Cài app** → tên + mã → quét QR bằng Google / Microsoft Authenticator → nhập mã 6 số đầu tiên.
+4. Từ đó đăng nhập ở tab **App xác thực**. Mất điện thoại: **Đặt lại app** rồi tạo mã mới.
+
+Giờ server phải đồng bộ (`timedatectl` báo `System clock synchronized: yes`): lệch quá khoảng 1 phút thì mọi mã bị từ
+chối. File `totp.key` mất hoặc đổi thì mọi người phải cài lại app; menu mục 20 (chép server) mang file theo.
 
 **Đặt dữ liệu DB lên ổ khác** (ổ hệ thống nhỏ, có ổ dữ liệu riêng, ví dụ gắn ở `/data`): PostgreSQL chạy trong Docker,
 nên chuyển **thư mục dữ liệu của Docker** sang ổ đó — làm **trước** menu mục 2 (hoặc trước khi có dữ liệu thật):
