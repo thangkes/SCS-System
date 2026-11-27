@@ -53,7 +53,13 @@ func (g *Registry) LANReport(ctx context.Context, rep *lan.Reporter, m *rules.LA
 		if err != nil {
 			return err
 		}
+		newSite := site.SavedAt.IsZero()
 		changes, saveSite, saveRep := lan.Merge(site, rep, prev, m, now)
+		// Đổi thật (web cần vẽ lại): thiết bị đổi trạng thái, siêu thị mới, máy báo khác lần trước.
+		changed := len(changes) > 0 || newSite || lan.ReporterChanged(prev, rep)
+		if changed {
+			saveSite = true
+		}
 		if saveRep {
 			miss, _ := json.Marshal(rep.Miss)
 			if rep.Miss == nil {
@@ -75,8 +81,13 @@ func (g *Registry) LANReport(ctx context.Context, rep *lan.Reporter, m *rules.LA
 			if err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `UPDATE lan_sites SET data = $2::jsonb, updated_at = $3 WHERE store_code = $1`,
-				rep.Store, b, now); err != nil {
+			var changedAt any
+			if changed {
+				changedAt = now
+			}
+			if _, err := tx.Exec(ctx, `UPDATE lan_sites SET data = $2::jsonb, updated_at = $3,
+				changed_at = coalesce($4::timestamptz, changed_at) WHERE store_code = $1`,
+				rep.Store, b, now, changedAt); err != nil {
 				return err
 			}
 		}

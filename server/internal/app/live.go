@@ -34,7 +34,12 @@ const (
 	liveMaxSubs   = 64               // số trình duyệt mở luồng cùng lúc tối đa
 	liveWrite     = 15 * time.Second // hạn ghi mỗi lần đẩy (máy xem quá chậm thì ngắt)
 	liveCoalesce  = time.Minute      // chỉ số đếm đổi (trạng thái không đổi): đẩy tối đa mỗi phút
+	// liveTopicEvery: dữ liệu trang Thiết bị LAN / Sức khỏe máy đổi (cảnh báo không đổi): đẩy tối đa mỗi 10 giây.
+	liveTopicEvery = 10 * time.Second
 )
+
+// lanDataAt: lần dữ liệu Thiết bị LAN đổi gần nhất luồng thông báo thấy (bỏ bộ đệm trang LAN khi mới hơn).
+var lanDataAt atomic.Int64
 
 // liveCur: nơi phát đang chạy trong tiến trình (nudgeLive đánh thức nó). nil = không có web quản trị.
 var liveCur atomic.Pointer[Live]
@@ -65,6 +70,7 @@ type Live struct {
 	since  time.Time
 	sig    string
 	state  string    // dấu trạng thái (không tính số đếm) lần đẩy gần nhất
+	topic  string    // dấu dữ liệu trang LAN / sức khỏe lần đẩy gần nhất
 	pushed time.Time // lần đẩy gần nhất
 	rules  int
 	tick   int
@@ -137,21 +143,32 @@ func (l *Live) poll(ctx context.Context) {
 	state := fmt.Sprintf("%d/%d/%d/%d/%d/%d/%s/%s", p.OpenAlerts, p.Serious, p.Critical, p.Offline, p.Pending, l.rules,
 		p.LastOpen.UTC().Format(time.RFC3339Nano), p.LastAck.UTC().Format(time.RFC3339Nano))
 	sig := state + "/" + p.LastChange.UTC().Format(time.RFC3339Nano)
+	topic := p.LANAt.UTC().Format(time.RFC3339Nano) + "/" + p.HealthAt.UTC().Format(time.RFC3339Nano)
+	if !p.LANAt.IsZero() {
+		lanDataAt.Store(p.LANAt.UnixNano())
+	}
 	l.mu.Lock()
 	first := l.last == nil
 	l.mu.Unlock()
-	if sig == l.sig && !first {
+	if sig == l.sig && topic == l.topic && !first {
 		return
 	}
-	// Trạng thái không đổi, chỉ số đếm của cảnh báo đang mở tăng: gom (since giữ nguyên để lần đẩy sau
-	// vẫn mang đủ các cảnh báo đã đổi).
-	if !first && state == l.state && time.Since(l.pushed) < liveCoalesce {
-		return
+	// Trạng thái cảnh báo không đổi: chỉ số đếm của cảnh báo đang mở tăng thì gom (since giữ nguyên để lần đẩy sau
+	// vẫn mang đủ các cảnh báo đã đổi), tối đa mỗi liveCoalesce; dữ liệu trang LAN / sức khỏe đổi thì tối đa mỗi
+	// liveTopicEvery (lấy nhịp ngắn hơn khi cả hai cùng đổi).
+	if !first && state == l.state {
+		wait := liveCoalesce
+		if topic != l.topic {
+			wait = liveTopicEvery
+		}
+		if time.Since(l.pushed) < wait {
+			return
+		}
 	}
 	if p.LastChange.After(l.since) {
 		l.since = p.LastChange
 	}
-	l.sig, l.state, l.pushed = sig, state, time.Now()
+	l.sig, l.state, l.topic, l.pushed = sig, state, topic, time.Now()
 	b, _ := json.Marshal(LivePulse{Pulse: p, RulesPending: l.rules, At: time.Now().UTC()})
 	l.mu.Lock()
 	l.last = b

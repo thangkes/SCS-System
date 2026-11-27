@@ -446,6 +446,12 @@ không nhận được (không gửi ra ngoài).
 
 Sự cố nặng hiện lên web sau ~1–2 giây (trước ~3–9 giây). Mất liên lạc vẫn sau 60 phút (do nhịp heartbeat).
 
+**Trang dữ liệu riêng** (migration 0024): gói thông báo mang thêm `lan_at` (lần dữ liệu Thiết bị LAN **thực sự đổi** —
+thiết bị đổi trạng thái, siêu thị mới, máy báo khác lần trước; không tính lần ghi lại mỗi giờ) và `health_at` (lần ghi
+nhận sức khỏe của một máy khác heartbeat trước). Chỉ dữ liệu này đổi (cảnh báo không đổi) thì server đẩy tối đa mỗi
+**10 giây**, và **chỉ trang đang theo dõi dữ liệu đó tải lại**: Thiết bị LAN theo `lan_at`; Sức khỏe máy và Máy theo
+`health_at`; các trang khác không tải lại. Bộ đệm 60 giây của `GET /admin/v1/lan` bỏ ngay khi `lan_at` mới hơn.
+
 ## Chạy lâu dài: dịch vụ systemd
 
 Để SCS-Server tự chạy khi khởi động lại máy và tự bật lại khi chết:

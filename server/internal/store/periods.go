@@ -272,13 +272,15 @@ func (g *Registry) RecordHeartbeat(ctx context.Context, id int64, h app.Heartbea
 			rulesJSON, _ = json.Marshal(h.Rules)
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO device_status (device_id, received_at, agent_time, ip, uptime_s,
-			agent_version, rule_set_version, queue_pending, status, sig, rules, health)
-			VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			agent_version, rule_set_version, queue_pending, status, sig, rules, health, health_at)
+			VALUES ($1, now(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CASE WHEN $11::jsonb IS NULL THEN NULL ELSE now() END)
 			ON CONFLICT (device_id) DO UPDATE SET received_at = now(), agent_time = EXCLUDED.agent_time,
 				ip = EXCLUDED.ip, uptime_s = EXCLUDED.uptime_s, agent_version = EXCLUDED.agent_version,
 				rule_set_version = EXCLUDED.rule_set_version, queue_pending = EXCLUDED.queue_pending,
 				status = coalesce(EXCLUDED.status, device_status.status), sig = EXCLUDED.sig, rules = EXCLUDED.rules,
-				health = coalesce(EXCLUDED.health, device_status.health)`,
+				health = coalesce(EXCLUDED.health, device_status.health),
+				health_at = CASE WHEN EXCLUDED.health IS NOT NULL AND EXCLUDED.health IS DISTINCT FROM device_status.health
+					THEN now() ELSE device_status.health_at END`,
 			id, h.AgentTime, h.IP.String(), h.UptimeS, h.AgentVersion, h.RuleSetVersion, h.QueuePending,
 			status, nullStr(h.Sig), rulesJSON, healthJSON); err != nil {
 			return err
@@ -519,15 +521,17 @@ func (g *Registry) AlertLevel(ctx context.Context, deviceID int64) (string, erro
 
 func (g *Registry) Pulse(ctx context.Context, since time.Time) (app.Pulse, error) {
 	var p app.Pulse
-	var last, lastOpen, lastAck *time.Time
+	var last, lastOpen, lastAck, lanAt, healthAt *time.Time
 	err := g.pool.QueryRow(ctx, `SELECT
 		count(*) FILTER (WHERE acked_at IS NULL),
 		count(*) FILTER (WHERE acked_at IS NULL AND severity IN ('high', 'critical')),
 		count(*) FILTER (WHERE acked_at IS NULL AND severity = 'critical'),
 		count(*) FILTER (WHERE acked_at IS NULL AND kind = 'offline'),
 		(SELECT count(*) FROM devices WHERE status = 'pending'),
-		greatest(max(last_at), max(acked_at)), max(created_at), max(acked_at)
-		FROM alerts`).Scan(&p.OpenAlerts, &p.Serious, &p.Critical, &p.Offline, &p.Pending, &last, &lastOpen, &lastAck)
+		greatest(max(last_at), max(acked_at)), max(created_at), max(acked_at),
+		(SELECT max(changed_at) FROM lan_sites), (SELECT max(health_at) FROM device_status)
+		FROM alerts`).Scan(&p.OpenAlerts, &p.Serious, &p.Critical, &p.Offline, &p.Pending, &last, &lastOpen, &lastAck,
+		&lanAt, &healthAt)
 	if err != nil {
 		return p, err
 	}
@@ -539,6 +543,12 @@ func (g *Registry) Pulse(ctx context.Context, since time.Time) (app.Pulse, error
 	}
 	if lastAck != nil {
 		p.LastAck = *lastAck
+	}
+	if lanAt != nil {
+		p.LANAt = *lanAt
+	}
+	if healthAt != nil {
+		p.HealthAt = *healthAt
 	}
 	p.Changed = []app.Alert{}
 	if since.IsZero() || !p.LastChange.After(since) {

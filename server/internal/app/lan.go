@@ -101,8 +101,9 @@ type lanAPI struct{ d Deps }
 // Bộ nhớ đệm trang danh sách (đọc mọi siêu thị khá nặng): 60 giây.
 var lanCache = struct {
 	sync.Mutex
-	at   time.Time
-	body map[string]any
+	at     time.Time
+	dataAt int64 // lanDataAt lúc dựng (dữ liệu đổi sau đó thì dựng lại)
+	body   map[string]any
 }{}
 
 const lanCacheTTL = time.Minute
@@ -116,7 +117,8 @@ func (a lanAPI) summary(w http.ResponseWriter, r *http.Request) {
 	}
 	lanCache.Lock()
 	defer lanCache.Unlock()
-	if lanCache.body != nil && time.Since(lanCache.at) < lanCacheTTL {
+	dataAt := lanDataAt.Load()
+	if lanCache.body != nil && time.Since(lanCache.at) < lanCacheTTL && dataAt <= lanCache.dataAt {
 		httpx.WriteJSON(w, http.StatusOK, lanCache.body)
 		return
 	}
@@ -135,7 +137,7 @@ func (a lanAPI) summary(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(out, func(i, j int) bool { return out[i].Store < out[j].Store })
 	body := map[string]any{"ok": true, "enabled": true, "maps": len(maps), "allow": len(a.d.Cfg.LANAllow) > 0, "allow_err": a.d.Cfg.LANAllowErr,
 		"stores": out, "at": now, "types": rules.LANTypes}
-	lanCache.body, lanCache.at = body, time.Now()
+	lanCache.body, lanCache.at, lanCache.dataAt = body, time.Now(), dataAt
 	httpx.WriteJSON(w, http.StatusOK, body)
 }
 

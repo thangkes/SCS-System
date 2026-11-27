@@ -106,6 +106,10 @@ type Pulse struct {
 	Pending    int       `json:"pending"` // máy chờ duyệt
 	LastChange time.Time `json:"last_change,omitzero"`
 	Changed    []Alert   `json:"changed"`
+	// LANAt / HealthAt: lần dữ liệu Thiết bị LAN / sức khỏe máy thực sự đổi — trang đó tự tải lại (gom, tối đa mỗi
+	// liveTopicEvery), trang khác không tải lại.
+	LANAt    time.Time `json:"lan_at,omitzero"`
+	HealthAt time.Time `json:"health_at,omitzero"`
 }
 
 // Timeline: dòng thời gian của một máy.

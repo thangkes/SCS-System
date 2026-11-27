@@ -314,6 +314,12 @@ func Merge(site *Site, rep *Reporter, prev *Reporter, m *rules.LAN, now time.Tim
 	return changes, saveSite, saveRep
 }
 
+// ReporterChanged: báo cáo của máy khác lần trước ở điểm hiển thị trên web (bitmap, trạng thái, IP LAN, lệch).
+func ReporterChanged(prev, rep *Reporter) bool {
+	return prev == nil || prev.ListV != rep.ListV || prev.State != rep.State || prev.LANIP != rep.LANIP ||
+		prev.Up != rep.Up || prev.Skip != rep.Skip || !sameMiss(prev.Miss, rep.Miss)
+}
+
 func sameMiss(a, b map[string]int) bool {
 	if len(a) != len(b) {
 		return false

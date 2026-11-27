@@ -71,6 +71,9 @@
   let refreshTimer = null;
   // liveReload: trang hiện tại tự tải lại khi luồng thông báo báo có thay đổi (null = không).
   let liveReload = null;
+  // liveTopic: dữ liệu riêng trang đang xem theo dõi ngoài cảnh báo ('lan' = Thiết bị LAN, 'health' = sức khỏe máy;
+  // null = không). Gói thông báo chỉ đổi dữ liệu đó thì chỉ trang theo dõi nó tải lại.
+  let liveTopic = null;
 
   function setTitle(t) {
     $('#page-title').textContent = t;
@@ -274,7 +277,18 @@
     }
   }
 
+  let livePrev = null; // gói thông báo trước (so phần cảnh báo với phần dữ liệu trang)
   function onPulse(p) {
+    const alertSig = [p.open_alerts, p.serious, p.critical, p.offline, p.pending, p.rules_pending, p.last_open, p.last_ack,
+      p.last_change].join('|');
+    const prev = livePrev;
+    livePrev = { alertSig, lan: p.lan_at || '', health: p.health_at || '' };
+    if (prev && prev.alertSig === alertSig && !(p.changed || []).length) {
+      // Cảnh báo không đổi: chỉ dữ liệu trang LAN / sức khỏe đổi — chỉ trang đang theo dõi dữ liệu đó tải lại.
+      const lanChanged = prev.lan !== livePrev.lan, healthChanged = prev.health !== livePrev.health;
+      if ((liveTopic === 'lan' && lanChanged) || (liveTopic === 'health' && healthChanged)) scheduleLive(false);
+      return;
+    }
     $('#nav-alerts').textContent = p.open_alerts || '';
     setPendingCount(p.pending);
     $('#nav-rules').textContent = p.rules_pending || '';
@@ -1165,6 +1179,7 @@
     });
     load();
     liveReload = load;
+    liveTopic = 'health';
   }
 
 
@@ -1304,6 +1319,7 @@
     });
     load();
     liveReload = load;
+    liveTopic = 'health';
   }
 
   // ---------------------------------------------------------------- Thiết bị LAN (kiểm kê, chỉ tham khảo)
@@ -1478,6 +1494,7 @@
     });
     load();
     liveReload = load;
+    liveTopic = 'lan';
   }
 
   async function showLANStore(code) {
@@ -3583,6 +3600,7 @@
   function route() {
     clearInterval(refreshTimer);
     liveReload = null;
+    liveTopic = null;
     closeDrawer();
     $('#app').classList.remove('menu-open');
     const raw = location.hash.replace(/^#\/?/, '');
