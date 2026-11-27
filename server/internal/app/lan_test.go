@@ -146,3 +146,16 @@ func TestLANIngestAndAPI(t *testing.T) {
 		t.Fatalf("chưa đăng nhập phải 401, được %d", code)
 	}
 }
+
+// Duyệt trên web: sơ đồ LAN ngoài SCS_LAN_ALLOW bị từ chối ngay (trước khi đưa cụm duyệt), không ký gì.
+func TestLANApproveChecksAllowFirst(t *testing.T) {
+	d, _, _ := lanDeps(t, "10.0.0.0/8") // sơ đồ mẫu ở 192.168.1.x: ngoài dải
+	h := AdminHandler(d)
+	code, _, body := ruleCall(t, h, "POST", "/admin/v1/rules/approve", `{"file":"lan-mau@1.yaml"}`, true)
+	if code != 400 || !strings.Contains(body, "SCS_LAN_ALLOW") {
+		t.Fatalf("duyệt sơ đồ ngoài dải: %d %s", code, body)
+	}
+	if len(d.Rules.LANMaps()) != 0 {
+		t.Fatal("bị từ chối mà vẫn có bản ký")
+	}
+}

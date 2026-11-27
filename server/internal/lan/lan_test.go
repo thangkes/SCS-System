@@ -223,18 +223,27 @@ func TestView(t *testing.T) {
 	if len(wrong) != 1 || wrong[0] != "100-TN3" || v.TNWrongIP != 1 {
 		t.Errorf("máy sai IP: %v", wrong)
 	}
-	// TN3 (.33) quét thấy nhưng không máy agent nào ở .33 (máy TN3 đang ở .77) → chưa có agent.
-	tn := map[string]string{}
-	for _, tv := range v.Targets {
-		if tv.Type == "tn" {
-			tn[tv.IP] = tv.TN
+	// TN3 (.33) quét thấy nhưng không máy agent nào báo IP .33 (máy TN3 đang ở .77). Máy TN4 có agent nhưng chưa
+	// báo LAN lần nào (agent cũ) → có thể chính là nó: "chưa rõ", không đếm là chưa có agent.
+	tn := func(v StoreView) map[string]string {
+		out := map[string]string{}
+		for _, tv := range v.Targets {
+			if tv.Type == "tn" {
+				out[tv.IP] = tv.TN
+			}
 		}
+		return out
 	}
-	if tn["192.168.1.31"] != TNMatch || tn["192.168.1.32"] != TNMatch || tn["192.168.1.33"] != TNNoAgent {
-		t.Errorf("đối chiếu TN: %v", tn)
+	if got := tn(v); got["192.168.1.31"] != TNMatch || got["192.168.1.32"] != TNMatch || got["192.168.1.33"] != TNUnsure {
+		t.Errorf("đối chiếu TN: %v", got)
 	}
-	if v.TNScanned != 3 || v.TNAgents != 4 || v.TNNoAgent != 1 {
+	if v.TNScanned != 3 || v.TNAgents != 4 || v.TNNoAgent != 0 {
 		t.Errorf("đếm TN: scanned=%d agents=%d noagent=%d", v.TNScanned, v.TNAgents, v.TNNoAgent)
+	}
+	// Mọi máy agent đều đã báo: .33 chắc chắn là máy chưa có agent.
+	v3 := View(site, []Reporter{*a, *b, *c}, devs[:3], maps, t0.Add(time.Minute))
+	if got := tn(v3); got["192.168.1.33"] != TNNoAgent || v3.TNNoAgent != 1 {
+		t.Errorf("đủ máy báo mà .33 không phải chua_agent: %v", got)
 	}
 	if len(v.NoReport) != 1 || v.NoReport[0] != "100-TN4" {
 		t.Errorf("máy chưa báo: %v", v.NoReport)

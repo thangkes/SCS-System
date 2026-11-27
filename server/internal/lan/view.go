@@ -19,6 +19,7 @@ type Device struct {
 const (
 	TNMatch   = "khop"       // quét thấy và có máy agent ở đúng IP
 	TNNoAgent = "chua_agent" // quét thấy nhưng không máy agent nào ở IP này
+	TNUnsure  = "chua_ro"    // quét thấy, chưa khớp máy agent nào, nhưng còn máy agent chưa gửi báo cáo LAN (có thể là nó)
 	TNNone    = ""           // không quét thấy
 )
 
@@ -89,7 +90,8 @@ func View(site *Site, reps []Reporter, devs []Device, maps map[string]*rules.LAN
 		up, chk map[string]bool
 	}
 	var fresh []fr
-	byLANIP := map[string]int64{}
+	byLANIP := map[string]int64{} // IP LAN → máy agent báo IP đó gần nhất (mọi báo cáo, kể cả cũ)
+	ipAt := map[string]time.Time{}
 	reported := map[int64]bool{}
 	for i := range reps {
 		r := &reps[i]
@@ -116,8 +118,8 @@ func View(site *Site, reps []Reporter, devs []Device, maps map[string]*rules.LAN
 				}
 			}
 		}
-		if isFresh && r.LANIP != "" {
-			byLANIP[r.LANIP] = r.DeviceID
+		if r.LANIP != "" && r.ReceivedAt.After(ipAt[r.LANIP]) {
+			byLANIP[r.LANIP], ipAt[r.LANIP] = r.DeviceID, r.ReceivedAt
 		}
 		if isFresh && m != nil && r.Checked() {
 			fresh = append(fresh, f)
@@ -146,6 +148,12 @@ func View(site *Site, reps []Reporter, devs []Device, maps map[string]*rules.LAN
 		v.Reporters[i].Abnormal = abnormal[v.Reporters[i].DeviceID]
 	}
 
+	silent := 0 // máy agent của siêu thị chưa gửi báo cáo LAN nào
+	for _, d := range devs {
+		if !reported[d.ID] {
+			silent++
+		}
+	}
 	tnIPs := map[string]bool{}
 	for k, ts := range site.Targets {
 		if !ts.InMap {
@@ -174,8 +182,10 @@ func View(site *Site, reps []Reporter, devs []Device, maps map[string]*rules.LAN
 			tnIPs[ts.IP] = true
 			if tv.Status == StOnline {
 				v.TNScanned++
-				if id, ok := byLANIP[ts.IP]; ok {
+				if id, ok := byLANIP[ts.IP]; ok && host[id] != "" {
 					tv.TN, tv.TNHost = TNMatch, host[id]
+				} else if silent > 0 {
+					tv.TN = TNUnsure
 				} else {
 					tv.TN = TNNoAgent
 					v.TNNoAgent++

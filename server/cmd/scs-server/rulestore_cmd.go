@@ -166,6 +166,9 @@ func runRuleStore(sub string, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		set, sha, err := s.Prepare(target)
+		if err == nil && s.SignCheck != nil { // kiểm trước khi đưa cụm duyệt (sơ đồ LAN ngoài SCS_LAN_ALLOW…)
+			err = s.SignCheck(set)
+		}
 		if err != nil {
 			fmt.Fprintf(stderr, "✖ %s\n%s\n", target, indent(err.Error()))
 			return 1

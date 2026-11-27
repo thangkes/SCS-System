@@ -61,7 +61,7 @@ func (g *Registry) LANReport(ctx context.Context, rep *lan.Reporter, m *rules.LA
 			}
 			if _, err := tx.Exec(ctx, `
 				INSERT INTO lan_reporters (device_id, store_code, list_v, received_at, state, lan_ip, n, up, skip, dur_ms, miss)
-				VALUES ($1, $2, $3, $4, $5, $6::inet, $7, $8, $9, $10, $11)
+				VALUES ($1, $2, $3, $4, $5, $6::inet, $7, $8, $9, $10, $11::jsonb)
 				ON CONFLICT (device_id) DO UPDATE SET store_code = EXCLUDED.store_code, list_v = EXCLUDED.list_v,
 					received_at = EXCLUDED.received_at, state = EXCLUDED.state, lan_ip = EXCLUDED.lan_ip, n = EXCLUDED.n,
 					up = EXCLUDED.up, skip = EXCLUDED.skip, dur_ms = EXCLUDED.dur_ms, miss = EXCLUDED.miss`,
@@ -75,7 +75,7 @@ func (g *Registry) LANReport(ctx context.Context, rep *lan.Reporter, m *rules.LA
 			if err != nil {
 				return err
 			}
-			if _, err := tx.Exec(ctx, `UPDATE lan_sites SET data = $2, updated_at = $3 WHERE store_code = $1`,
+			if _, err := tx.Exec(ctx, `UPDATE lan_sites SET data = $2::jsonb, updated_at = $3 WHERE store_code = $1`,
 				rep.Store, b, now); err != nil {
 				return err
 			}
@@ -147,7 +147,9 @@ func (g *Registry) LANData(ctx context.Context, store string) (app.LANData, erro
 	if err := rows.Err(); err != nil {
 		return out, err
 	}
-	rows, err = g.pool.Query(ctx, `SELECT `+lanReporterCols+` FROM lan_reporters WHERE $1 = '' OR store_code = $1`, store)
+	rows, err = g.pool.Query(ctx, `SELECT `+lanReporterCols+` FROM lan_reporters
+		WHERE ($1 = '' OR store_code = $1)
+		  AND device_id IN (SELECT id FROM devices WHERE status = 'approved')`, store)
 	if err != nil {
 		return out, err
 	}

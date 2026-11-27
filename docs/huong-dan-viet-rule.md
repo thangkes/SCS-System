@@ -295,6 +295,9 @@ lan:
 - **Mọi máy** có agent và có bộ này đều kiểm (không lọc theo vai trò); server gộp theo siêu thị: có ít nhất một máy thấy
   trong 5 giờ là online; từng thấy mà quá 5 giờ không máy nào thấy là vắng; quá 30 ngày là lâu không thấy; không máy nào
   báo trong 5 giờ là không rõ. Lịch sử đổi trạng thái giữ 10 ngày.
+- Máy thu ngân (`type: tn`) quét thấy được đối chiếu với IP LAN các máy agent báo: khớp; **chưa có agent** (không máy
+  agent nào ở IP đó); **chưa rõ** (còn máy agent của siêu thị chưa gửi kết quả kiểm — agent bản cũ — nên chưa kết luận);
+  máy agent báo IP không thuộc máy thu ngân nào trong sơ đồ thì bị đánh dấu **sai IP**.
 
 Giới hạn và an toàn:
 
@@ -305,6 +308,8 @@ Giới hạn và an toàn:
   Bộ rule dù bị sửa cũng không biến agent thành công cụ quét mạng khác.
 - Máy tắt kiểm thiết bị (`SCS_PROBES=off`) chỉ báo trạng thái, không gửi gói nào. ICMP dùng socket ping không đặc quyền
   như rule `probe`.
+- Cụm nhiều server: mỗi server tự ký khi cụm duyệt, nên **mọi server phải khai cùng `SCS_LAN_ALLOW`**; server kiểm dải
+  trước khi đưa cụm duyệt. Trang "Thiết bị LAN" của mỗi server hiện tại chỉ thấy các máy gửi heartbeat về chính nó.
 - Cần agent đọc được schema 4. Server không phát bộ schema 4 cho agent cũ (máy cũ giữ bộ đang chạy, không nhận bộ mới
   tới khi nâng agent) — nên phát bản agent mới cho cả hệ thống trước, rồi mới gán bộ có sơ đồ LAN.
 

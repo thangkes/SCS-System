@@ -116,7 +116,7 @@ func (a lanAPI) summary(w http.ResponseWriter, r *http.Request) {
 	}
 	lanCache.Lock()
 	defer lanCache.Unlock()
-	if lanCache.body != nil && time.Since(lanCache.at) < lanCacheTTL && r.URL.Query().Get("fresh") == "" {
+	if lanCache.body != nil && time.Since(lanCache.at) < lanCacheTTL {
 		httpx.WriteJSON(w, http.StatusOK, lanCache.body)
 		return
 	}

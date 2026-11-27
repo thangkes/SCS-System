@@ -1322,7 +1322,7 @@
   let lanTypes = { can: 'Cân', tn: 'Máy thu ngân', may_in: 'Máy in', dvr: 'Đầu ghi', mang: 'Thiết bị mạng', khac: 'Khác' };
   const lanDotCls = (s, lech, tn) => `lan-dot st-${esc(s)}${lech ? ' lech' : ''}${tn === 'chua_agent' ? ' tn-noagent' : ''}`;
   const lanTip = (x) => `${x.label || x.l || lanTypes[x.type || x.t] || ''} · ${x.ip}${x.port ? ':' + x.port : ''} — ${(LAN_ST[x.status || x.s] || [x.status || x.s])[0]}`
-    + `${(x.lech && x.lech.length) || x.x ? ' · lệch' : ''}${(x.tn === 'chua_agent') ? ' · chưa có agent' : ''}`;
+    + `${(x.lech && x.lech.length) || x.x ? ' · lệch' : ''}${x.tn === 'chua_agent' ? ' · chưa có agent' : x.tn === 'chua_ro' ? ' · chưa rõ agent' : ''}`;
   const lanLegend = () => `<div class="lan-legend">
       ${['online', 'never', 'absent', 'gone', 'unknown'].map((k) => `<span title="${esc(LAN_ST[k][1])}"><i class="lan-dot st-${k}"></i>${esc(LAN_ST[k][0])}</span>`).join('')}
       <span title="${esc(LAN_ST.lech[1])}"><i class="lan-dot st-online lech"></i>Lệch</span>
@@ -1432,9 +1432,9 @@
         || `<tr><td colspan="5" class="empty">${all.length ? 'Không có siêu thị nào khớp bộ lọc.' : 'Chưa có siêu thị nào gửi kết quả kiểm thiết bị LAN.'}</td></tr>`;
     };
 
-    const load = async (fresh) => {
+    const load = async () => {
       try {
-        const [j] = await Promise.all([getJSON(`/admin/v1/lan${fresh ? '?fresh=1' : ''}`), loadStoreCache()]);
+        const [j] = await Promise.all([getJSON('/admin/v1/lan'), loadStoreCache()]);
         if (j.types) lanTypes = { ...lanTypes, ...j.types };
         state.meta = { enabled: j.enabled, maps: j.maps, allow: j.allow };
         state.list = j.stores || [];
@@ -1459,7 +1459,8 @@
       if (tr) showLANStore(tr.dataset.store);
     });
     $('#lan-csv').addEventListener('click', () => {
-      const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      // Ô bắt đầu bằng = + - @ (tên siêu thị do người nhập) thì thêm ' để Excel không chạy như công thức.
+      const cell = (v) => { let x = String(v ?? ''); if (/^[=+\-@\t\r]/.test(x)) x = "'" + x; return `"${x.replace(/"/g, '""')}"`; };
       const lines = [['Siêu thị', 'Tên', 'Không rõ', 'Có mặt', 'Từng thấy', 'Thiếu', 'Thiếu theo loại', 'TN quét thấy', 'Máy có agent',
         'TN chưa có agent', 'Máy agent sai IP', 'Báo gần nhất'].map(cell).join(',')];
       filtered().forEach((s) => {
@@ -1475,7 +1476,7 @@
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     });
     load();
-    liveReload = () => load(false);
+    liveReload = load;
   }
 
   async function showLANStore(code) {
@@ -1498,7 +1499,8 @@
           <span class="sub">${esc((LAN_ST[t.status] || [t.status])[0])}${t.status !== 'never' && t.last_seen ? ' · thấy ' + esc(ago(new Date(t.last_seen))) : ''}</span>
           ${t.checkers ? `<span class="sub">${fmtNum(t.seen_by)}/${fmtNum(t.checkers)} máy thấy</span>` : ''}
           ${t.lech && t.lech.length ? `<span class="sub">Lệch: ${esc(t.lech.join(', '))} không thấy</span>` : ''}
-          ${t.tn === 'khop' ? `<span class="sub">Agent: ${esc(t.tn_host || '')}</span>` : t.tn === 'chua_agent' ? '<span class="sub"><strong>Chưa có agent</strong></span>' : ''}
+          ${t.tn === 'khop' ? `<span class="sub">Agent: ${esc(t.tn_host || '')}</span>` : t.tn === 'chua_agent' ? '<span class="sub"><strong>Chưa có agent</strong></span>'
+            : t.tn === 'chua_ro' ? '<span class="sub" title="còn máy agent của siêu thị chưa gửi kết quả kiểm (agent bản cũ) — có thể chính là máy này">Chưa rõ agent</span>' : ''}
           ${t.flap ? '<span class="sub">Chập chờn hôm nay</span>' : ''}</div></div>`;
     const reps = (v.reporters || []).slice().sort((a, b) => a.hostname.localeCompare(b.hostname));
     const RST = { ok: 'Đã kiểm', probes_off: 'Máy tắt kiểm thiết bị', icmp_denied: 'Máy không cho ping', no_lan: 'Không cùng dải mạng', unsupported: 'Không hỗ trợ' };

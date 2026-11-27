@@ -226,6 +226,9 @@ func (a rulesAPI) approve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	set, sha, err := s.Prepare(req.File)
+	if err == nil && s.SignCheck != nil { // kiểm trước khi đưa cụm duyệt: cụm duyệt rồi mới bị từ chối ký thì vướng
+		err = s.SignCheck(set)
+	}
 	if err != nil {
 		ruleErr(w, err)
 		return
