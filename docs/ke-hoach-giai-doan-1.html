@@ -81,7 +81,7 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
   <span class="badge">Giai đoạn 1 · Giám sát</span>
   <h1>SCS-System (Spider Control Scanning): giám sát máy Ubuntu tại nhiều điểm bán</h1>
   <p>Thiết kế và hiện trạng của giai đoạn 1: đăng ký và duyệt máy, truyền dữ liệu mã hóa, agent khung tự cập nhật từ server, cấu hình đặt trên web, quét log theo rule, ước tính tải.</p>
-  <p>Các con số tính tải dùng <strong>quy mô tham chiếu 20.000 máy</strong>; thay bằng quy mô thực tế khi triển khai. Cập nhật theo code ngày 31/10/2026 (bản nháp đầu: 27/10/2026); mục 5, 6, 12 cập nhật 18/11/2026.</p>
+  <p>Các con số tính tải dùng <strong>quy mô tham chiếu 20.000 máy</strong>; thay bằng quy mô thực tế khi triển khai. Cập nhật theo code ngày 31/10/2026 (bản nháp đầu: 27/10/2026); mục 5, 6 cập nhật 18/11/2026; mục 12, 13, 14, 15, 19 cập nhật 27/11/2026.</p>
   <p>Nhãn trạng thái: <span class="st st-done">Đã làm</span> <span class="st st-part">Làm một phần</span> <span class="st st-todo">Chưa làm</span></p>
 </header>
 
@@ -408,15 +408,16 @@ footer{color:var(--muted);font-size:13px;text-align:center;margin-top:30px}
     <tr><td>Hỏi trạng thái duyệt</td><td>5 phút ±20%</td><td>Lỗi mạng: giãn 30 giây → 30 phút</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Heartbeat</td><td>Ngẫu nhiên 5–30 phút (theo giây)</td><td>Server đặt khoảng bằng <code>next_poll_s</code> / <code>next_poll_max_s</code> (1 phút – 1 giờ); mất liên lạc sau 60 phút</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Nhận cấu hình, địa chỉ server, bản agent</td><td>Theo phản hồi heartbeat</td><td>Không gọi riêng</td><td><span class="st st-done">Đã làm</span></td></tr>
-    <tr><td>Quét log</td><td>Liên tục (đọc nối đuôi)</td><td>Lưu vị trí đã đọc để khởi động lại không quét trùng hoặc bỏ sót</td><td><span class="st st-todo">Chưa làm</span></td></tr>
-    <tr><td>Gửi lô sự kiện</td><td>2 phút hoặc đủ 200 sự kiện</td><td>Mức <code>critical</code> gửi ngay</td><td><span class="st st-todo">Chưa làm</span></td></tr>
+    <tr><td>Quét log</td><td>Liên tục (đọc nối đuôi file + journald)</td><td>Nhớ vị trí đã đọc (<code>scan/positions.json</code>, con trỏ journald), nhận ra logrotate / cắt ngắn: khởi động lại không quét trùng hoặc bỏ sót</td><td><span class="st st-done">Đã làm</span> (đang chạy thật)</td></tr>
+    <tr><td>Gửi lô sự kiện</td><td>Gom mỗi phút (tối đa 500 sự kiện / lô)</td><td>Sự kiện làm máy <strong>chuyển trạng thái</strong> (nặng hơn mức cảnh báo server đang thấy) gửi sau ~1 giây</td><td><span class="st st-done">Đã làm</span> (gửi gấp theo trạng thái: cần agent bản mới)</td></tr>
+    <tr><td>Kiểm kê thiết bị LAN</td><td>Ngay heartbeat thành công đầu tiên, rồi mỗi 7 heartbeat (~2 giờ); hoặc ngẫu nhiên <code>every_hb</code>–<code>every_hb_max</code></td><td>Kết quả (bitmap) gửi kèm heartbeat kế tiếp; chỉ kiểm thiết bị cùng dải mạng với máy</td><td><span class="st st-done">Đã làm 27/11/2026</span> (chưa chạy thật)</td></tr>
     <tr><td>Gia hạn chứng chỉ máy</td><td>Khi còn dưới 30 ngày (thử lại mỗi giờ)</td><td>Chứng chỉ hạn 90 ngày; gửi lại gói đăng ký bằng khóa máy, qua lượt tải; cần agent bản mới</td><td><span class="st st-done">Đã làm</span></td></tr>
   </table></div>
   <div class="warn"><strong>Jitter là bắt buộc.</strong> Mọi chu kỳ cộng trừ ngẫu nhiên 20%, để khi cả vùng có điện lại hoặc các cửa hàng mở cửa cùng giờ, hàng nghìn máy không gọi về cùng một giây.</div>
 </section>
 
 <section id="rule">
-  <h2>13. Rule quét log <span class="st st-part">Một phần</span></h2>
+  <h2>13. Rule quét log <span class="st st-done">Đã làm</span></h2>
   <p>Agent và server dùng <strong>cùng một khung rule</strong> (<code>common/rules</code>): cùng định nghĩa, cùng hàm kiểm tra, cùng bộ máy khớp và đếm ngưỡng. Admin viết bộ rule bằng YAML, server kiểm, chạy thử trên log mẫu rồi ký bằng khóa phát hành (ngữ cảnh ký riêng, không dùng thay được cho chữ ký bản agent); agent kiểm chữ ký và kiểm lại nội dung y như server, sai thì giữ bộ cũ. Cách viết chi tiết: <code>docs/huong-dan-viet-rule.md</code>.</p>
   <p>Rule được nhóm thành <strong>bộ rule</strong> và gán theo nhóm máy (dùng chung cơ chế cấp chung / siêu thị / máy như cấu hình agent). Mỗi bộ có số phiên bản; agent chỉ tải lại khi phiên bản khác bản đang chạy.</p>
   <pre><code>name: mau-co-ban
@@ -444,6 +445,9 @@ rules:
     <tr><td>Agent đọc file log liên tục + journald, gửi sự kiện, hàng đợi khi mất mạng</td><td><span class="st st-done">Đã làm</span> (A3)</td></tr>
     <tr><td>Kho bộ rule trên server: tự chia chưa ký / đã ký / cần ký lại / lỗi, duyệt (ký) trên web và menu mục 16; server trong cụm cần quá nửa server duyệt</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Gán bộ rule theo cấp chung / siêu thị / máy trên web, phát qua heartbeat</td><td><span class="st st-done">Đã làm</span> (M7)</td></tr>
+    <tr><td>Schema 3: rule nguồn <code>probe</code> — agent ping / mở cổng tới thiết bị trong LAN, kết quả thành dòng log cho rule</td><td><span class="st st-done">Đã làm</span> (chưa chạy thật)</td></tr>
+    <tr><td>Schema 4 / 5: sơ đồ LAN (<code>lan:</code>) — kiểm kê thiết bị, trang "Thiết bị LAN"; server chỉ ký khi IP nằm trong <code>SCS_LAN_ALLOW</code>; schema 5 thêm nhịp ngẫu nhiên <code>every_hb_max</code></td><td><span class="st st-done">Đã làm 27/11/2026</span> (chưa chạy thật)</td></tr>
+    <tr><td>Server không phát bộ có schema cao hơn agent đọc được (agent cũ giữ bộ đang chạy)</td><td><span class="st st-done">Đã làm</span></td></tr>
   </table>
   <p>Rule giới hạn ở regex RE2 (chạy tuyến tính, không treo được agent) và đếm ngưỡng, chỉ đọc file trong <code>/var/log</code> hoặc journald. Agent <strong>không chạy lệnh</strong> từ rule ở giai đoạn 1, nên dù bộ rule bị can thiệp cũng không thực thi được gì trên máy.</p>
 </section>
@@ -457,25 +461,26 @@ rules:
     <tr><td>Máy bị thu hồi / chứng chỉ không còn hiệu lực</td><td>Ghi log, giãn nhịp tối đa, không thoát (systemd không khởi động lại liên tục)</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Bản cập nhật sai chữ ký hoặc khởi động lỗi</td><td>Từ chối / quay về bản khung, 24 giờ sau mới thử lại; reboot, mất mạng không tính là lỗi</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Đồng hồ máy lệch</td><td>Bù theo header <code>Date</code> của server; script cài nhắc bật NTP</td><td><span class="st st-done">Đã làm</span></td></tr>
-    <tr><td>Mất mạng khi có sự kiện log</td><td>Hàng đợi cục bộ (giới hạn 50 MB), đầy thì bỏ mức thấp trước, có mạng lại gửi dần</td><td><span class="st st-todo">Chưa làm</span></td></tr>
+    <tr><td>Mất mạng khi có sự kiện log</td><td>Hàng đợi trên đĩa <code>scan/queue.jsonl</code> (tối đa 5.000 sự kiện), đầy thì bỏ sự kiện thường cũ nhất trước, có mạng lại gửi dần</td><td><span class="st st-done">Đã làm</span> (A3)</td></tr>
   </table></div>
   <p>Giới hạn tài nguyên agent qua systemd: <code>CPUQuota=10%</code>, <code>MemoryMax=128M</code>, <code>Nice=10</code>, IO idle, để không ảnh hưởng ứng dụng bán hàng.</p>
 </section>
 
 <section id="tai">
   <h2>15. Ước tính tải</h2>
-  <p>Giả định: 20.000 máy, heartbeat 2 KB mỗi 5 phút, trung bình 50 sự kiện khớp rule mỗi máy mỗi ngày, mỗi sự kiện khoảng 1 KB.</p>
+  <p>Giả định: 20.000 máy, heartbeat khoảng 2,6 KB, ngẫu nhiên 5–30 phút (trung bình 17,5 phút, đo thật khớp), trung bình 50 sự kiện khớp rule mỗi máy mỗi ngày, mỗi sự kiện khoảng 1 KB. (Bản nháp đầu tính heartbeat cố định 5 phút và lưu từng heartbeat — đã thay bằng nhịp ngẫu nhiên và lưu theo giai đoạn.)</p>
   <div class="tbl"><table>
     <tr><th>Hạng mục</th><th>Cách tính</th><th>Kết quả</th></tr>
-    <tr><td>Request heartbeat trung bình</td><td>20.000 ÷ 300 giây</td><td>≈ 67 request/giây</td></tr>
-    <tr><td>Request đỉnh (giờ mở cửa, có jitter)</td><td>Ước tính gấp 5–10 lần trung bình</td><td>≈ 350–700 request/giây</td></tr>
-    <tr><td>Heartbeat mỗi ngày</td><td>20.000 × 288 lần × 2 KB</td><td>5,76 triệu bản ghi, ≈ 11,5 GB thô</td></tr>
+    <tr><td>Request heartbeat trung bình</td><td>20.000 ÷ 1.050 giây</td><td>≈ 19 request/giây (đo thật 400 máy: 16–20 / phút, khớp)</td></tr>
+    <tr><td>Request đỉnh (giờ mở cửa)</td><td>Máy vừa khởi động dời heartbeat đầu 5–30 phút; rải ngẫu nhiên theo giây</td><td>≈ vài lần trung bình</td></tr>
+    <tr><td>Heartbeat mỗi ngày</td><td>20.000 × ~82 lần × 2,6 KB</td><td>≈ 1,65 triệu lần, ≈ 4,3 GB qua mạng — <strong>không lưu từng heartbeat</strong> (lưu theo giai đoạn, chỉ ghi khi trạng thái đổi)</td></tr>
     <tr><td>Sự kiện log mỗi ngày</td><td>20.000 × 50 × 1 KB</td><td>1 triệu sự kiện, ≈ 1 GB</td></tr>
     <tr><td>Tổng dữ liệu nén mỗi ngày</td><td>Nén khoảng 1/6–1/8</td><td>≈ 1,5–2 GB</td></tr>
-    <tr><td>Số dòng trong DB (giữ 60 ngày)</td><td>(5,76 triệu + 1 triệu) × 60 ngày</td><td>≈ 400 triệu dòng, nén theo máy sau 2 ngày</td></tr>
-    <tr><td>Một đợt phát hành agent (binary ≈ 7,5 MB)</td><td>20.000 × 7,5 MB</td><td>≈ 150 GB, rải theo nhóm thử → tất cả và theo nhịp heartbeat</td></tr>
+    <tr><td>Dung lượng DB</td><td>Đo thật 400 máy: 16,9 MB, tăng ~1,3 MB / ngày; nhân theo số máy</td><td>≈ 65 MB / ngày với 20.000 máy (giữ 60 ngày ≈ 4 GB) — nhỏ hơn nhiều bản nháp đầu nhờ lưu theo giai đoạn</td></tr>
+    <tr><td>Kiểm kê thiết bị LAN (5.000 siêu thị × 10 máy)</td><td>Bitmap ~128 byte mỗi ~2 giờ mỗi máy; lịch sử 10 ngày, tối đa 6 lần đổi / thiết bị / ngày</td><td>≈ 75 MB / ngày qua mạng; DB ≈ 40 MB cố định + ~300 MB lịch sử</td></tr>
+    <tr><td>Một đợt phát hành agent (binary ≈ 7,9 MB)</td><td>20.000 × 7,9 MB</td><td>≈ 158 GB; phân 4 lượt tải, ≤ 20 Mbit/s, theo nhóm thử → tất cả: ≈ 17 giờ cho 20.000 máy</td></tr>
   </table></div>
-  <div class="note">Dữ liệu cũ hơn 60 ngày được Timescale xóa theo từng ngày (xóa nguyên chunk). Heartbeat chiếm phần lớn dung lượng; nếu cần tiết kiệm, chỉ lưu heartbeat khi trạng thái thay đổi.</div>
+  <div class="note">Dữ liệu cũ hơn 60 ngày được Timescale xóa theo từng ngày (xóa nguyên chunk). Heartbeat <strong>đã chỉ lưu khi trạng thái thay đổi</strong> (lưu theo giai đoạn, <code>docs/thiet-ke-luu-theo-giai-doan.md</code>), nên phần lớn tải là mạng chứ không phải DB.</div>
 </section>
 
 <section id="trien-khai">
@@ -560,10 +565,10 @@ rules:
     <tr><td>M2 · M3</td><td>CA nội bộ, đăng ký, duyệt / từ chối / thu hồi máy, cấp chứng chỉ</td><td><span class="st st-done">Đã làm</span> (gia hạn chứng chỉ: đã làm 18/11/2026)</td></tr>
     <tr><td>M4</td><td>Heartbeat (xác thực, lần cuối thấy, gửi cấu hình / bản agent / địa chỉ), lưu trạng thái máy theo giai đoạn, nhận lô sự kiện <code>POST /v1/logs</code></td><td><span class="st st-done">Đã làm</span> (đang chạy thật trên PostgreSQL + TimescaleDB)</td></tr>
     <tr><td>M5</td><td>Worker kiểm mỗi phút: mất liên lạc, tự đóng cảnh báo high <span class="st st-done">Đã làm</span>; cảnh báo đổi fingerprint, hàng đợi NATS <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
-    <tr><td>M6</td><td>Web quản trị: tổng quan, máy, cảnh báo, chờ duyệt, hệ thống, agent (phát hành + cấu hình), rule quét log, địa chỉ server, cụm, dòng thời gian từng máy, "Đã xử lý" sự cố, trang Máy gom theo mã siêu thị (viền đỏ / vàng / xanh), khung Server chỉ xem ở Tổng quan (mạng, CPU, RAM, ổ đĩa, heartbeat / phút), tài khoản Gmail / app xác thực 8 mức quyền, cảnh báo hiện lý do sự cố, thông tin siêu thị (form + nạp file .xlsx / .csv có ghép cột, ghi đè), báo cáo server (lịch sử mỗi phút, biểu đồ, xuất Excel / CSV, in PDF) <span class="st st-done">Đã làm</span>; chi tiết trạng thái máy theo thời gian <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
+    <tr><td>M6</td><td>Web quản trị: tổng quan, máy, cảnh báo, chờ duyệt, hệ thống, agent (phát hành + cấu hình), rule quét log, địa chỉ server, cụm, dòng thời gian từng máy, "Đã xử lý" sự cố, trang Máy gom theo mã siêu thị (viền đỏ / vàng / xanh), khung Server chỉ xem ở Tổng quan (mạng, CPU, RAM, ổ đĩa, heartbeat / phút), tài khoản Gmail / app xác thực 8 mức quyền, cảnh báo hiện lý do sự cố, thông tin siêu thị (form + nạp file .xlsx / .csv có ghép cột, ghi đè), báo cáo server (lịch sử mỗi phút, biểu đồ, xuất Excel / CSV, in PDF), báo cáo sự cố, Sức khỏe máy, Thiết bị LAN (chấm màu, đối chiếu máy thu ngân với máy có agent), tự cập nhật theo luồng thông báo <span class="st st-done">Đã làm</span>; chi tiết trạng thái máy theo thời gian <span class="st st-todo">Chưa làm</span></td><td><span class="st st-part">Một phần</span></td></tr>
     <tr><td>M7</td><td>Phát hành bản agent theo nhóm <span class="st st-done">Đã làm</span>; khung rule + kho rule, duyệt và ký trên web, gán và phát bộ rule qua heartbeat <span class="st st-done">Đã làm</span></td><td><span class="st st-done">Đã làm</span> (đang chạy thật)</td></tr>
     <tr><td>A0 · A1</td><td>Agent: cấu hình, khóa máy, nhận dạng máy, đăng ký và chờ duyệt</td><td><span class="st st-done">Đã làm</span></td></tr>
-    <tr><td>A2</td><td>Heartbeat, nhiều địa chỉ server, cấu hình từ server; gửi trạng thái máy (ổ vật lý, lỗi I/O, chỉ đọc, inode, nhiệt độ), server liệt kê ghi nhận sức khỏe để tham khảo (không chấm mức, tách khỏi cảnh báo) <span class="st st-done">Đã làm 19/11/2026</span>; đọc SMART <span class="st st-todo">Chưa làm</span></td><td><span class="st st-done">Đã làm</span> (chưa chạy thật)</td></tr>
+    <tr><td>A2</td><td>Heartbeat, nhiều địa chỉ server, cấu hình từ server; gửi trạng thái máy (ổ vật lý, lỗi I/O, chỉ đọc, inode, nhiệt độ), server liệt kê ghi nhận sức khỏe để tham khảo (không chấm mức, tách khỏi cảnh báo) <span class="st st-done">Đã làm 19/11/2026</span>; đọc SMART (tác vụ root riêng) <span class="st st-done">Đã làm</span>; kiểm kê thiết bị LAN <span class="st st-done">Đã làm 27/11/2026</span></td><td><span class="st st-done">Đã làm</span> (chưa chạy thật — cần phát hành agent mới)</td></tr>
     <tr><td>A3</td><td>Quét log theo rule liên tục (file + journald), hàng đợi trên đĩa khi mất mạng, gửi sự kiện; tự tải bộ rule server gán</td><td><span class="st st-done">Đã làm</span> (đang chạy thật)</td></tr>
     <tr><td>A6</td><td>Agent khung tự cập nhật, kiểm chữ ký, tự quay về; thay cả bản khung từ server (tác vụ root, tự quay về khi lỗi)</td><td><span class="st st-done">Đã làm</span></td></tr>
     <tr><td>Triển khai</td><td>Menu cài / cập nhật server, gói cài agent một file; server chạy thử trên Ubuntu trong mạng nội bộ</td><td><span class="st st-done">Đã làm</span></td></tr>
@@ -575,6 +580,10 @@ rules:
   <p>Từ 2026-11-12 ưu tiên làm cụm (C1 trở đi) trước các mốc còn lại của bản một server (A3, M4, M5, M7). Phần nhận dữ liệu của từng server không đổi nên các mốc đó dùng lại được trong cụm.</p>
   <p>Sau phần phát triển: kiểm thử bảo mật (giả mạo máy, replay, bản cập nhật giả), pilot 100–200 máy ở 20–30 cửa hàng (tiêu chí: heartbeat thành công trên 99%, agent dùng dưới 5% CPU), rồi mở rộng theo vùng.</p>
   <p><strong>Kết quả chạy thật (19/11/2026, khoảng 150 máy):</strong> 5–15 heartbeat / phút, CPU máy server 1–5%, RAM scs-server 25–35 MB, DB 13 MB; phân lượt tải đúng 4 lượt, ≤ 20 Mbit/s.</p>
+  <p><strong>Mức hoàn thiện giai đoạn 1 (ước lượng 27/11/2026, theo khối việc còn lại — không phải số đo):</strong> khoảng <strong>80%</strong> nếu tính cả
+  cụm nhiều server, khoảng <strong>87%</strong> cho bản một server (18/11: ~72%). Còn chính: phát hành agent mới cho mọi máy (SMART, sức khỏe, kiểm
+  thiết bị, kiểm kê LAN, gửi gấp theo trạng thái), diễn tập khôi phục DB, phân trang phía server (trước ~1.000 máy), cảnh báo đổi fingerprint, cụm C2
+  phần hai và C4–C6.</p>
   <p><strong>Kết quả chạy thật (20/11/2026, khoảng 400 máy):</strong> 16–20 heartbeat / phút (~25.800 / ngày), CPU máy server trung bình 3% (đỉnh 37,7%), RAM scs-server 37–42 MB, DB 16,9 MB (tăng ~1,3 MB / ngày), gửi trung bình 0,74 Mbit/s. Đã chạy thật: gia hạn chứng chỉ máy 90 ngày, duyệt và thay thế máy cũ, khóa đăng nhập theo IP / thiết bị (đúng thiết kế).</p>
 </section>
 
