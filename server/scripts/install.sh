@@ -205,6 +205,16 @@ SCS_ACCOUNT_DOMAINS=gmail.com
 SMTPEOF
 	ok "Đã thêm khối cấu hình gửi mail (SCS_SMTP_*, đang tắt) vào $ENV_FILE: điền bằng menu mục 17"
 fi
+if ! grep -qE "^SCS_LAN_ALLOW=" "$ENV_FILE"; then
+	cat >>"$ENV_FILE" <<'LANEOF'
+
+# Kiểm kê thiết bị LAN (trang "Thiết bị LAN"): các dải IPv4 nội bộ được phép đưa vào sơ đồ LAN của bộ rule (mục
+# lan:, schema 4), cách nhau dấu phẩy, ví dụ 192.168.1.0/24. Trống = server không ký bộ rule nào có sơ đồ LAN.
+# Điền bằng menu mục 21 (kiểm dạng, khởi động lại server, tự trả lại giá trị cũ nếu server không lên).
+SCS_LAN_ALLOW=
+LANEOF
+	ok "Đã thêm SCS_LAN_ALLOW (trống = chưa cho ký sơ đồ LAN) vào $ENV_FILE: điền bằng menu mục 21"
+fi
 # Postgres/NATS chạy bằng compose.dev.yml trên chính máy này lấy mật khẩu từ server/.env.
 # Bản sao trong $ENV_FILE lệch (tạo lại .env, xóa volume DB) thì scs-server bị từ chối đăng nhập:
 # chép mật khẩu từ server/.env sang. DB ở máy khác (SCS_DB_HOST không phải máy này) thì không đụng.

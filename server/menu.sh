@@ -293,6 +293,28 @@ do_status() {
 	sudo journalctl -u scs-server -n 30 --no-pager -o cat 2>/dev/null | cut -c1-220
 }
 
+# do_restart: khởi động lại dịch vụ (sau khi sửa tay server.env, hoặc server treo). Phiên web nằm trong RAM nên mọi
+# người phải đăng nhập lại; agent tự gọi lại ở heartbeat sau, không mất dữ liệu.
+do_restart() {
+	[[ -x "$SCS_BIN" ]] || { echo "  Chưa cài dịch vụ (chọn mục 3 trước)."; return 1; }
+	sudo true || return 1
+	confirm "Khởi động lại scs-server? Mọi người đang mở web phải đăng nhập lại." || return 0
+	restart_server || { do_status; return 1; }
+	local i
+	for i in 1 2 3 4 5 6 7 8 9 10; do
+		sleep 1
+		curl -fsk --max-time 2 "https://127.0.0.1:${ADMIN_PORT:-7222}/healthz" >/dev/null 2>&1 && break
+	done
+	if sudo systemctl is-active --quiet scs-server; then
+		echo "  ${C_GRN}✔${C_0} scs-server đang chạy."
+		sudo journalctl -u scs-server -n 8 --no-pager -o cat 2>/dev/null | cut -c1-200
+	else
+		echo "  ${C_RED}scs-server không chạy sau khi khởi động lại${C_0} — log gần nhất:"
+		do_status
+		return 1
+	fi
+}
+
 do_backup() {
 	echo "  ${C_B}Sao lưu DB${C_0} — tự động ngày 1 và 16 hằng tháng (02:30), giữ 6 bản định kỳ mới nhất (SCS_BACKUP_KEEP);"
 	echo "  bản trước mỗi lần cập nhật (mục 4) và bản sao lưu tay không bị tự xóa."
@@ -663,6 +685,54 @@ do_rules() {
 	done
 }
 
+# ---------------------------------------------------------------- Kiểm kê thiết bị LAN
+# lan_cidr_ok CIDR: dải IPv4 nội bộ (10/8, 172.16/12, 192.168/16), độ dài /8–/32, viết đúng địa chỉ mạng — cùng luật với
+# server (internal/lan.ParseAllow), để không ghi giá trị làm server không khởi động được.
+lan_cidr_ok() {
+	local c="$1" a b d e bits ip mask
+	[[ "$c" =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})/([0-9]{1,2})$ ]] || return 1
+	a=${BASH_REMATCH[1]} b=${BASH_REMATCH[2]} d=${BASH_REMATCH[3]} e=${BASH_REMATCH[4]} bits=${BASH_REMATCH[5]}
+	((a <= 255 && b <= 255 && d <= 255 && e <= 255 && bits >= 8 && bits <= 32)) || return 1
+	[[ "$c" =~ ^0[0-9]|\.0[0-9] ]] && return 1
+	((a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168))) || return 1
+	ip=$(((a << 24) | (b << 16) | (d << 8) | e))
+	mask=$(((0xFFFFFFFF << (32 - bits)) & 0xFFFFFFFF))
+	((ip == (ip & mask)))
+}
+
+do_lan_allow() {
+	[[ -x "$SCS_BIN" ]] || { echo "  Chưa cài dịch vụ (chọn mục 3 trước)."; return 1; }
+	sudo true || return 1
+	local cur new item bad=0 parts
+	cur="$(env_get SCS_LAN_ALLOW)"
+	echo "  Server chỉ ký bộ rule có sơ đồ LAN (mục lan:) khi mọi IP trong sơ đồ nằm trong các dải này; agent còn tự giới hạn"
+	echo "  trong dải mạng của chính máy. Cụm nhiều server: khai cùng giá trị trên mọi server."
+	echo "  Đang đặt: ${C_B}${cur:-(trống — chưa cho ký sơ đồ LAN)}${C_0}"
+	ask "Dải mới, cách nhau dấu phẩy (ví dụ 192.168.1.0/24); \"-\" = xóa; Enter = giữ nguyên" ""
+	new="${REPLY//[[:space:]]/}"
+	[[ -z "$new" ]] && { echo "  Giữ nguyên."; return 0; }
+	if [[ "$new" == "-" ]]; then
+		new=""
+	else
+		IFS=',' read -ra parts <<<"$new"
+		for item in "${parts[@]}"; do
+			[[ -z "$item" ]] && continue
+			lan_cidr_ok "$item" || { echo "  ${C_RED}Không hợp lệ:${C_0} $item (cần dải IPv4 nội bộ, /8–/32, đúng địa chỉ mạng, ví dụ 192.168.1.0/24)"; bad=1; }
+		done
+		((bad)) && return 1
+	fi
+	[[ "$new" == "$cur" ]] && { echo "  Không đổi."; return 0; }
+	confirm "Ghi SCS_LAN_ALLOW=${new:-(trống)} và khởi động lại scs-server (mọi người đăng nhập lại web)?" || return 0
+	env_put SCS_LAN_ALLOW "$new" || { echo "  ${C_RED}Không ghi được $ENV_FILE${C_0}"; return 1; }
+	if restart_server && sleep 3 && sudo systemctl is-active --quiet scs-server; then
+		echo "  ${C_GRN}✔${C_0} SCS_LAN_ALLOW=${new:-(trống)}. Ký lại bộ rule có sơ đồ LAN ở mục 16 hoặc trang Rule quét log."
+	else
+		echo "  ${C_RED}scs-server không chạy với giá trị mới: trả lại giá trị cũ.${C_0}"
+		env_put SCS_LAN_ALLOW "$cur" && restart_server
+		return 1
+	fi
+}
+
 # ---------------------------------------------------------------- Gmail gửi mã đăng nhập
 # env_put KEY VALUE: ghi một dòng vào server.env bằng quyền root. Giá trị đi qua stdin (printf là lệnh
 # có sẵn của bash), không nằm trên dòng lệnh nên không lộ trong ps; giữ chủ sở hữu và quyền 600.
@@ -767,6 +837,7 @@ while true; do
   ${C_B}Vận hành${C_0}
    8) Lấy mã đăng nhập web
    9) Trạng thái và log gần nhất
+  22) Khởi động lại scs-server (nạp lại server.env; mọi người đăng nhập lại web)
   10) Gỡ dịch vụ (giữ dữ liệu)
 
   ${C_B}Agent${C_0}
@@ -790,6 +861,9 @@ while true; do
   ${C_B}Dữ liệu${C_0}
   18) Sao lưu DB: sao lưu ngay, xem các bản, lịch 15 ngày, cách khôi phục
   20) Chép nguyên server sang máy khác qua SSH (giữ CA, agent không phải cài lại)
+
+  ${C_B}Kiểm kê thiết bị LAN${C_0}
+  21) Dải IP được phép trong sơ đồ LAN của bộ rule (SCS_LAN_ALLOW)
 
    0) Thoát
 EOF
@@ -817,6 +891,8 @@ EOF
 		17) do_mail ;;
 		18) do_backup ;;
 		20) do_move ;;
+		21) do_lan_allow ;;
+		22) do_restart ;;
 		0 | q | Q | "") exit 0 ;;
 		*) echo "  Không có mục \"$choice\"." ;;
 	esac
