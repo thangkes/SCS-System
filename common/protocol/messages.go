@@ -53,6 +53,36 @@ type HeartbeatBody struct {
 	Rules *RuleSetReport `json:"rules,omitempty"`
 	// UpdateError: lần tải / kiểm bản agent gần nhất lỗi (nil = không lỗi). Server đếm để hiện trên web.
 	UpdateError *UpdateError `json:"update_error,omitempty"`
+	// LAN: kết quả lượt kiểm thiết bị LAN gần nhất (sơ đồ LAN của bộ rule, schema 4); chỉ có ở heartbeat ngay
+	// sau một lượt kiểm, gửi lại tới khi server nhận. nil = không có lượt mới.
+	LAN *LANReport `json:"lan,omitempty"`
+}
+
+// Trạng thái một lượt kiểm thiết bị LAN.
+const (
+	LANStateOK          = "ok"          // đã kiểm
+	LANStateProbesOff   = "probes_off"  // máy tắt kiểm thiết bị (SCS_PROBES=off)
+	LANStateICMPDenied  = "icmp_denied" // máy không cho mở socket ping (net.ipv4.ping_group_range)
+	LANStateNoLAN       = "no_lan"      // không card mạng nào cùng dải với sơ đồ
+	LANStateUnsupported = "unsupported" // hệ điều hành không hỗ trợ
+)
+
+// MaxLANBits: số bit tối đa của bitmap LAN (≥ rules.MaxLANTargets).
+const MaxLANBits = 64
+
+// LANReport: kết quả một lượt kiểm sơ đồ LAN. Bit i của Up / Skip ứng với đích thứ i của sơ đồ có dấu ListV.
+// Up, Skip: số nguyên 64 bit viết hex (16 ký tự). Skip: đích máy không kiểm (ngoài dải mạng của máy, kiểu
+// kiểm không làm được). Thời điểm do server ghi lúc nhận (At chỉ để tham khảo).
+type LANReport struct {
+	ListV string    `json:"list_v"`
+	N     int       `json:"n"` // số đích trong sơ đồ
+	Up    string    `json:"up"`
+	Skip  string    `json:"skip,omitempty"`
+	State string    `json:"state"`
+	At    time.Time `json:"at"`
+	DurMs int       `json:"dur_ms,omitempty"`
+	LANIP string    `json:"lan_ip,omitempty"` // IPv4 của máy trong dải mạng của sơ đồ
+	Round int       `json:"round,omitempty"`  // số thứ tự lượt kiểm từ khi agent chạy
 }
 
 // UpdateError: agent không cài được bản agent server yêu cầu.

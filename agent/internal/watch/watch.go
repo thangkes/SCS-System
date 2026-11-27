@@ -136,7 +136,9 @@ func (s *Scanner) Run(ctx context.Context) {
 			lastSig = sig
 			if set != nil {
 				e, err := rules.CompileFor(set, scan.LocalContext(labels))
-				if err != nil {
+				if errors.Is(err, rules.ErrNoRules) && set.LAN != nil {
+					s.Log.Info("bộ rule chỉ có sơ đồ LAN (kiểm kê thiết bị), không quét log", "bo", set.Name+"@"+set.Version)
+				} else if err != nil {
 					s.Log.Warn("bộ rule không có rule nào chạy trên máy này, không quét", "bo", set.Name+"@"+set.Version, "err", err)
 				} else {
 					stopRun = s.start(ctx, e)

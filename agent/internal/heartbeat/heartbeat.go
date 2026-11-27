@@ -72,6 +72,15 @@ type Deps struct {
 	// AlertLevel: báo mức cảnh báo đang mở của máy theo server sau mỗi heartbeat thành công (watch.Scanner.
 	// SetAlertLevel) — sự cố được đóng thì agent biết, sự cố mới lại gửi gấp. nil = bỏ qua.
 	AlertLevel func(sev string)
+	// LAN: kiểm kê thiết bị LAN (lan.Inventory; nil = không có). Kết quả chờ gửi được gắn vào heartbeat;
+	// heartbeat thành công thì báo lại để bỏ kết quả đã gửi và tới lượt thì kiểm lượt mới.
+	LAN LANReporter
+}
+
+// LANReporter: phần kiểm kê LAN (lan.Inventory) heartbeat cần.
+type LANReporter interface {
+	Pending() *protocol.LANReport
+	HeartbeatOK(ctx context.Context, sent *protocol.LANReport)
 }
 
 // RuleScanner: phần quét log (watch.Scanner) heartbeat cần.
@@ -137,6 +146,9 @@ func Run(ctx context.Context, d Deps) error {
 			}
 			body.Status = d.Status(watch)
 		}
+		if d.LAN != nil {
+			body.LAN = d.LAN.Pending()
+		}
 		if failedUpdate != "" {
 			body.UpdateError = &protocol.UpdateError{Version: failedUpdate, Error: shorten(failedMsg, 200)}
 		}
@@ -198,6 +210,9 @@ func Run(ctx context.Context, d Deps) error {
 			}
 			if d.AlertLevel != nil {
 				d.AlertLevel(resp.AlertSeverity)
+			}
+			if d.LAN != nil {
+				d.LAN.HeartbeatOK(ctx, body.LAN)
 			}
 			st2, changed := apply(d, st, resp)
 			if cur := d.Client.Current(); cur != st2.LastServer {

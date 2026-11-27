@@ -1306,6 +1306,229 @@
     liveReload = load;
   }
 
+  // ---------------------------------------------------------------- Thiết bị LAN (kiểm kê, chỉ tham khảo)
+  // Mọi máy có agent kiểm sơ đồ LAN của bộ rule (schema 4) khoảng 2 giờ một lần; server gộp theo siêu thị.
+  // Chấm: xanh lá = online · xám = chưa từng thấy (siêu thị không có) · cam = vắng · nâu viền đứt = lâu không thấy
+  // (> 30 ngày) · tím = lệch giữa các máy · chấm rỗng = không rõ (không máy nào báo trong 5 giờ).
+  const LAN_ST = {
+    online: ['Online', 'có máy thấy trong 5 giờ'],
+    never: ['Chưa từng thấy', 'chưa máy nào thấy: coi như siêu thị không có, không tính thiếu'],
+    absent: ['Vắng', 'từng thấy, quá 5 giờ không máy nào thấy'],
+    gone: ['Lâu không thấy', 'quá 30 ngày không thấy: có thể đã gỡ / hỏng hẳn'],
+    unknown: ['Không rõ', 'không máy nào của siêu thị báo trong 5 giờ'],
+    lech: ['Lệch', 'có máy liên tục không thấy trong khi máy khác thấy: nghi đường mạng của máy đó'],
+  };
+  const LAN_TYPE_ORDER = ['can', 'tn', 'may_in', 'dvr', 'mang', 'khac'];
+  let lanTypes = { can: 'Cân', tn: 'Máy thu ngân', may_in: 'Máy in', dvr: 'Đầu ghi', mang: 'Thiết bị mạng', khac: 'Khác' };
+  const lanDotCls = (s, lech, tn) => `lan-dot st-${esc(s)}${lech ? ' lech' : ''}${tn === 'chua_agent' ? ' tn-noagent' : ''}`;
+  const lanTip = (x) => `${x.label || x.l || lanTypes[x.type || x.t] || ''} · ${x.ip}${x.port ? ':' + x.port : ''} — ${(LAN_ST[x.status || x.s] || [x.status || x.s])[0]}`
+    + `${(x.lech && x.lech.length) || x.x ? ' · lệch' : ''}${(x.tn === 'chua_agent') ? ' · chưa có agent' : ''}`;
+  const lanLegend = () => `<div class="lan-legend">
+      ${['online', 'never', 'absent', 'gone', 'unknown'].map((k) => `<span title="${esc(LAN_ST[k][1])}"><i class="lan-dot st-${k}"></i>${esc(LAN_ST[k][0])}</span>`).join('')}
+      <span title="${esc(LAN_ST.lech[1])}"><i class="lan-dot st-online lech"></i>Lệch</span>
+      <span title="máy thu ngân quét thấy nhưng không máy agent nào ở IP đó"><i class="lan-dot st-online tn-noagent"></i>Máy TN chưa có agent</span></div>`;
+  const lanDotsHTML = (dots) => {
+    const groups = {};
+    (dots || []).forEach((d) => { (groups[d.t] = groups[d.t] || []).push(d); });
+    const order = [...LAN_TYPE_ORDER, ...Object.keys(groups).filter((k) => !LAN_TYPE_ORDER.includes(k))];
+    return `<div class="lan-dots">${order.filter((k) => groups[k]).map((k) => `<span class="lan-group" title="${esc(lanTypes[k] || k)}">${
+      groups[k].map((d) => `<i class="${lanDotCls(d.s, d.x, d.tn)}" title="${esc(lanTip(d))}"></i>`).join('')}</span>`).join('')}</div>`;
+  };
+
+  async function pageLAN(params) {
+    setTitle('Thiết bị LAN');
+    const page = view;
+    const state = { q: params.get('q') || '', filter: params.get('f') || 'missing', type: params.get('type') || '', page: 0, list: [], meta: {} };
+    const PAGE = 50;
+    page.innerHTML = `
+      <div class="callout callout-info"><strong>Thông tin tham khảo.</strong> Mọi máy có agent kiểm các thiết bị trong sơ đồ LAN của bộ rule
+        (cân, máy thu ngân, máy in, đầu ghi…) khoảng 2 giờ một lần và gửi kèm heartbeat; server gộp kết quả các máy theo siêu thị.
+        Không phải cảnh báo: không mở sự cố, không tính vào trang Cảnh báo. Lịch sử giữ 10 ngày.</div>
+      <div id="lan-setup"></div>
+      <div class="grid-kpi" id="lan-kpi"></div>
+      <div class="card">
+        <div class="card-head"><h2>Thiếu theo loại</h2><span class="sub">Số siêu thị có thiết bị vắng / lâu không thấy — bấm để lọc</span></div>
+        <div class="chips" id="lan-types"></div>
+      </div>
+      <div class="card">
+        <div class="toolbar">
+          <input type="search" id="lan-q" placeholder="Tìm mã / tên siêu thị…" value="${esc(state.q)}" aria-label="Tìm siêu thị">
+          <select id="lan-f" aria-label="Lọc trạng thái">
+            <option value="missing">Thiếu thiết bị</option><option value="tn">Lệch máy thu ngân / agent</option>
+            <option value="lech">Có thiết bị lệch</option><option value="unknown">Không rõ</option>
+            <option value="full">Đủ thiết bị</option><option value="all">Tất cả</option>
+          </select>
+          <span class="count" id="lan-count"></span>
+          <button type="button" class="btn btn-sm" id="lan-csv">Xuất CSV</button>
+        </div>
+        ${lanLegend()}
+        <div class="table-wrap"><table>
+          <thead><tr><th>Siêu thị</th><th>Có mặt</th><th>Thiết bị</th><th>Máy thu ngân</th><th class="hide-sm">Báo gần nhất</th></tr></thead>
+          <tbody id="lan-rows"><tr><td colspan="5" class="empty">Đang tải…</td></tr></tbody>
+        </table></div>
+        <div class="pager"><span id="lan-range"></span><div class="btns">
+          <button class="btn btn-sm" id="lan-prev">Trước</button><button class="btn btn-sm" id="lan-next">Sau</button></div></div>
+      </div>`;
+    $('#lan-f').value = state.filter;
+
+    const tnBad = (s) => s.tn_no_agent > 0 || s.tn_wrong_ip > 0;
+    const match = (s) => {
+      switch (state.filter) {
+        case 'missing': if (!(s.missing > 0)) return false; break;
+        case 'full': if (s.unknown || s.missing > 0) return false; break;
+        case 'unknown': if (!s.unknown) return false; break;
+        case 'lech': if (!(s.lech > 0)) return false; break;
+        case 'tn': if (!tnBad(s)) return false; break;
+        default:
+      }
+      if (state.type && !((s.missing_by || {})[state.type] > 0)) return false;
+      const q = state.q.trim().toLowerCase();
+      return !q || [s.store, storeLabel(s.store)].some((v) => (v || '').toLowerCase().includes(q));
+    };
+    const filtered = () => state.list.filter(match);
+
+    const render = () => {
+      const all = state.list;
+      const m = state.meta;
+      $('#lan-setup').innerHTML = !m.enabled ? '<div class="callout">Server chưa có phần lưu thiết bị LAN (chưa kết nối cơ sở dữ liệu / kho bộ rule).</div>'
+        : !m.maps ? `<div class="callout">Chưa có bộ rule đã ký nào có <strong>sơ đồ LAN</strong>. Khai dải mạng được phép bằng
+            <code>SCS_LAN_ALLOW</code> trong server.env${m.allow ? ' (đã khai)' : ' (<strong>chưa khai</strong>)'}, viết sơ đồ (mục <code>lan:</code>,
+            <code>schema: 4</code>) trong bộ rule rồi ký và gán cho máy — xem docs/huong-dan-viet-rule.md.</div>` : '';
+      let present = 0, ever = 0, miss = 0, unk = 0, noAgent = 0, tnStores = 0;
+      const byType = {};
+      all.forEach((s) => {
+        present += s.present; ever += s.ever_seen;
+        if (s.unknown) unk++; else if (s.missing > 0) miss++;
+        noAgent += s.tn_no_agent;
+        if (tnBad(s)) tnStores++;
+        Object.keys(s.missing_by || {}).forEach((k) => { byType[k] = (byType[k] || 0) + 1; });
+      });
+      $('#lan-kpi').innerHTML = `
+        ${kpi('Thiết bị có mặt', `${fmtNum(present)} / ${fmtNum(ever)}`, 'online / từng thấy (mọi siêu thị)')}
+        ${kpi('Siêu thị thiếu thiết bị', fmtNum(miss), `trên ${fmtNum(all.length)} siêu thị có dữ liệu`)}
+        ${kpi('Không rõ', fmtNum(unk), 'siêu thị không máy nào báo trong 5 giờ')}
+        ${kpi('Máy TN chưa có agent', fmtNum(noAgent), 'quét thấy nhưng không máy agent nào ở IP đó')}
+        ${kpi('Siêu thị lệch TN', fmtNum(tnStores), 'máy TN chưa có agent / máy agent sai IP')}`;
+      const types = Object.entries(byType).sort((a, b) => b[1] - a[1]);
+      $('#lan-types').innerHTML = types.length
+        ? `<button type="button" class="chip${state.type ? '' : ' active'}" data-type="">Tất cả</button>` +
+          types.map(([k, n]) => `<button type="button" class="chip${state.type === k ? ' active' : ''}" data-type="${esc(k)}">${esc(lanTypes[k] || k)} · ${fmtNum(n)}</button>`).join('')
+        : '<p class="hint">Không siêu thị nào thiếu thiết bị.</p>';
+      const rows = filtered();
+      const pages = Math.max(1, Math.ceil(rows.length / PAGE));
+      state.page = Math.min(state.page, pages - 1);
+      $('#lan-count').textContent = `${fmtNum(rows.length)} / ${fmtNum(all.length)} siêu thị`;
+      $('#lan-range').textContent = rows.length > PAGE ? `Trang ${state.page + 1} / ${pages}` : '';
+      $('#lan-prev').disabled = state.page === 0;
+      $('#lan-next').disabled = state.page >= pages - 1;
+      $('#lan-rows').innerHTML = rows.slice(state.page * PAGE, state.page * PAGE + PAGE).map((s) => `
+        <tr class="clickable" data-store="${esc(s.store)}">
+          <td class="lan-store"><span class="strong mono">${esc(storeLabel(s.store))}</span>${s.unknown ? '<span class="sub">Không rõ — không máy nào báo trong 5 giờ</span>' : ''}</td>
+          <td class="mono lan-count">${s.unknown ? '—' : `${fmtNum(s.present)} / ${fmtNum(s.ever_seen)}`}${s.missing ? `<span class="sub">thiếu ${fmtNum(s.missing)}</span>` : ''}</td>
+          <td>${lanDotsHTML(s.dots)}</td>
+          <td><span class="mono lan-count">${s.unknown ? '—' : 'quét ' + fmtNum(s.tn_scanned)} · agent ${fmtNum(s.tn_agents)}</span>${tnBad(s)
+            ? `<span class="sub">${s.tn_no_agent ? `${fmtNum(s.tn_no_agent)} chưa có agent` : ''}${s.tn_no_agent && s.tn_wrong_ip ? ' · ' : ''}${s.tn_wrong_ip ? `${fmtNum(s.tn_wrong_ip)} sai IP` : ''}</span>` : ''}</td>
+          <td class="hide-sm">${s.last_at ? esc(ago(new Date(s.last_at))) : '—'}</td></tr>`).join('')
+        || `<tr><td colspan="5" class="empty">${all.length ? 'Không có siêu thị nào khớp bộ lọc.' : 'Chưa có siêu thị nào gửi kết quả kiểm thiết bị LAN.'}</td></tr>`;
+    };
+
+    const load = async (fresh) => {
+      try {
+        const [j] = await Promise.all([getJSON(`/admin/v1/lan${fresh ? '?fresh=1' : ''}`), loadStoreCache()]);
+        if (j.types) lanTypes = { ...lanTypes, ...j.types };
+        state.meta = { enabled: j.enabled, maps: j.maps, allow: j.allow };
+        state.list = j.stores || [];
+      } catch (err) {
+        if (page === view) showLoadError(page, err);
+        return;
+      }
+      if (page === view) render();
+    };
+    $('#lan-q').addEventListener('input', (e) => { state.q = e.target.value; state.page = 0; render(); });
+    $('#lan-f').addEventListener('change', (e) => { state.filter = e.target.value; state.page = 0; render(); });
+    $('#lan-types').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-type]'); if (!b) return;
+      state.type = b.dataset.type;
+      if (state.type) { state.filter = 'missing'; $('#lan-f').value = 'missing'; }
+      state.page = 0; render();
+    });
+    $('#lan-prev').addEventListener('click', () => { state.page--; render(); });
+    $('#lan-next').addEventListener('click', () => { state.page++; render(); });
+    $('#lan-rows').addEventListener('click', (e) => {
+      const tr = e.target.closest('tr[data-store]');
+      if (tr) showLANStore(tr.dataset.store);
+    });
+    $('#lan-csv').addEventListener('click', () => {
+      const cell = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+      const lines = [['Siêu thị', 'Tên', 'Không rõ', 'Có mặt', 'Từng thấy', 'Thiếu', 'Thiếu theo loại', 'TN quét thấy', 'Máy có agent',
+        'TN chưa có agent', 'Máy agent sai IP', 'Báo gần nhất'].map(cell).join(',')];
+      filtered().forEach((s) => {
+        const info = storeCache[s.store] || {};
+        lines.push([s.store, info.name || '', s.unknown ? 'có' : '', s.present, s.ever_seen, s.missing,
+          Object.entries(s.missing_by || {}).map(([k, n]) => `${lanTypes[k] || k}: ${n}`).join('; '),
+          s.tn_scanned, s.tn_agents, s.tn_no_agent, s.tn_wrong_ip, s.last_at || ''].map(cell).join(','));
+      });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }));
+      a.download = `thiet-bi-lan-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    });
+    load();
+    liveReload = () => load(false);
+  }
+
+  async function showLANStore(code) {
+    openDrawer(`Thiết bị LAN · ${storeLabel(code)}`, '<p class="hint">Đang tải…</p>');
+    let j;
+    try { j = await getJSON(`/admin/v1/lan/${encodeURIComponent(code)}`); } catch (err) {
+      openDrawer(`Thiết bị LAN · ${storeLabel(code)}`, `<p class="hint">Không tải được: ${esc(err.message || String(err))}</p>`);
+      return;
+    }
+    if (j.types) lanTypes = { ...lanTypes, ...j.types };
+    const v = j.store;
+    const when = (t) => (t ? `${fmtTime(new Date(t))} (${ago(new Date(t))})` : '—');
+    const groups = {};
+    (v.targets || []).forEach((t) => { (groups[t.type] = groups[t.type] || []).push(t); });
+    const order = [...LAN_TYPE_ORDER, ...Object.keys(groups).filter((k) => !LAN_TYPE_ORDER.includes(k))];
+    const cell = (t) => `<div class="lan-cell" title="${esc(lanTip(t))}">
+        <i class="${lanDotCls(t.status, t.lech && t.lech.length, t.tn)}"></i>
+        <div class="lan-cell-body"><span class="strong">${esc(t.label || lanTypes[t.type] || t.type)}</span>
+          <span class="sub mono">${esc(t.ip)}${t.port ? ':' + t.port : ''}</span>
+          <span class="sub">${esc((LAN_ST[t.status] || [t.status])[0])}${t.status !== 'never' && t.last_seen ? ' · thấy ' + esc(ago(new Date(t.last_seen))) : ''}</span>
+          ${t.checkers ? `<span class="sub">${fmtNum(t.seen_by)}/${fmtNum(t.checkers)} máy thấy</span>` : ''}
+          ${t.lech && t.lech.length ? `<span class="sub">Lệch: ${esc(t.lech.join(', '))} không thấy</span>` : ''}
+          ${t.tn === 'khop' ? `<span class="sub">Agent: ${esc(t.tn_host || '')}</span>` : t.tn === 'chua_agent' ? '<span class="sub"><strong>Chưa có agent</strong></span>' : ''}
+          ${t.flap ? '<span class="sub">Chập chờn hôm nay</span>' : ''}</div></div>`;
+    const reps = (v.reporters || []).slice().sort((a, b) => a.hostname.localeCompare(b.hostname));
+    const RST = { ok: 'Đã kiểm', probes_off: 'Máy tắt kiểm thiết bị', icmp_denied: 'Máy không cho ping', no_lan: 'Không cùng dải mạng', unsupported: 'Không hỗ trợ' };
+    const ST_TXT = (s) => (LAN_ST[s] || [s])[0];
+    openDrawer(`Thiết bị LAN · ${storeLabel(code)}`, `
+      <div class="drawer-actions">${v.unknown ? '<span class="pill no-dot">Không rõ</span>'
+        : `<span class="pill no-dot ${v.missing ? 'pill-warn' : 'pill-ok'}">Có mặt ${fmtNum(v.present)} / ${fmtNum(v.ever_seen)}</span>`}
+        ${v.lech ? `<span class="pill no-dot">Lệch ${fmtNum(v.lech)}</span>` : ''}</div>
+      <section><h3>Thiết bị</h3>${lanLegend()}
+        ${order.filter((k) => groups[k]).map((k) => `<h4>${esc(lanTypes[k] || k)}</h4><div class="lan-grid">${groups[k].map(cell).join('')}</div>`).join('')}</section>
+      <section><h3>Máy thu ngân ↔ agent</h3>
+        <p class="lan-tn"><span>Quét thấy: <strong>${fmtNum(v.tn_scanned)}</strong></span><span>Máy có agent: <strong>${fmtNum(v.tn_agents)}</strong></span>
+          <span>Chưa có agent: <strong>${fmtNum(v.tn_no_agent)}</strong></span><span>Máy agent sai IP: <strong>${fmtNum(v.tn_wrong_ip)}</strong></span></p>
+        ${v.no_report && v.no_report.length ? `<p class="hint">Máy có agent chưa gửi kết quả kiểm (agent bản cũ hoặc bộ rule chưa có sơ đồ LAN): ${esc(v.no_report.join(', '))}</p>` : ''}</section>
+      <section><h3>Máy đã báo</h3><div class="table-wrap"><table>
+        <thead><tr><th>Máy</th><th>IP LAN</th><th>Thấy</th><th>Lần báo</th></tr></thead>
+        <tbody>${reps.map((r) => `<tr><td><span class="strong mono">${esc(r.hostname || '#' + r.device_id)}</span>
+            <span class="sub">${esc(RST[r.state] || r.state)}${r.abnormal ? ' · <strong>nghi lỗi mạng</strong> (thấy ít hơn hẳn máy khác)' : ''}</span></td>
+          <td class="mono">${esc(r.lan_ip || '—')}${r.wrong_ip ? '<span class="sub"><strong>Sai IP</strong>: không thuộc IP máy thu ngân nào trong sơ đồ</span>' : ''}</td>
+          <td class="mono">${fmtNum(r.seen)} / ${fmtNum(r.checked)}</td>
+          <td>${esc(ago(new Date(r.received_at)))}${r.fresh ? '' : '<span class="sub">quá 5 giờ — không tính</span>'}</td></tr>`).join('')
+          || '<tr><td colspan="4" class="empty">Chưa máy nào báo.</td></tr>'}</tbody></table></div></section>
+      <section><h3>Lịch sử 10 ngày</h3>${(j.changes || []).length ? `<div class="table-wrap"><table>
+        <thead><tr><th>Lúc</th><th>Thiết bị</th><th>Đổi</th></tr></thead>
+        <tbody>${j.changes.map((c) => `<tr><td>${esc(when(c.at))}</td>
+          <td>${esc(c.label || lanTypes[c.type] || c.type)}<span class="sub mono">${esc(c.ip)}</span></td>
+          <td>${esc(ST_TXT(c.from))} → <strong>${esc(ST_TXT(c.to))}</strong>${c.by_host ? `<span class="sub">thấy bởi ${esc(c.by_host)}</span>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+        : '<p class="hint">Không có thay đổi nào trong 10 ngày.</p>'}</section>`);
+  }
+
   // ---------------------------------------------------------------- thông tin siêu thị
   let storeCache = {}; // mã siêu thị → thông tin (hiện "mã - tên" ở Tổng quan, Cảnh báo, chi tiết máy, Chờ duyệt)
   async function loadStoreCache() {
@@ -3343,6 +3566,7 @@
     'canh-bao': pageAlerts,
     'bao-cao-su-co': pageIncidents,
     'suc-khoe': pageHealth,
+    'thiet-bi-lan': pageLAN,
     'cho-duyet': pagePending,
     'he-thong': pageSystem,
     rule: pageRules,

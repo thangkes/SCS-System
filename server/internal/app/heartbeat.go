@@ -141,6 +141,9 @@ func heartbeatHandler(d Deps) http.Handler {
 			return
 		}
 		activity(d).Heartbeat()
+		if body.LAN != nil {
+			ingestLAN(r.Context(), d, id, body.LAN)
+		}
 		resp := protocol.Response{
 			OK: true, NextPollS: int(heartbeatEvery / time.Second), NextPollMaxS: int(heartbeatMax / time.Second), ServerTime: time.Now().UTC(),
 			Servers: agentServers(d),

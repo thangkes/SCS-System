@@ -70,8 +70,8 @@ func open(data []byte, pubPath string) (*rules.RuleSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Bộ phải có ít nhất một rule đang bật (chưa lọc theo máy).
-	if _, err := rules.Compile(s); err != nil {
+	// Bộ phải có ít nhất một rule đang bật (chưa lọc theo máy), hoặc có sơ đồ LAN (kiểm kê thiết bị).
+	if _, err := rules.Compile(s); err != nil && !(errors.Is(err, rules.ErrNoRules) && s.LAN != nil) {
 		return nil, err
 	}
 	return s, nil

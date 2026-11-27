@@ -23,6 +23,7 @@ import (
 	"github.com/thangkes/SCS-System/server/internal/cluster"
 	"github.com/thangkes/SCS-System/server/internal/config"
 	"github.com/thangkes/SCS-System/server/internal/httpx"
+	"github.com/thangkes/SCS-System/server/internal/lan"
 	"github.com/thangkes/SCS-System/server/internal/periods"
 	"github.com/thangkes/SCS-System/server/internal/pki"
 	"github.com/thangkes/SCS-System/server/internal/rulestore"
@@ -194,6 +195,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		if base.Rules, err = rulestore.Open(cfg.RulesDir, pub); err != nil {
 			log.Error("không mở được kho bộ rule: trang Rule quét log sẽ báo lỗi", "dir", cfg.RulesDir, "err", err)
+		} else {
+			base.Rules.SignCheck = lan.SignCheck(cfg.LANAllow)
 		}
 	}
 	if cmd == "all" { // phần cụm chạy cùng tiến trình với web quản trị (trang "Cụm server" dùng chung node)

@@ -181,6 +181,9 @@ func AdminHandler(d Deps) http.Handler {
 	mux.Handle("GET /admin/v1/incidents/report", view(http.HandlerFunc(ia.report)))
 	mux.Handle("GET /admin/v1/incidents/report.csv", view(http.HandlerFunc(ia.reportCSV)))
 	mux.Handle("GET /admin/v1/incidents/report.xlsx", view(http.HandlerFunc(ia.reportXLSX)))
+	la := lanAPI{d}
+	mux.Handle("GET /admin/v1/lan", view(http.HandlerFunc(la.summary)))
+	mux.Handle("GET /admin/v1/lan/{code}", view(http.HandlerFunc(la.store)))
 	st := storesAPI{d}
 	mux.Handle("GET /admin/v1/stores", view(http.HandlerFunc(st.list)))
 	mux.Handle("GET /admin/v1/stores/template.csv", view(http.HandlerFunc(st.template)))
@@ -227,7 +230,7 @@ func Worker(d Deps) func(context.Context) error {
 		d.Log.Info("worker đang chạy: kiểm mất liên lạc và tự đóng cảnh báo mỗi phút, chứng chỉ máy mỗi 10 phút")
 		t := time.NewTicker(periodTickEvery)
 		defer t.Stop()
-		var lastCert time.Time
+		var lastCert, lastLAN time.Time
 		for {
 			select {
 			case <-ctx.Done():
@@ -240,6 +243,10 @@ func Worker(d Deps) func(context.Context) error {
 					} else if o > 0 || c > 0 {
 						d.Log.Warn("cảnh báo chứng chỉ máy", "mo", o, "dong", c)
 					}
+				}
+				if now.Sub(lastLAN) >= time.Hour {
+					lastLAN = now
+					pruneLAN(ctx, d, now)
 				}
 				n, err := d.Registry.PeriodTick(ctx, now)
 				if err != nil && ctx.Err() == nil {

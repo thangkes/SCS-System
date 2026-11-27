@@ -106,6 +106,51 @@ type Store struct {
 	tmu      sync.Mutex
 	titles   map[string]string
 	titlesAt time.Time
+
+	// SignCheck: kiểm thêm trước khi ký (server: sơ đồ LAN chỉ được có đích trong SCS_LAN_ALLOW). nil = không.
+	SignCheck func(*rules.RuleSet) error
+
+	lmu    sync.Mutex
+	lans   map[string]*rules.LAN
+	lansAt time.Time
+}
+
+// LANMaps: sơ đồ LAN của mọi bộ đã ký trong kho, theo ListV (agent gửi kèm bitmap). Chỉ đọc bản đã ký (đã kiểm
+// chữ ký; không có Pub thì không có sơ đồ nào) — đúng thứ agent đang chạy. Đọc lại kho tối đa mỗi phút một lần.
+func (s *Store) LANMaps() map[string]*rules.LAN {
+	s.lmu.Lock()
+	defer s.lmu.Unlock()
+	if s.lans != nil && time.Since(s.lansAt) < titlesTTL {
+		return s.lans
+	}
+	out := map[string]*rules.LAN{}
+	s.mu.Lock()
+	des, _ := os.ReadDir(filepath.Join(s.Dir, signedDir))
+	for i, de := range des {
+		n := de.Name()
+		if i >= MaxSources*2 || !strings.HasSuffix(n, ".json") || strings.HasSuffix(n, ".meta.json") {
+			continue
+		}
+		b, _, err := readRegular(filepath.Join(s.Dir, signedDir, n), rules.MaxBundle*2)
+		if err != nil {
+			continue
+		}
+		var bd rules.Bundle
+		if json.Unmarshal(b, &bd) != nil {
+			continue
+		}
+		if s.Pub == nil { // không có khóa để kiểm chữ ký: không tin sơ đồ nào
+			break
+		}
+		set, err := bd.Open(s.Pub) // Open đã kiểm chữ ký và Validate
+		if err != nil || set.LAN == nil {
+			continue
+		}
+		out[set.LAN.ListV()] = set.LAN
+	}
+	s.mu.Unlock()
+	s.lans, s.lansAt = out, time.Now()
+	return out
 }
 
 // titlesTTL: tra tiêu đề rule (trang Cảnh báo gọi thường xuyên) đọc lại kho tối đa mỗi phút một lần.
@@ -506,6 +551,11 @@ func (s *Store) Sign(file string, priv ed25519.PrivateKey, by string, clusterSeq
 	if has, bsha, berr := s.bundleState(set.Name, set.Version); has && berr == nil && bsha != sha {
 		return *cur, fmt.Errorf("%w: %s đã ký với nội dung khác; đổi version rồi duyệt lại", ErrConflict, Key(set.Name, set.Version))
 	}
+	if s.SignCheck != nil {
+		if err := s.SignCheck(set); err != nil {
+			return *cur, err
+		}
+	}
 	b, err := rules.Build(set, priv)
 	if err != nil {
 		return *cur, err
@@ -520,6 +570,9 @@ func (s *Store) Sign(file string, priv ed25519.PrivateKey, by string, clusterSeq
 		return *cur, err
 	}
 	s.classify(cur)
+	s.lmu.Lock()
+	s.lans = nil // sơ đồ LAN mới có hiệu lực ngay
+	s.lmu.Unlock()
 	return *cur, nil
 }
 

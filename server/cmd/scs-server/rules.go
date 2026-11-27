@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/thangkes/SCS-System/common/rules"
+	"github.com/thangkes/SCS-System/server/internal/lan"
 	"github.com/thangkes/SCS-System/server/internal/pki"
 	"github.com/thangkes/SCS-System/server/internal/rulefile"
 )
@@ -189,6 +190,14 @@ func rulesBuild(args []string, stdout, stderr io.Writer) int {
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "✖ %s\n%s\n", file, indent(err.Error()))
+		return 1
+	}
+	allow, err := lan.ParseAllow(os.Getenv("SCS_LAN_ALLOW"))
+	if err == nil {
+		err = lan.SignCheck(allow)(s)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "✖", err)
 		return 1
 	}
 	priv, err := pki.LoadReleaseKey(*keyPath)

@@ -42,19 +42,21 @@ const (
 	MaxApplyKeys  = 8
 	MaxApplyVals  = 16
 	// SchemaMax: schema cao nhất bản này đọc được. Agent báo "rules/<SchemaMax>" trong heartbeat.
-	SchemaMax = 3
+	SchemaMax = 4
 )
 
 // RuleSet: một bộ rule, gán cho nhóm máy. Version đổi mỗi lần sửa để agent biết phải tải lại.
 type RuleSet struct {
 	// Schema: phiên bản cấu trúc bộ rule (bỏ trống = 1). Dùng tags / applies_to thì phải ≥ 2; rule
-	// nguồn probe (agent tự kiểm thiết bị) thì phải là 3. Agent cũ đọc không được schema mới thì từ chối
-	// cả bộ và giữ bộ đang dùng.
+	// nguồn probe (agent tự kiểm thiết bị) thì phải ≥ 3; có sơ đồ LAN thì phải ≥ 4. Agent cũ đọc không được
+	// schema mới thì từ chối cả bộ và giữ bộ đang dùng (server cũng không phát bộ đó cho agent cũ).
 	Schema      int    `json:"schema,omitempty"`
 	Name        string `json:"name"`
 	Version     string `json:"version"`
 	Description string `json:"description,omitempty"`
 	Rules       []Rule `json:"rules"`
+	// LAN: sơ đồ thiết bị LAN để kiểm kê (schema 4, xem lan.go). Có LAN thì bộ được phép không có rule nào.
+	LAN *LAN `json:"lan,omitempty"`
 }
 
 // Rule: một điều kiện khớp trên một nguồn log.
@@ -131,8 +133,16 @@ func (s *RuleSet) Validate() error {
 	if s.Schema < 0 || s.Schema > SchemaMax {
 		add("schema %d: bản này chỉ đọc được schema 1 tới %d (cần agent / server mới hơn)", s.Schema, SchemaMax)
 	}
-	if len(s.Rules) == 0 {
+	if len(s.Rules) == 0 && s.LAN == nil {
 		add("rules: bộ rule trống")
+	}
+	if s.LAN != nil {
+		if s.Schema < LANSchema {
+			add("lan: sơ đồ LAN cần khai \"schema: %d\" ở đầu bộ rule (agent cũ không chạy được)", LANSchema)
+		}
+		for _, e := range s.LAN.validate() {
+			add("%s", e)
+		}
 	}
 	if len(s.Rules) > MaxRules {
 		add("rules: %d rule, tối đa %d", len(s.Rules), MaxRules)
@@ -326,7 +336,7 @@ func printable(s string) bool {
 
 // ForAgent trả bản sao bỏ tests (agent không cần) và rule đã tắt.
 func (s *RuleSet) ForAgent() *RuleSet {
-	out := &RuleSet{Schema: s.Schema, Name: s.Name, Version: s.Version, Description: s.Description}
+	out := &RuleSet{Schema: s.Schema, Name: s.Name, Version: s.Version, Description: s.Description, LAN: s.LAN}
 	for _, r := range s.Rules {
 		if r.Disabled {
 			continue

@@ -266,6 +266,48 @@ Giới hạn (server kiểm lúc ký, agent kiểm lại trước khi chạy —
   phép); máy không cho thì agent ghi log cảnh báo, không sinh dòng `down` giả. TCP chỉ mở rồi đóng kết nối.
 - Người có root trên máy tắt hẳn bằng `SCS_PROBES=off` trong `/etc/scs-agent/agent.env` (server không đổi được).
 
+### 5.2 Sơ đồ LAN: kiểm kê thiết bị trong siêu thị (schema 4)
+
+Khác rule `probe` (kiểm để **cảnh báo**), sơ đồ LAN dùng để **đếm thiết bị có mặt** — kết quả hiện ở trang web
+**Thiết bị LAN** (nhóm Tham khảo), không mở sự cố, không vào trang Cảnh báo. Sơ đồ nằm ở mục `lan:` của bộ rule (không
+phải một rule); bộ chỉ có sơ đồ, không có rule nào, vẫn hợp lệ.
+
+```yaml
+schema: 4
+name: kiem-ke-lan
+version: '2026.11.27-01'
+lan:
+  every_hb: 7          # kiểm sau mỗi 7 heartbeat thành công (~2 giờ); 3–288, mặc định 7
+  retry: 1             # thử lại khi không đáp; 0 = mặc định (1), -1 = không thử lại, tối đa 2
+  timeout_ms: 1500     # chờ mỗi lần; 100–5000, mặc định 1500
+  targets:             # THỨ TỰ = thứ tự bit: thêm thiết bị mới vào CUỐI, đừng chèn giữa
+    - {ip: 192.168.1.10, type: can,    label: "Cân 1"}
+    - {ip: 192.168.1.31, type: tn,     label: "Máy thu ngân 1"}
+    - {ip: 192.168.1.50, type: may_in, label: "Máy in 1", kind: tcp, port: 9100}
+    - {ip: 192.168.1.251, type: dvr,   label: "Đầu ghi"}
+```
+
+- `type`: `can` (cân), `tn` (máy thu ngân — server đối chiếu với máy đã có agent), `may_in`, `dvr`, `mang`, `khac`.
+- `kind`: `icmp` (mặc định, ping) hoặc `tcp` + `port` (thiết bị không trả ping, ví dụ máy in cổng 9100).
+- Siêu thị không có một thiết bị trong sơ đồ (ví dụ đầu ghi thứ hai chỉ kho mới có) thì thiết bị đó hiện **xám — chưa
+  từng thấy**, không tính là thiếu. Nên một sơ đồ chung dùng được cho mọi siêu thị cùng sơ đồ IP; chừa sẵn vị trí cho
+  thiết bị chỉ vài nơi có.
+- **Mọi máy** có agent và có bộ này đều kiểm (không lọc theo vai trò); server gộp theo siêu thị: có ít nhất một máy thấy
+  trong 5 giờ là online; từng thấy mà quá 5 giờ không máy nào thấy là vắng; quá 30 ngày là lâu không thấy; không máy nào
+  báo trong 5 giờ là không rõ. Lịch sử đổi trạng thái giữ 10 ngày.
+
+Giới hạn và an toàn:
+
+- **Server chỉ ký** bộ có sơ đồ LAN khi mọi đích nằm trong dải đã khai ở `SCS_LAN_ALLOW` (server.env, ví dụ
+  `SCS_LAN_ALLOW=192.168.1.0/24`). Mặc định trống = không ký sơ đồ nào. `rules build` / `rules approve` đọc cùng biến.
+- Đích: IPv4 nội bộ cố định, không `.0` / `.255`, không dải, không tên miền; tối đa 48 thiết bị.
+- **Agent chỉ kiểm thiết bị cùng dải mạng với card mạng của chính máy**; thiết bị khác dải bị bỏ qua (báo "không kiểm").
+  Bộ rule dù bị sửa cũng không biến agent thành công cụ quét mạng khác.
+- Máy tắt kiểm thiết bị (`SCS_PROBES=off`) chỉ báo trạng thái, không gửi gói nào. ICMP dùng socket ping không đặc quyền
+  như rule `probe`.
+- Cần agent đọc được schema 4. Server không phát bộ schema 4 cho agent cũ (máy cũ giữ bộ đang chạy, không nhận bộ mới
+  tới khi nâng agent) — nên phát bản agent mới cho cả hệ thống trước, rồi mới gán bộ có sơ đồ LAN.
+
 ## 6. Viết regex cho match / exclude
 
 Regex dùng cú pháp **RE2** (của Go). RE2 chạy tuyến tính theo độ dài dòng, nên không có regex nào làm treo agent. Đổi lại, không có lookahead `(?=...)`, lookbehind `(?<=...)` và backreference `\1`: dùng `exclude` để thay cho "khớp A nhưng không có B".
@@ -624,13 +666,16 @@ sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journa
 | Nhãn máy đặt trên web mỗi cấp | 16 |
 | Bộ rule đã ký | 1 MB |
 | Rule `probe`: số đích cả bộ / nhịp / timeout | 16 / ≥ 60 giây / ≤ 5000 ms; chỉ IPv4 nội bộ hoặc `{gateway}` |
+| Sơ đồ LAN (`lan:`): số thiết bị / nhịp / thử lại | 48 / ≥ 3 heartbeat / ≤ 2; chỉ IPv4 nội bộ trong `SCS_LAN_ALLOW`, cùng dải với máy |
 
 ## 14. An toàn
 
 - Rule **chỉ đọc log và khớp regex**. Không có trường nào để chạy lệnh hay đọc file ngoài `/var/log`. Ngoại lệ duy nhất
   gửi gói tin ra mạng là rule nguồn `probe` (schema 3): agent ping / mở kết nối tới **tối đa 16 IP nội bộ cố định** (hoặc
   router mặc định), nhịp ≥ 60 giây — không dải IP, không tên miền, không IP công khai, nên không biến thành công cụ dò
-  mạng; máy tắt được bằng `SCS_PROBES=off`. Bộ rule dù bị sửa cũng không làm được gì trên máy ngoài việc báo sai.
+  mạng; máy tắt được bằng `SCS_PROBES=off`. Sơ đồ LAN (schema 4, [mục 5.2](#52-sơ-đồ-lan-kiểm-kê-thiết-bị-trong-siêu-thị-schema-4))
+  cũng gửi gói tin nhưng chỉ tới IP cố định cùng dải mạng với máy và trong dải server cho phép. Bộ rule dù bị sửa cũng không
+  làm được gì trên máy ngoài việc báo sai.
 - Agent chỉ nhận bộ rule **có chữ ký** của khóa phát hành server (cùng khóa ký bản agent, nhưng khác "ngữ cảnh ký" nên chữ ký bộ rule không dùng thay được cho chữ ký bản agent và ngược lại). Agent kiểm lại toàn bộ nội dung y như server, sai một chỗ là bỏ cả bộ.
 - Regex RE2 không làm treo agent dù viết kém. Các giới hạn ở [mục 13](#13-giới-hạn) giữ RAM / CPU agent thấp.
 - Sự kiện gửi lên server kèm dòng log khớp (`sample`). Đừng viết rule khớp những dòng chứa mật khẩu hay dữ liệu khách hàng. Nếu phải theo dõi loại dòng đó, đặt nhóm có tên để lấy riêng phần cần (ví dụ mã lỗi) và cân nhắc kỹ.
@@ -647,6 +692,7 @@ sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journa
 | Kho bộ rule trên server: tự chia chưa ký / đã ký / cần ký lại / lỗi, duyệt (ký) trên web, menu mục 16, `rules list/add/approve`; trong cụm cần quá nửa server duyệt (`ruleset.publish`) | **Đã có** |
 | Gán bộ rule theo cấp chung / siêu thị / máy trên web, phát qua heartbeat (`rule_set_version`) | **Đã có** (M7) |
 | Agent gửi sự kiện lên server, hàng đợi khi mất mạng; server lưu theo giai đoạn, cảnh báo trên web | **Đã có** (A3, lưu theo giai đoạn) |
+| Sơ đồ LAN (schema 4): mọi máy kiểm thiết bị, server gộp theo siêu thị, trang "Thiết bị LAN" | **Đã có** — chưa chạy thử trên PostgreSQL / Ubuntu thật; cụm nhiều server: mỗi server chỉ thấy máy gửi về nó |
 
 Quy trình: viết rule trong `~/scs-rules/` → `rules check` / `rules test` trên server → đưa vào kho và **Duyệt & ký**
 (web trang "Rule quét log" hoặc menu mục 16) → **Áp dụng bộ rule cho máy** (thử trước cho một máy, ổn rồi mới cho siêu

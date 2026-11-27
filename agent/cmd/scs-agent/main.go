@@ -23,6 +23,7 @@ import (
 	"github.com/thangkes/SCS-System/agent/internal/enroll"
 	"github.com/thangkes/SCS-System/agent/internal/heartbeat"
 	"github.com/thangkes/SCS-System/agent/internal/identity"
+	"github.com/thangkes/SCS-System/agent/internal/lan"
 	"github.com/thangkes/SCS-System/agent/internal/smart"
 	"github.com/thangkes/SCS-System/agent/internal/sysinfo"
 	"github.com/thangkes/SCS-System/agent/internal/update"
@@ -290,7 +291,10 @@ func runAgent(stdout, stderr io.Writer, cfg *config.Config) int {
 		}
 		err := heartbeat.Run(ctx, heartbeat.Deps{Log: log, Client: c, StateDir: cfg.StateDir, State: st,
 			Version: version, ReleasePub: cfg.ReleasePub, Scanner: sc, KeyDir: cfg.KeyDir, Renew: renew,
-			FirstDelay: firstDelay, Services: cfg.WatchServices, AlertLevel: sc.SetAlertLevel, Status: func(svcs []string) *protocol.MachineStatus {
+			FirstDelay: firstDelay, Services: cfg.WatchServices, AlertLevel: sc.SetAlertLevel,
+			LAN: &lan.Inventory{Log: log.With("phan", "kiem-ke-lan"), StateDir: cfg.StateDir, ReleasePub: cfg.ReleasePub,
+				Enabled: cfg.Probes},
+			Status: func(svcs []string) *protocol.MachineStatus {
 				st := sysinfo.Status(svcs)
 				st.Smart = smart.Load(smart.DefaultFile) // tác vụ root ghi, agent chỉ đọc
 				return st

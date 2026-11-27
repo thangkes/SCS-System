@@ -68,3 +68,21 @@ func TestInstallLoadRun(t *testing.T) {
 		t.Fatalf("err=%v events=%+v", err, got)
 	}
 }
+
+// Bộ chỉ có sơ đồ LAN (không rule quét log nào) vẫn cài và nạp được (kiểm kê thiết bị LAN, schema 4).
+func TestInstallLANOnly(t *testing.T) {
+	state, pub, priv := setup(t)
+	b, err := rules.Build(&rules.RuleSet{Schema: rules.LANSchema, Name: "lan", Version: "1",
+		LAN: &rules.LAN{Targets: []rules.LANTarget{{IP: "192.168.1.10", Type: "can"}}}}, priv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := json.Marshal(b)
+	if _, err := Install(state, pub, data); err != nil {
+		t.Fatalf("cài bộ chỉ có sơ đồ LAN: %v", err)
+	}
+	s, err := Load(state, pub)
+	if err != nil || s.LAN == nil || len(s.LAN.Targets) != 1 {
+		t.Fatalf("nạp bộ chỉ có sơ đồ LAN: %v %+v", err, s)
+	}
+}

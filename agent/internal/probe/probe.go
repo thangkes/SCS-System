@@ -240,3 +240,14 @@ func parseRoute(r io.Reader) (netip.Addr, error) {
 	}
 	return netip.Addr{}, errors.New("không có router mặc định")
 }
+
+// Ping: một gói ICMP echo tới ip (socket ping không đặc quyền; ErrUnsupported nếu máy không cho). Dùng lại
+// cho kiểm kê LAN.
+func Ping(ctx context.Context, ip netip.Addr, timeout time.Duration) (time.Duration, error) {
+	return ping(ctx, ip, timeout)
+}
+
+// DialTCP: mở được kết nối TCP tới ip:port trong timeout. Dùng lại cho kiểm kê LAN.
+func DialTCP(ctx context.Context, ip netip.Addr, port int, timeout time.Duration) (time.Duration, error) {
+	return dialTCP(ctx, ip, port, timeout)
+}

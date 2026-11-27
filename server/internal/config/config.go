@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/thangkes/SCS-System/common/protocol"
+	"github.com/thangkes/SCS-System/server/internal/lan"
 )
 
 type Config struct {
@@ -84,6 +85,9 @@ type Config struct {
 	// RulesDir (SCS_RULES_DIR): kho bộ rule trên server — file nguồn (src/) và bản đã ký (signed/).
 	// Trang web "Rule quét log", menu mục 16 và `scs-server rules list|add|approve` dùng thư mục này.
 	RulesDir string
+	// LANAllow (SCS_LAN_ALLOW): các dải IPv4 nội bộ được phép đưa vào sơ đồ LAN của bộ rule (kiểm kê thiết bị LAN),
+	// ví dụ "192.168.1.0/24". Trống (mặc định) = server không ký bộ rule nào có sơ đồ LAN.
+	LANAllow []netip.Prefix
 	// AlertAutoClose (SCS_ALERT_AUTOCLOSE): cảnh báo mức high tự đóng sau bấy lâu không có sự kiện
 	// high / critical mới (critical chỉ admin đóng). OfflineAfter (SCS_OFFLINE_AFTER): không nghe máy
 	// gửi gì bấy lâu thì báo mất liên lạc. Xem docs/thiet-ke-luu-theo-giai-doan.md.
@@ -177,6 +181,7 @@ func Load() (*Config, error) {
 		ClusterDir:       get("SCS_CLUSTER_DIR", "data/cluster"),
 		ClusterListen:    get("SCS_CLUSTER_LISTEN", ":5222"),
 		RulesDir:         get("SCS_RULES_DIR", "data/rules"),
+		LANAllow:         getLANAllow(&errs),
 		AlertAutoClose:   getDuration("SCS_ALERT_AUTOCLOSE", 24*time.Hour, time.Hour, 30*24*time.Hour, &errs),
 		OfflineAfter:     getDuration("SCS_OFFLINE_AFTER", 60*time.Minute, 10*time.Minute, 24*time.Hour, &errs),
 		MetricsKeep:      getDuration("SCS_METRICS_KEEP", 90*24*time.Hour, 24*time.Hour, 400*24*time.Hour, &errs),
@@ -285,6 +290,14 @@ func getDomains(key, def string) []string {
 		}
 	}
 	return out
+}
+
+func getLANAllow(errs *[]error) []netip.Prefix {
+	p, err := lan.ParseAllow(get("SCS_LAN_ALLOW", ""))
+	if err != nil {
+		*errs = append(*errs, err)
+	}
+	return p
 }
 
 func get(key, def string) string {

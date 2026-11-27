@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/thangkes/SCS-System/server/internal/cluster"
+	"github.com/thangkes/SCS-System/server/internal/lan"
 	"github.com/thangkes/SCS-System/server/internal/pki"
 	"github.com/thangkes/SCS-System/server/internal/rulefile"
 	"github.com/thangkes/SCS-System/server/internal/rulestore"
@@ -96,6 +97,12 @@ func runRuleStore(sub string, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "✖ kho bộ rule:", err)
 		return 1
 	}
+	allow, err := lan.ParseAllow(os.Getenv("SCS_LAN_ALLOW"))
+	if err != nil {
+		fmt.Fprintln(stderr, "✖", err)
+		return 1
+	}
+	s.SignCheck = lan.SignCheck(allow)
 	log, _ := cluster.ReadLog(*clusterDir)
 	ap := rulestore.Approvals(log)
 	inCluster := len(log) > 0

@@ -38,7 +38,7 @@ func payload(s *RuleSet) (*RuleSet, []byte, string, error) {
 		return nil, nil, "", err
 	}
 	out := s.ForAgent()
-	if len(out.Rules) == 0 {
+	if len(out.Rules) == 0 && out.LAN == nil { // bộ chỉ có sơ đồ LAN vẫn hợp lệ
 		return nil, nil, "", ErrNoRules
 	}
 	data, err := json.Marshal(out)

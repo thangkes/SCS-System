@@ -19,6 +19,8 @@
   --bad-soft: #fdeceb;
   --info: #2160d8;
   --info-soft: #e8effd;
+  --lan-gone: #9a7b5f;
+  --lan-lech: #8b4fd6;
   --shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .06);
   --shadow-lg: 0 12px 32px rgba(16, 24, 40, .16);
   --radius: 12px;
@@ -46,6 +48,8 @@
     --bad-soft: #2d1615;
     --info: #78a9ff;
     --info-soft: #17243b;
+    --lan-gone: #b89a7c;
+    --lan-lech: #b48cf2;
     --shadow: 0 1px 2px rgba(0, 0, 0, .4);
     --shadow-lg: 0 12px 32px rgba(0, 0, 0, .5);
     color-scheme: dark;
@@ -71,6 +75,8 @@
   --bad-soft: #2d1615;
   --info: #78a9ff;
   --info-soft: #17243b;
+  --lan-gone: #b89a7c;
+  --lan-lech: #b48cf2;
   --shadow: 0 1px 2px rgba(0, 0, 0, .4);
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, .5);
   color-scheme: dark;
@@ -684,3 +690,27 @@ label.inline input, label.inline select { height: 32px; }
 .sess-cfg input[type=number] { width: 64px; height: 30px; font-size: 13px; }
 .sess-cfg select { height: 30px; font-size: 13px; }
 .rp-charts.rp-one { grid-template-columns: 1fr; }
+
+/* ---------------------------------------------------------------- Thiết bị LAN (chấm màu theo thiết bị) */
+.lan-dots { display: flex; flex-wrap: wrap; gap: 4px 0; align-items: center; min-width: 220px; }
+.lan-group { display: inline-flex; flex-wrap: nowrap; gap: 2px; align-items: center; padding: 0 7px; border-left: 1px solid var(--line); }
+.lan-group:first-child { padding-left: 0; border-left: 0; }
+.lan-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; border: 2px solid transparent; position: relative; }
+.lan-dot.st-online { background: var(--ok); }
+.lan-dot.st-never { background: var(--line); }
+.lan-dot.st-absent { background: var(--warn); }
+.lan-dot.st-gone { background: transparent; border: 2px dashed var(--lan-gone); }
+.lan-dot.st-unknown { background: transparent; border-color: var(--faint); }
+.lan-dot.lech { background: var(--lan-lech); }
+.lan-dot.tn-noagent::after { content: ""; position: absolute; right: -4px; top: -4px; width: 6px; height: 6px; border-radius: 50%; background: var(--bad); border: 1px solid var(--panel); }
+.lan-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); }
+.lan-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.lan-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.lan-cell { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); min-width: 0; }
+.lan-cell .lan-dot { margin-top: 3px; }
+.lan-cell .lan-cell-body { min-width: 0; }
+.lan-cell .sub { display: block; }
+.lan-count { white-space: nowrap; }
+.lan-store { min-width: 140px; }
+.lan-cell .strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lan-tn { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 13px; }
