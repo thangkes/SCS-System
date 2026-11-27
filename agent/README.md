@@ -81,7 +81,7 @@ SCS_WATCH_SERVICES=pos.service             # dịch vụ cần báo trạng thá
 # SCS_KEY_DIR=/etc/scs-agent                   # khóa riêng + chứng chỉ (quyền 600)
 # SCS_STATE_DIR=/var/lib/scs-agent             # trạng thái, vị trí đọc log, hàng đợi
 # SCS_LOG_LEVEL=info
-SCS_PROBES=on                                # off = tắt hẳn kiểm thiết bị trong LAN (rule nguồn probe) trên máy này
+SCS_PROBES=on                                # off = tắt hẳn kiểm thiết bị trong LAN (rule probe và sơ đồ LAN) trên máy này
 ```
 
 `agent.env` thuộc root (640, nhóm scs-agent): agent và server không đổi được. Cài lại agent giữ nguyên `SCS_PROBES=off`.
@@ -116,6 +116,12 @@ nhiệt độ cao nhất các cảm biến (`/sys/class/thermal`), inode và c�
 (`/sys/block`: model, dung lượng, HDD/SSD, số lỗi I/O kernel đếm từ lần khởi động — `device/ioerr_cnt`, chỉ ổ
 SATA/SAS có). Tất cả đọc bằng user thường, không cần quyền thêm; chưa đọc SMART (cần quyền raw với ổ). Phần nào
 không đọc được thì để trống kèm lý do, không làm hỏng cả heartbeat. Xem trước: `scs-agent status`.
+
+**Kiểm kê thiết bị LAN** (`internal/lan`, bộ rule schema 4 có sơ đồ `lan:`): sau heartbeat thành công đầu tiên rồi mỗi
+`every_hb` (mặc định 7) lần, agent kiểm lần lượt từng thiết bị trong sơ đồ (ping không đặc quyền hoặc mở cổng TCP, thử
+lại khi không đáp) — **chỉ thiết bị cùng dải mạng với card mạng của máy**, chính máy tính là có mặt. Kết quả (bitmap
+có mặt / không kiểm, trạng thái, IP LAN của máy) gửi kèm heartbeat kế tiếp, gửi lại tới khi server nhận. `SCS_PROBES=off`
+thì chỉ báo `probes_off`, không gửi gói nào. Máy không cho ping thì báo `icmp_denied`.
 
 ## Các mốc
 

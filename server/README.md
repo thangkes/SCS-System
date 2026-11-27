@@ -240,6 +240,35 @@ liệt kê các **ghi nhận** — **không chấm mức** (không có Nguy hi�
   từng ổ; ghi nhận tham khảo khi ổ tự báo hỏng, SSD dùng ≥ 90% tuổi thọ, có sector đã thay / chờ thay / không đọc được,
   lỗi media NVMe, lỗi CRC (cáp — số cộng dồn cả đời ổ). Ổ không đọc được SMART (card RAID phần cứng, USB, SAS) chỉ hiện lý do.
 
+## Thiết bị LAN — kiểm kê, chỉ để tham khảo
+
+Bộ rule (schema 4) có thể kèm **sơ đồ LAN** (`lan:`): danh sách thiết bị cố định trong mạng siêu thị. Mọi máy có agent
+kiểm sơ đồ sau mỗi 7 heartbeat thành công và gửi kết quả (bitmap) kèm heartbeat kế tiếp; server gộp theo siêu thị.
+Cách viết sơ đồ: [docs/huong-dan-viet-rule.md §5.2](../docs/huong-dan-viet-rule.md).
+
+- **Dải được phép** `SCS_LAN_ALLOW` (server.env, ví dụ `192.168.1.0/24,10.20.0.0/16`): server chỉ ký bộ có sơ đồ LAN
+  khi mọi IP nằm trong dải; **mặc định trống = không ký**. Kiểm trước khi đưa cụm duyệt (web, `rules approve`,
+  `rules build` đọc cùng biến). Cụm nhiều server: mọi server khai cùng giá trị. Server không có sơ đồ mặc định nào.
+- **Nhận báo cáo**: chỉ từ máy đã duyệt, có mã siêu thị; sơ đồ (list_v) phải có trong các bộ đã ký của server, sai
+  dạng / sơ đồ lạ thì bỏ (log tối đa mỗi giờ). Thời điểm lấy theo giờ server nhận. Lỗi ghi không làm hỏng heartbeat.
+- **Gộp** (`internal/lan`, logic thuần có test): online = có máy thấy trong 5 giờ; vắng = từng thấy, quá 5 giờ không máy
+  nào thấy; lâu không thấy = quá 30 ngày; chưa từng thấy = coi như siêu thị không có, không tính thiếu; không rõ = không
+  máy nào báo trong 5 giờ; lệch = một máy ≥ 2 lượt liên tiếp không thấy thiết bị máy khác vừa thấy; máy báo bất thường
+  = thấy ít hơn nửa trung vị các máy khác (không tính lệch cho máy đó).
+- **Đối chiếu máy thu ngân** (`type: tn`) với IP LAN các máy agent báo: khớp / chưa có agent / chưa rõ (còn máy agent
+  chưa gửi kết quả — agent cũ) / máy agent sai IP.
+- **Lưu** (migration 0023): `lan_reporters` (1 dòng / máy), `lan_sites` (1 dòng / siêu thị, JSON), `lan_changes` (lịch
+  sử đổi trạng thái, **giữ 10 ngày**, tối đa 6 lần / thiết bị / ngày — quá thì đánh dấu chập chờn). Dòng máy / siêu thị
+  chỉ ghi khi có thay đổi hoặc mỗi giờ. Ước lượng 5.000 siêu thị × 10 máy: ~40 MB cố định + ~300 MB lịch sử.
+- **API** (mức Chỉ xem): `GET /admin/v1/lan` (mọi siêu thị, đệm 60 giây), `GET /admin/v1/lan/{mã}` (chi tiết + lịch sử).
+- **Web**: menu **Thiết bị LAN** (nhóm Tham khảo): chấm màu từng thiết bị (xanh online, xám chưa từng thấy, cam vắng,
+  nâu viền đứt lâu không thấy, tím lệch, chấm rỗng không rõ, chấm đỏ nhỏ = máy thu ngân chưa có agent), đếm có mặt /
+  từng thấy, thiếu theo loại, lọc, xuất CSV, bấm siêu thị xem lưới thiết bị, máy đã báo, lịch sử 10 ngày.
+- **Không phải cảnh báo**: không ghi sự kiện, không mở sự cố, không vào trang Cảnh báo.
+- Chưa có: gộp dữ liệu giữa các server trong cụm (mỗi server chỉ thấy máy gửi về nó), tóm tắt theo ngày.
+- Thứ tự triển khai: phát bản agent mới (đọc schema 4) cho cả hệ thống trước — server không phát bộ schema 4 cho agent
+  cũ (máy cũ giữ bộ đang chạy) — rồi khai `SCS_LAN_ALLOW`, ký và gán bộ có sơ đồ.
+
 ## Chứng chỉ máy: server tự kiểm
 
 Worker kiểm 10 phút một lần (migration 0018 thêm hai loại cảnh báo):
