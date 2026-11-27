@@ -1,6 +1,7 @@
 // Package lan: kiểm kê thiết bị LAN theo sơ đồ LAN của bộ rule đã ký (schema 4).
 //
-// Sau mỗi EveryHB heartbeat thành công (và ngay sau heartbeat thành công đầu tiên kể từ khi agent chạy), agent
+// Ngay sau heartbeat thành công đầu tiên kể từ khi agent chạy, rồi sau mỗi every_hb heartbeat thành công (hoặc số
+// ngẫu nhiên trong [every_hb, every_hb_max] — schema 5, bốc lại sau mỗi lượt), agent
 // kiểm lần lượt từng thiết bị trong sơ đồ (ping ICMP không đặc quyền hoặc mở kết nối TCP, thử lại khi không
 // đáp) rồi giữ kết quả dạng bitmap; heartbeat kế tiếp gửi kèm, server nhận thì bỏ. Không sinh sự kiện.
 //
@@ -14,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net"
 	"net/netip"
 	"sync"
@@ -42,9 +44,11 @@ type Inventory struct {
 	Prefixes func() ([]netip.Prefix, error) // các dải IPv4 của card mạng trên máy (địa chỉ máy + độ dài mặt nạ)
 	Now      func() time.Time
 	Sleep    func(ctx context.Context, d time.Duration)
+	Intn     func(n int) int // ngẫu nhiên [0, n) cho nhịp every_hb_max
 
 	mu      sync.Mutex
 	ok      int // số heartbeat thành công từ khi chạy
+	next    int // lượt kiểm kế tiếp chạy khi ok ≥ next (0 = ngay heartbeat thành công đầu tiên)
 	round   int
 	running bool
 	pending *protocol.LANReport
@@ -69,6 +73,9 @@ func (v *Inventory) fill() {
 	}
 	if v.Now == nil {
 		v.Now = time.Now
+	}
+	if v.Intn == nil {
+		v.Intn = rand.IntN
 	}
 	if v.Sleep == nil {
 		v.Sleep = func(ctx context.Context, d time.Duration) {
@@ -118,11 +125,15 @@ func (v *Inventory) HeartbeatOK(ctx context.Context, sent *protocol.LANReport) {
 		}
 		return
 	}
-	if (n-1)%set.LAN.Every() != 0 {
-		return
-	}
 	l := *set.LAN
 	v.mu.Lock()
+	if v.next != 0 && n < v.next {
+		v.mu.Unlock()
+		return
+	}
+	// Lượt sau: sau every_hb heartbeat, hoặc ngẫu nhiên trong [every_hb, every_hb_max] (schema 5). Lượt trước còn
+	// chạy lúc tới hạn thì chạy ngay heartbeat kế tiếp sau khi xong.
+	v.next = n + l.NextEvery(v.Intn)
 	v.running = true
 	v.round++
 	round := v.round

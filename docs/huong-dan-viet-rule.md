@@ -287,6 +287,9 @@ lan:
     - {ip: 192.168.1.251, type: dvr,   label: "Đầu ghi"}
 ```
 
+- **Nhịp ngẫu nhiên** (schema 5): thêm `every_hb_max`, ví dụ `every_hb: 5` + `every_hb_max: 9` — sau mỗi lượt agent bốc
+  ngẫu nhiên số heartbeat tới lượt sau trong khoảng 5–9 (trung bình 7, khoảng 1,5–2,6 giờ). Bộ có `every_hb_max` phải khai
+  `schema: 5`; server không phát cho agent chỉ đọc tới schema 4 (agent đó giữ bộ đang chạy). Không khai = luôn `every_hb`.
 - `type`: `can` (cân), `tn` (máy thu ngân — server đối chiếu với máy đã có agent), `may_in`, `dvr`, `mang`, `khac`.
 - `kind`: `icmp` (mặc định, ping) hoặc `tcp` + `port` (thiết bị không trả ping, ví dụ máy in cổng 9100).
 - Siêu thị không có một thiết bị trong sơ đồ (ví dụ đầu ghi thứ hai chỉ kho mới có) thì thiết bị đó hiện **xám — chưa
@@ -671,7 +674,7 @@ sudo scs-agent rules          # phải thấy POS-DB-LOST-01 và nguồn "journa
 | Nhãn máy đặt trên web mỗi cấp | 16 |
 | Bộ rule đã ký | 1 MB |
 | Rule `probe`: số đích cả bộ / nhịp / timeout | 16 / ≥ 60 giây / ≤ 5000 ms; chỉ IPv4 nội bộ hoặc `{gateway}` |
-| Sơ đồ LAN (`lan:`): số thiết bị / nhịp / thử lại | 48 / ≥ 3 heartbeat / ≤ 2; chỉ IPv4 nội bộ trong `SCS_LAN_ALLOW`, cùng dải với máy |
+| Sơ đồ LAN (`lan:`): số thiết bị / nhịp / thử lại | 48 / ≥ 3 heartbeat (`every_hb_max` ≤ 288, schema 5) / ≤ 2; chỉ IPv4 nội bộ trong `SCS_LAN_ALLOW`, cùng dải với máy |
 
 ## 14. An toàn
 

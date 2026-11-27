@@ -92,3 +92,45 @@ func TestLANForAgent(t *testing.T) {
 		t.Fatal("ForAgent làm mất sơ đồ LAN")
 	}
 }
+
+// every_hb_max: nhịp ngẫu nhiên trong [every_hb, every_hb_max], cần schema 5.
+func TestLANEveryRandom(t *testing.T) {
+	tg := []LANTarget{{IP: "10.0.0.1", Type: "khac"}}
+	ok := &RuleSet{Schema: LANRandomSchema, Name: "lan", Version: "1", LAN: &LAN{EveryHB: 5, EveryHBMax: 9, Targets: tg}}
+	if err := ok.Validate(); err != nil {
+		t.Fatalf("hợp lệ mà bị từ chối: %v", err)
+	}
+	for _, c := range []struct {
+		name string
+		set  *RuleSet
+		want string
+	}{
+		{"schema 4", &RuleSet{Schema: 4, Name: "lan", Version: "1", LAN: &LAN{EveryHB: 5, EveryHBMax: 9, Targets: tg}}, "schema: 5"},
+		{"max < min", &RuleSet{Schema: 5, Name: "lan", Version: "1", LAN: &LAN{EveryHB: 5, EveryHBMax: 4, Targets: tg}}, "every_hb_max"},
+		{"max < mặc định 7", &RuleSet{Schema: 5, Name: "lan", Version: "1", LAN: &LAN{EveryHBMax: 6, Targets: tg}}, "every_hb_max"},
+		{"max quá lớn", &RuleSet{Schema: 5, Name: "lan", Version: "1", LAN: &LAN{EveryHBMax: 999, Targets: tg}}, "every_hb_max"},
+	} {
+		if err := c.set.Validate(); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: muốn lỗi chứa %q, được %v", c.name, c.want, err)
+		}
+	}
+	l := ok.LAN
+	seen := map[int]bool{}
+	for i := 0; i < 5; i++ {
+		n := l.NextEvery(func(k int) int { return i % k })
+		if n < 5 || n > 9 {
+			t.Fatalf("ngoài khoảng: %d", n)
+		}
+		seen[n] = true
+	}
+	if len(seen) != 5 {
+		t.Fatalf("phải phủ đủ 5–9, được %v", seen)
+	}
+	if (&LAN{EveryHB: 6}).NextEvery(func(int) int { return 3 }) != 6 {
+		t.Fatal("không khai every_hb_max thì luôn every_hb")
+	}
+	// Bộ schema 4 cũ (không có every_hb_max) vẫn hợp lệ.
+	if err := (&RuleSet{Schema: 4, Name: "lan", Version: "1", LAN: &LAN{EveryHB: 7, Targets: tg}}).Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -149,3 +149,34 @@ func TestPopcount(t *testing.T) {
 		t.Fatal("popcount sai")
 	}
 }
+
+// every_hb_max: sau mỗi lượt agent bốc ngẫu nhiên số heartbeat tới lượt sau trong [every_hb, every_hb_max].
+func TestHeartbeatRandomEvery(t *testing.T) {
+	var pings atomic.Int32
+	v := fakeInv(&pings)
+	l := testLAN()
+	l.EveryHB, l.EveryHBMax = 3, 6
+	v.Load = func() (*rules.RuleSet, error) { return &rules.RuleSet{Schema: 5, LAN: l}, nil }
+	picks := []int{3, 0, 1} // lượt 1 → +6 heartbeat; lượt 2 → +3; lượt 3 → +4
+	v.Intn = func(n int) int {
+		if n != 4 {
+			t.Fatalf("khoảng bốc phải là 4 giá trị (3..6), được %d", n)
+		}
+		p := picks[0]
+		picks = picks[1:]
+		return p
+	}
+	ctx := context.Background()
+	var rounds []int
+	for hb := 1; hb <= 10; hb++ {
+		before := v.round
+		v.HeartbeatOK(ctx, v.Pending())
+		v.Wait()
+		if v.round != before {
+			rounds = append(rounds, hb)
+		}
+	}
+	if len(rounds) != 3 || rounds[0] != 1 || rounds[1] != 7 || rounds[2] != 10 {
+		t.Fatalf("lượt kiểm ở heartbeat %v, muốn [1 7 10]", rounds)
+	}
+}

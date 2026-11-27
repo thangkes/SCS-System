@@ -23,8 +23,12 @@ import (
 // Agent chỉ kiểm đích nằm cùng dải mạng với một card mạng của chính máy (không thể dùng để quét mạng khác);
 // server chỉ ký sơ đồ có đích nằm trong dải admin cho phép (SCS_LAN_ALLOW, mặc định trống = không ký).
 
-// LANSchema: schema bộ rule tối thiểu để có sơ đồ LAN.
-const LANSchema = 4
+// LANSchema: schema bộ rule tối thiểu để có sơ đồ LAN. LANRandomSchema: có every_hb_max (nhịp ngẫu nhiên) — agent
+// bản schema 4 đọc JSON chặt (trường lạ là bỏ cả bộ) nên trường mới cần schema riêng để server không phát cho nó.
+const (
+	LANSchema       = 4
+	LANRandomSchema = 5
+)
 
 // Giới hạn sơ đồ LAN.
 const (
@@ -49,10 +53,13 @@ var LANTypes = map[string]string{
 
 // LAN: sơ đồ thiết bị LAN của một bộ rule.
 type LAN struct {
-	EveryHB   int         `json:"every_hb,omitempty"`   // kiểm sau bấy nhiêu heartbeat thành công (mặc định 7)
-	Retry     int         `json:"retry,omitempty"`      // thử lại khi không đáp (mặc định 1; -1 = không thử lại)
-	TimeoutMs int         `json:"timeout_ms,omitempty"` // chờ mỗi lần (mặc định 1500, tối đa 5000)
-	Targets   []LANTarget `json:"targets"`
+	EveryHB int `json:"every_hb,omitempty"` // kiểm sau bấy nhiêu heartbeat thành công (mặc định 7)
+	// EveryHBMax: có thì sau mỗi lượt agent bốc ngẫu nhiên số heartbeat tới lượt sau trong [every_hb, every_hb_max]
+	// (cần schema 5). 0 = luôn every_hb.
+	EveryHBMax int         `json:"every_hb_max,omitempty"`
+	Retry      int         `json:"retry,omitempty"`      // thử lại khi không đáp (mặc định 1; -1 = không thử lại)
+	TimeoutMs  int         `json:"timeout_ms,omitempty"` // chờ mỗi lần (mặc định 1500, tối đa 5000)
+	Targets    []LANTarget `json:"targets"`
 }
 
 // LANTarget: một thiết bị.
@@ -72,6 +79,23 @@ func (l *LAN) Every() int {
 		return DefaultLANEveryHB
 	}
 	return l.EveryHB
+}
+
+// EveryMax: cận trên của nhịp (bằng Every khi không khai every_hb_max).
+func (l *LAN) EveryMax() int {
+	if l.EveryHBMax < l.Every() {
+		return l.Every()
+	}
+	return l.EveryHBMax
+}
+
+// NextEvery: số heartbeat tới lượt kiểm sau — ngẫu nhiên đều trong [Every, EveryMax]. intn(n) trả số trong [0, n).
+func (l *LAN) NextEvery(intn func(int) int) int {
+	lo, hi := l.Every(), l.EveryMax()
+	if hi <= lo || intn == nil {
+		return lo
+	}
+	return lo + intn(hi-lo+1)
 }
 
 func (l *LAN) Tries() int {
@@ -137,6 +161,9 @@ func (l *LAN) validate() []string {
 	add := func(format string, a ...any) { errs = append(errs, fmt.Sprintf(format, a...)) }
 	if l.EveryHB != 0 && (l.EveryHB < MinLANEveryHB || l.EveryHB > MaxLANEveryHB) {
 		add("lan.every_hb: từ %d tới %d heartbeat", MinLANEveryHB, MaxLANEveryHB)
+	}
+	if l.EveryHBMax != 0 && (l.EveryHBMax < l.Every() || l.EveryHBMax > MaxLANEveryHB) {
+		add("lan.every_hb_max: từ every_hb (%d) tới %d heartbeat", l.Every(), MaxLANEveryHB)
 	}
 	if l.Retry < -1 || l.Retry > MaxLANRetry {
 		add("lan.retry: từ -1 (không thử lại) tới %d", MaxLANRetry)

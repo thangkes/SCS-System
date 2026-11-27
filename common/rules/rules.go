@@ -42,7 +42,7 @@ const (
 	MaxApplyKeys  = 8
 	MaxApplyVals  = 16
 	// SchemaMax: schema cao nhất bản này đọc được. Agent báo "rules/<SchemaMax>" trong heartbeat.
-	SchemaMax = 4
+	SchemaMax = 5
 )
 
 // RuleSet: một bộ rule, gán cho nhóm máy. Version đổi mỗi lần sửa để agent biết phải tải lại.
@@ -139,6 +139,9 @@ func (s *RuleSet) Validate() error {
 	if s.LAN != nil {
 		if s.Schema < LANSchema {
 			add("lan: sơ đồ LAN cần khai \"schema: %d\" ở đầu bộ rule (agent cũ không chạy được)", LANSchema)
+		}
+		if s.LAN.EveryHBMax != 0 && s.Schema < LANRandomSchema {
+			add("lan.every_hb_max: cần khai \"schema: %d\" ở đầu bộ rule (agent bản schema 4 không đọc được trường này)", LANRandomSchema)
 		}
 		for _, e := range s.LAN.validate() {
 			add("%s", e)
