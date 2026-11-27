@@ -180,9 +180,16 @@ func (v *Inventory) Round(ctx context.Context, l *rules.LAN) *protocol.LANReport
 		r.State, skip = protocol.LANStateProbesOff, all
 		return r
 	}
-	prefixes, _ := v.Prefixes()
+	prefixes, perr := v.Prefixes()
 	own, inLAN := pickLAN(prefixes, l)
 	if !own.IsValid() {
+		if v.Log != nil {
+			mine := make([]string, 0, len(prefixes))
+			for _, p := range prefixes {
+				mine = append(mine, p.String())
+			}
+			v.Log.Warn("không card mạng nào của máy cùng dải với sơ đồ LAN: không kiểm", "dia_chi_may", mine, "err", perr)
+		}
 		r.State, skip = protocol.LANStateNoLAN, all
 		return r
 	}
@@ -276,8 +283,24 @@ func pickLAN(prefixes []netip.Prefix, l *rules.LAN) (netip.Addr, func(netip.Addr
 	}
 }
 
-// localPrefixes: các địa chỉ IPv4 (kèm mặt nạ) của card mạng đang bật, trừ loopback.
+// localPrefixes: các địa chỉ IPv4 (kèm mặt nạ) của card mạng đang bật, trừ loopback. Thử net.Interfaces (netlink)
+// trước; dịch vụ systemd chặn netlink (RestrictAddressFamilies) thì đọc bằng ioctl trên socket AF_INET.
 func localPrefixes() ([]netip.Prefix, error) {
+	out, err := netlinkPrefixes()
+	if err == nil && len(out) > 0 {
+		return out, nil
+	}
+	alt, err2 := ioctlPrefixes()
+	if err2 == nil {
+		return alt, nil
+	}
+	if err == nil {
+		return out, nil
+	}
+	return nil, errors.Join(err, err2)
+}
+
+func netlinkPrefixes() ([]netip.Prefix, error) {
 	ifs, err := net.Interfaces()
 	if err != nil {
 		return nil, err
