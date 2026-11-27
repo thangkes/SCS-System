@@ -204,7 +204,7 @@ label { font-weight: 600; font-size: 13px; }
 .nav a:hover, .nav-link:hover { background: var(--panel-2); color: var(--text); }
 .nav a.active, .nav-link.active { background: var(--accent-soft); color: var(--accent); }
 .nav a.nav-soon { opacity: .6; }
-.sidebar-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); display: grid; gap: 6px; }
+.sidebar-foot { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--line); display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .foot-row { display: flex; align-items: center; justify-content: space-between; padding: 0 2px; }
 
 .main { min-width: 0; display: flex; flex-direction: column; }
@@ -443,7 +443,9 @@ td .sub { display: block; color: var(--faint); font-size: 12px; }
 /* ---------- Đăng nhập bằng mã, người đang đăng nhập ---------- */
 .code-input { font-size: 22px; letter-spacing: .3em; text-align: center; font-variant-numeric: tabular-nums; }
 .me { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 10px; }
-.me-name { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-name { flex: 0 0 auto; max-width: 55%; font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Tên mức quyền có thể dài ("Duyệt agent, phát hành bản cập nhật") — co lại và cắt "…" thay vì tràn khỏi sidebar; tên đầy đủ ở title */
+#me-role { display: block; flex: 0 1 auto; min-width: 0; max-width: 100%; line-height: 22px; overflow: hidden; text-overflow: ellipsis; }
 .btn[disabled] { opacity: .5; cursor: not-allowed; }
 tr.current td { background: var(--accent-soft); }
 

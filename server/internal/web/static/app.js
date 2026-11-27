@@ -3618,8 +3618,10 @@
     $('#login').hidden = true;
     $('#app').hidden = false;
     $('#me-name').textContent = me.name;
-    $('#me-role').textContent = me.level_name || LEVEL_NAMES[myLevel()];
-    $('#me-role').title = `Mức quyền ${myLevel()}${me.account ? ' · tài khoản email' : ' · mã SSH'}`;
+    $('#me-name').title = me.name;
+    const roleName = me.level_name || LEVEL_NAMES[myLevel()];
+    $('#me-role').textContent = roleName;
+    $('#me-role').title = `${roleName} · mức quyền ${myLevel()}${me.account ? ' · tài khoản email' : ' · mã SSH'}`;
     $('#me-role').className = `pill no-dot ${isAdmin() ? 'pill-ok' : myLevel() === LV.view ? 'pill-info' : 'pill-warn'}`;
     refreshAccountCount();
     refreshPendingCount();
