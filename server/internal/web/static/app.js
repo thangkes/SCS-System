@@ -1338,7 +1338,7 @@
   async function pageLAN(params) {
     setTitle('Thiết bị LAN');
     const page = view;
-    const state = { q: params.get('q') || '', filter: params.get('f') || 'missing', type: params.get('type') || '', page: 0, list: [], meta: {} };
+    const state = { q: params.get('q') || '', filter: params.get('f') || 'all', type: params.get('type') || '', page: 0, list: [], meta: {} };
     const PAGE = 50;
     page.innerHTML = `
       <div class="callout callout-info"><strong>Thông tin tham khảo.</strong> Mọi máy có agent kiểm các thiết bị trong sơ đồ LAN của bộ rule
