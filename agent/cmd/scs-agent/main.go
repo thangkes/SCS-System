@@ -422,5 +422,5 @@ func orDash(s string) string {
 func newLogger(w io.Writer, level string) *slog.Logger {
 	var lv slog.Level
 	lv.UnmarshalText([]byte(level)) // config.Load đã kiểm giá trị hợp lệ
-	return slog.New(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: lv}))
+	return slog.New(newLimitHandler(slog.NewJSONHandler(w, &slog.HandlerOptions{Level: lv}), nil))
 }

@@ -78,6 +78,8 @@ func (j *journal) run(ctx context.Context) {
 		}
 	}()
 	backoff := 5 * time.Second
+	var warnAt time.Time
+	restarts := 0
 	for ctx.Err() == nil {
 		j.mu.Lock()
 		cur := j.cursor
@@ -90,7 +92,11 @@ func (j *journal) run(ctx context.Context) {
 		if time.Since(start) > time.Minute {
 			backoff = 5 * time.Second
 		}
-		j.log.Warn("journalctl dừng, sẽ chạy lại", "err", err, "sau", backoff.String())
+		restarts++
+		if time.Since(warnAt) > 10*time.Minute { // chết liên tục: báo tối đa mỗi 10 phút, kèm số lần
+			j.log.Warn("journalctl dừng, sẽ chạy lại", "err", err, "sau", backoff.String(), "so_lan", restarts)
+			warnAt, restarts = time.Now(), 0
+		}
 		select {
 		case <-ctx.Done():
 			return

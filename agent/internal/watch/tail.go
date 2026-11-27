@@ -38,6 +38,8 @@ type tailer struct {
 	off   int64
 	part  []byte
 	since time.Time // lần báo lỗi mở file gần nhất (không báo dồn dập)
+	// readErrAt: lần báo lỗi đọc file gần nhất (không báo dồn dập).
+	readErrAt time.Time
 }
 
 func (t *tailer) run(ctx context.Context) {
@@ -111,7 +113,11 @@ func (t *tailer) drain(ctx context.Context) bool {
 		}
 		if err != nil || n < len(buf) {
 			if err != nil && !errors.Is(err, io.EOF) {
-				t.log.Warn("lỗi đọc file log", "file", t.path, "err", err)
+				// Đọc lỗi (thường là ổ hỏng): mở lại mỗi giây nhưng chỉ báo mỗi 10 phút, không làm đầy journal.
+				if time.Since(t.readErrAt) > 10*time.Minute {
+					t.log.Warn("lỗi đọc file log (báo tối đa mỗi 10 phút)", "file", t.path, "err", err)
+					t.readErrAt = time.Now()
+				}
 				t.f.Close()
 				t.f = nil
 			}

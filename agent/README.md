@@ -123,6 +123,18 @@ lại khi không đáp) — **chỉ thiết bị cùng dải mạng với card m
 có mặt / không kiểm, trạng thái, IP LAN của máy) gửi kèm heartbeat kế tiếp, gửi lại tới khi server nhận. `SCS_PROBES=off`
 thì chỉ báo `probes_off`, không gửi gói nào. Máy không cho ping thì báo `icmp_denied`.
 
+## Không làm phình ổ đĩa
+
+Agent không tự ghi file log; log đi vào journald (journald tự xoay vòng theo dung lượng). Mọi thứ agent ghi đều có giới hạn:
+
+| Ghi gì | Giới hạn |
+|---|---|
+| Log (journald) | Ngày thường vài KB (heartbeat thành công không ghi log). Tối đa 100 dòng dồn dập rồi 1 dòng / 10 giây — dưới ~8.700 dòng / ngày dù lỗi liên tục; dòng bị bỏ được đếm (`log_bo_qua`). Lỗi đọc file log, `journalctl` chết liên tục: báo tối đa mỗi 10 phút |
+| Hàng đợi sự kiện `scan/queue.jsonl` | Tối đa 5.000 sự kiện (đầy thì bỏ sự kiện thường cũ nhất); gửi xong thì xóa khỏi file |
+| Vị trí đọc log, con trỏ journald, trạng thái máy, bộ rule | Ghi đè một file, vài trăm byte – 1 MB |
+| Bản agent tải về | Chỉ giữ bản vừa tải (bản cũ tự xóa) |
+| Kết quả kiểm kê LAN | Chỉ trong RAM tới khi gửi được |
+
 ## Các mốc
 
 | Mốc | Nội dung | Trạng thái |
