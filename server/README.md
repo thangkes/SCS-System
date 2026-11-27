@@ -249,7 +249,8 @@ Cách viết sơ đồ: [docs/huong-dan-viet-rule.md §5.2](../docs/huong-dan-vi
 - **Dải được phép** `SCS_LAN_ALLOW` (server.env, ví dụ `192.168.1.0/24,10.20.0.0/16`): server chỉ ký bộ có sơ đồ LAN
   khi mọi IP nằm trong dải; **mặc định trống = không ký**. Điền bằng **menu mục 21** (kiểm dạng giống server, ghi
   server.env, khởi động lại, server không lên thì tự trả giá trị cũ). Server cài từ bản trước: cập nhật (mục 4) tự thêm
-  dòng `SCS_LAN_ALLOW=` (trống) vào server.env. Kiểm trước khi đưa cụm duyệt (web, `rules approve`,
+  dòng `SCS_LAN_ALLOW=` (trống) vào server.env. Viết sai (ví dụ `10.1.2.0/16` thay vì `10.1.0.0/16`): server **vẫn chạy**,
+  coi như trống (không ký sơ đồ LAN), ghi lỗi lúc khởi động và trang Thiết bị LAN báo lỗi. Kiểm trước khi đưa cụm duyệt (web, `rules approve`,
   `rules build` đọc cùng biến). Cụm nhiều server: mọi server khai cùng giá trị. Server không có sơ đồ mặc định nào.
 - **Nhận báo cáo**: chỉ từ máy đã duyệt, có mã siêu thị; sơ đồ (list_v) phải có trong các bộ đã ký của server, sai
   dạng / sơ đồ lạ thì bỏ (log tối đa mỗi giờ). Thời điểm lấy theo giờ server nhận. Lỗi ghi không làm hỏng heartbeat.

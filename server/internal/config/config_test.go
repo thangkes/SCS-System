@@ -213,3 +213,20 @@ func TestAdminAllow(t *testing.T) {
 		}
 	}
 }
+
+// SCS_LAN_ALLOW sai không làm server dừng (tính năng phụ): coi như trống và ghi lỗi.
+func TestLANAllowInvalidNotFatal(t *testing.T) {
+	clearEnv(t)
+	t.Setenv("SCS_LAN_ALLOW", "192.168.100.0/16")
+	c, err := Load()
+	if err != nil {
+		t.Fatalf("SCS_LAN_ALLOW sai mà server không khởi động: %v", err)
+	}
+	if len(c.LANAllow) != 0 || c.LANAllowErr == "" {
+		t.Fatalf("phải coi như trống và có lỗi: %v %q", c.LANAllow, c.LANAllowErr)
+	}
+	t.Setenv("SCS_LAN_ALLOW", "192.168.100.0/24, 10.20.0.0/16")
+	if c, err = Load(); err != nil || len(c.LANAllow) != 2 || c.LANAllowErr != "" {
+		t.Fatalf("giá trị đúng: %v %v %q", err, c.LANAllow, c.LANAllowErr)
+	}
+}

@@ -133,7 +133,7 @@ func (a lanAPI) summary(w http.ResponseWriter, r *http.Request) {
 		out = append(out, lan.Summarize(lan.View(site, data.Reporters[code], data.Devices[code], maps, now)))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Store < out[j].Store })
-	body := map[string]any{"ok": true, "enabled": true, "maps": len(maps), "allow": len(a.d.Cfg.LANAllow) > 0,
+	body := map[string]any{"ok": true, "enabled": true, "maps": len(maps), "allow": len(a.d.Cfg.LANAllow) > 0, "allow_err": a.d.Cfg.LANAllowErr,
 		"stores": out, "at": now, "types": rules.LANTypes}
 	lanCache.body, lanCache.at = body, time.Now()
 	httpx.WriteJSON(w, http.StatusOK, body)

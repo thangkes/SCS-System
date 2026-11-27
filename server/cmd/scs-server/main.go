@@ -198,6 +198,10 @@ func run(args []string, stdout, stderr io.Writer) int {
 		} else {
 			base.Rules.SignCheck = lan.SignCheck(cfg.LANAllow)
 		}
+		if cfg.LANAllowErr != "" { // tính năng phụ: không dừng server, chỉ không ký sơ đồ LAN nào
+			log.Error("SCS_LAN_ALLOW sai, coi như trống (không ký bộ rule có sơ đồ LAN): sửa bằng menu mục 21",
+				"err", cfg.LANAllowErr)
+		}
 	}
 	if cmd == "all" { // phần cụm chạy cùng tiến trình với web quản trị (trang "Cụm server" dùng chung node)
 		if base.Cluster, err = cluster.Open(cfg.ClusterDir); err != nil {

@@ -1390,10 +1390,11 @@
     const render = () => {
       const all = state.list;
       const m = state.meta;
-      $('#lan-setup').innerHTML = !m.enabled ? '<div class="callout">Server chưa có phần lưu thiết bị LAN (chưa kết nối cơ sở dữ liệu / kho bộ rule).</div>'
+      $('#lan-setup').innerHTML = (m.allowErr ? `<div class="callout"><strong>SCS_LAN_ALLOW đang sai</strong> — server coi như trống, không ký bộ rule có sơ đồ LAN:
+          ${esc(m.allowErr)}. Sửa bằng menu server mục 21.</div>` : '') + (!m.enabled ? '<div class="callout">Server chưa có phần lưu thiết bị LAN (chưa kết nối cơ sở dữ liệu / kho bộ rule).</div>'
         : !m.maps ? `<div class="callout">Chưa có bộ rule đã ký nào có <strong>sơ đồ LAN</strong>. Khai dải mạng được phép bằng
             <code>SCS_LAN_ALLOW</code> trong server.env${m.allow ? ' (đã khai)' : ' (<strong>chưa khai</strong>)'}, viết sơ đồ (mục <code>lan:</code>,
-            <code>schema: 4</code>) trong bộ rule rồi ký và gán cho máy — xem docs/huong-dan-viet-rule.md.</div>` : '';
+            <code>schema: 4</code>) trong bộ rule rồi ký và gán cho máy — xem docs/huong-dan-viet-rule.md.</div>` : '');
       let present = 0, ever = 0, miss = 0, unk = 0, noAgent = 0, tnStores = 0;
       const byType = {};
       all.forEach((s) => {
@@ -1436,7 +1437,7 @@
       try {
         const [j] = await Promise.all([getJSON('/admin/v1/lan'), loadStoreCache()]);
         if (j.types) lanTypes = { ...lanTypes, ...j.types };
-        state.meta = { enabled: j.enabled, maps: j.maps, allow: j.allow };
+        state.meta = { enabled: j.enabled, maps: j.maps, allow: j.allow, allowErr: j.allow_err || '' };
         state.list = j.stores || [];
       } catch (err) {
         if (page === view) showLoadError(page, err);
