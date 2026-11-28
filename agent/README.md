@@ -93,6 +93,12 @@ nên ai chiếm được user này có thể xóa rồi đặt lại các file �
 root, nên bị từ chối (hardlink tới file của root đã bị Ubuntu chặn sẵn, `fs.protected_hardlinks=1`). Sửa tay các file này
 thì dùng `sudo` (giữ chủ root), đừng chép đè bằng user khác.
 
+User scs-agent có mật khẩu khóa và shell `nologin`, nhưng home của nó là thư mục trạng thái `/var/lib/scs-agent` (agent
+ghi được). Nếu ai đó đặt `.ssh/authorized_keys` vào đó thì sshd vẫn cho đăng nhập bằng khóa — `nologin` chặn chạy lệnh
+nhưng **không chặn mở đường hầm** (`ssh -N -L`). Agent kiểm mỗi 30 giây: thấy `.ssh`, `.rhosts`, `.shosts` trong thư mục
+trạng thái thì **xóa ngay** và gửi sự kiện **critical** `SCS-AGENT-SSHKEY-01` (gộp tối đa một sự kiện / 10 phút). Chặn tận
+gốc (cần root, làm khi cài lại): `DenyUsers scs-agent` trong cấu hình sshd.
+
 ## Đăng ký
 
 Lần chạy đầu agent sinh khóa Ed25519 (`/etc/scs-agent/key.pem`, quyền 600), gửi gói đăng ký ký bằng khóa đó,

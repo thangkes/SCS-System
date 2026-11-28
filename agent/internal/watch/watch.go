@@ -129,7 +129,9 @@ func (s *Scanner) Run(ctx context.Context) {
 	lastSig := ""
 	t := time.NewTicker(recheck)
 	defer t.Stop()
+	guard := &homeGuard{dir: s.StateDir}
 	for {
+		s.guardHome(guard)
 		sig, set, labels := s.current()
 		if sig != lastSig {
 			stop()
@@ -356,5 +358,19 @@ func (p *positions) save() {
 	tmp := p.path + ".tmp"
 	if os.WriteFile(tmp, b, 0o600) == nil {
 		_ = os.Rename(tmp, p.path)
+	}
+}
+
+// guardHome: dọn cửa đăng nhập SSH trong thư mục trạng thái (homeguard.go), báo lên server bằng sự kiện critical.
+func (s *Scanner) guardHome(g *homeGuard) {
+	ev, removed, err := g.check(time.Now())
+	if len(removed) > 0 {
+		s.Log.Error("phát hiện cửa đăng nhập SSH trong thư mục của agent, đã xóa", "da_xoa", removed)
+	}
+	if err != nil {
+		s.Log.Warn("không dọn được thư mục của agent", "err", err)
+	}
+	if ev != nil {
+		s.q.push(*ev, s.urgent(ev.Severity))
 	}
 }
