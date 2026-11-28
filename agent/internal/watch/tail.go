@@ -85,6 +85,16 @@ func (t *tailer) open() {
 		f.Close()
 		return
 	}
+	if !plainReadable(fi) {
+		// Mở được chỉ nhờ quyền đặc biệt của agent (symlink tới file của root…): không đọc (fileid_unix.go).
+		f.Close()
+		if time.Since(t.since) > 10*time.Minute {
+			t.log.Warn("bỏ qua file log: agent không có quyền đọc thường (chủ / nhóm / người khác), có thể là symlink tới file khác",
+				"file", t.path)
+			t.since = time.Now()
+		}
+		return
+	}
 	id := fileID(fi)
 	saved, had := t.pos.get(t.path)
 	switch {
