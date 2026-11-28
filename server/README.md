@@ -474,6 +474,21 @@ journalctl -u scs-server -f            # xem log
   mail (đăng nhập, xác minh đăng ký) mất hiệu lực; tài khoản vẫn còn trong DB.
 - Gỡ dịch vụ: `sudo bash scripts/install.sh --uninstall` (giữ cấu hình và dữ liệu).
 
+## Bảo vệ server = bảo vệ cả đội máy
+
+Agent chỉ tin server (CA, khóa phát hành, bộ rule có chữ ký), nên **ai nắm server hoặc khóa của server thì điều khiển
+được mọi agent**: khóa phát hành ký được bản agent chạy trên mọi máy. Từ xa không có đường nào khác: agent không mở cổng,
+chỉ tin CA của server. Những thứ phải giữ như chính server:
+
+| Thứ cần giữ | Vì sao |
+|---|---|
+| `SCS_RELEASE_KEY` (khóa phát hành) | Ký bản agent: nặng nhất. Nên chuyển ra ký ngoài server |
+| `SCS_CA_KEY`, khóa TLS | Giả làm server nếu đứng được giữa đường mạng |
+| Bản sao lưu có `/etc/scs-server` | Coi như lộ khóa: mã hóa, không để chung chỗ với server |
+| Server trong cụm / server clone (menu 20) | Giữ cùng khóa |
+| Đăng nhập SSH vào máy server | Chỉ bằng khóa, giới hạn IP, ghi lại ai vào |
+| Tài khoản GitHub, máy build | Code bị chèn trước khi server ký (menu 19 build từ mã nguồn) |
+
 ## Chống quá tải và tấn công trên cổng agent (6222)
 
 Cổng 6222 mở ra Internet nên có nhiều lớp giới hạn, request không hợp lệ bị loại càng sớm càng tốt:

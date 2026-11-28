@@ -47,6 +47,11 @@ Code comments and docs are in Vietnamese.*
   (OK / cảnh báo / mất liên lạc, mỗi giai đoạn một dòng) thay vì mỗi sự kiện một dòng; giữ 60 ngày sau khi giai đoạn đóng
   ([thiết kế](docs/thiet-ke-luu-theo-giai-doan.md)).
 - **Rule chỉ đọc log và khớp regex** (RE2), không chạy được lệnh trên máy; bộ rule phải có chữ ký.
+- **Agent chạy bằng user thường** `scs-agent` (mật khẩu khóa, shell `nologin`, sandbox systemd), không mở cổng nào.
+  Agent chỉ tin `agent.env`, CA của server và khóa phát hành khi các file đó **thuộc root** (bị thay hoặc là symlink thì
+  không chạy); tự xóa `.ssh` / `.rhosts` / `.shosts` trong thư mục của nó và báo sự cố critical; chỉ đọc file log mà nó
+  đọc được bằng quyền thường (không mượn quyền đọc serial phần cứng để đọc file của root qua symlink). Cả ba đi qua bản
+  cập nhật agent, không phải cài lại máy ([chi tiết](agent/README.md)).
 
 ## Cổng
 
@@ -126,7 +131,32 @@ duyệt, 363 máy gọi về trong 30 phút), số liệu báo cáo server 24 gi
 
 Số máy gần gấp đôi (400 → 700) mà CPU, RAM, DB gần như không đổi: tải tăng gần tuyến tính theo số heartbeat (vẫn dưới 1 request / giây), RAM server không phụ thuộc số máy, DB chỉ ghi khi trạng thái đổi. Băng thông cao chủ yếu lúc phát bản agent, đã giới hạn ≤ 20 Mbit/s.
 
+## Điểm yếu còn lại (đã biết, chưa xử lý)
+
+Ghi rõ để không ai hiểu nhầm là hệ thống "đã kín":
+
+- **Server là thứ cần bảo vệ nhất.** Khóa phát hành (`SCS_RELEASE_KEY`) đang nằm trên server; ai có khóa này (chiếm
+  server, lộ bản sao lưu, server trong cụm) ký được bản agent và chạy được code trên mọi máy. Hướng xử lý: ký bản agent
+  ngoài server, server chỉ phân phối.
+- **Hai tác vụ phụ của agent chạy uid 0 trong sandbox**: `scs-agent-promote` (thay bản khung) và `scs-agent-smart`
+  (đọc SMART, có `CAP_SYS_ADMIN`). Không có mạng, chỉ ghi một thư mục, nhưng không nên coi là tường kín. Chỉ thành
+  nguy hiểm khi khóa phát hành bị lộ.
+- **Agent vẫn có `CAP_DAC_READ_SEARCH`** (cấp để đọc serial phần cứng): đường đọc log đã bị chặn, nhưng nếu chính agent
+  bị chiếm thì quyền này đọc được mọi file trừ `/home`.
+- Sửa tận gốc các điểm trên cần root trên từng máy (đổi file unit, quyền thư mục `/etc/scs-agent`, sshd `DenyUsers`):
+  gom vào một **bản cập nhật lớn** (`install.sh --harden`) làm cùng giai đoạn 2, kèm script chạy hàng loạt qua SSH.
+
 ## Định hướng tương lai (chưa triển khai)
+
+**Đội trưởng trong siêu thị** (giai đoạn 2, đang cân nhắc): một agent mỗi siêu thị gửi heartbeat gộp, server chỉ định
+đội trưởng và giờ gửi, sự cố khẩn vẫn gửi thẳng; tệ nhất quay về mỗi máy tự gửi. Rủi ro, tồn đọng và ảnh hưởng tới lưu
+theo giai đoạn: [docs/y-tuong-doi-truong-sieu-thi.md](docs/y-tuong-doi-truong-sieu-thi.md).
+
+**Gửi lệnh xuống máy** (giai đoạn 2): chỉ hành động định sẵn (không shell tùy ý), thực thi bởi tác vụ root riêng tự kiểm
+chữ ký bằng khóa lệnh tách riêng, hạn ngắn, chỉ chạy một lần, đúng máy; chia mức (chỉ đọc → khởi động lại dịch vụ →
+khởi động lại máy) với duyệt 1–2 người, khung giờ, chạy theo đợt và nút dừng khẩn. Làm sau khi khóa phát hành đã ra
+khỏi server.
+
 
 **Agent cho Windows**: ưu tiên Windows 10/11 IoT Enterprise LTSC (máy POS, kiosk) và Windows 10/11 64-bit; Windows Server
 2016+ nếu có; không hỗ trợ Windows 7/8.1. Dùng lại phần lõi (giao thức, đăng ký, chứng chỉ, bộ máy rule, hàng đợi);

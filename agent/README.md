@@ -99,6 +99,12 @@ nhưng **không chặn mở đường hầm** (`ssh -N -L`). Agent kiểm mỗi 
 trạng thái thì **xóa ngay** và gửi sự kiện **critical** `SCS-AGENT-SSHKEY-01` (gộp tối đa một sự kiện / 10 phút). Chặn tận
 gốc (cần root, làm khi cài lại): `DenyUsers scs-agent` trong cấu hình sshd.
 
+Agent có `CAP_DAC_READ_SEARCH` (để đọc serial phần cứng), tức mở được cả file mà user scs-agent không có quyền đọc. Để
+quyền này không bị mượn qua rule đọc log, agent **chỉ đọc file log nó đọc được bằng quyền thường** (chủ file / nhóm
+`adm` / quyền đọc chung), kiểm trên chính file đã mở. Ví dụ: user của ứng dụng đổi `/var/log/<app>/app.log` thành
+symlink tới `/etc/shadow` → agent bỏ qua file và ghi cảnh báo, không gửi dòng nào lên server. Các log thường dùng
+(`auth.log`, `syslog` thuộc nhóm `adm`; `dpkg.log` đọc chung) không bị ảnh hưởng.
+
 ## Đăng ký
 
 Lần chạy đầu agent sinh khóa Ed25519 (`/etc/scs-agent/key.pem`, quyền 600), gửi gói đăng ký ký bằng khóa đó,
