@@ -1025,16 +1025,17 @@
       }
       return true;
     };
-    // Gợi ý cho ô lọc: lấy từ thông tin siêu thị đã nạp, kèm số siêu thị.
+    // Gợi ý cho ô lọc: lấy từ thông tin siêu thị đã nạp, người phụ trách nhiều siêu thị xếp trước. Gợi ý người chỉ có
+    // giá trị "mã - Tên", không kèm nhãn: Firefox chỉ hiện nhãn của <option> (nhãn "N siêu thị" che mất tên người).
     const fillFilterLists = () => {
       const count = (field) => {
         const m = new Map();
         Object.values(state.stores).forEach((x) => { const v = (x[field] || '').trim(); if (v) m.set(v, (m.get(v) || 0) + 1); });
         return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
       };
-      $('#dl-code').innerHTML = Object.values(state.stores).map((x) => `<option value="${esc(x.code)}">${esc(x.name || '')}</option>`).join('');
-      $('#dl-mgr').innerHTML = count('manager').map(([v, n]) => `<option value="${esc(v)}">${n} siêu thị</option>`).join('');
-      $('#dl-lead').innerHTML = count('leader').map(([v, n]) => `<option value="${esc(v)}">${n} siêu thị</option>`).join('');
+      $('#dl-code').innerHTML = Object.values(state.stores).map((x) => `<option value="${esc(x.code)}">${esc(x.name ? `${x.code} - ${x.name}` : x.code)}</option>`).join('');
+      $('#dl-mgr').innerHTML = count('manager').map(([v]) => `<option value="${esc(v)}"></option>`).join('');
+      $('#dl-lead').innerHTML = count('leader').map(([v]) => `<option value="${esc(v)}"></option>`).join('');
     };
 
     const devRow = (d, lvl) => `
