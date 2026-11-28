@@ -11,7 +11,7 @@ và sự kiện log về **SCS-Server**; admin duyệt máy và theo dõi trên 
 and matched log events to SCS-Server, where admins approve machines and watch alerts on a web console.
 Code comments and docs are in Vietnamese.*
 
-> Trạng thái: giai đoạn 1, **đang chạy thật** từ 11/2026 (khoảng 400 máy, xem [số đo thực tế](#số-đo-thực-tế)).
+> Trạng thái: giai đoạn 1, **đang chạy thật** từ 11/2026 (khoảng **700 máy** ngày 28/11/2026, xem [số đo thực tế](#số-đo-thực-tế)).
 > Vẫn đang phát triển tiếp.
 > Đang chuyển sang **cụm nhiều server ngang hàng**: thiết kế đã chốt ở
 > [docs/thiet-ke-cum-server.md](docs/thiet-ke-cum-server.md). Đã có mốc C1 (khóa node, cổng 5222,
@@ -100,7 +100,7 @@ Không dùng UDP. Phía máy agent không phải mở cổng nào.
 | **Khóa đăng nhập theo IP / thiết bị** (sai mã 5 lần → 24 giờ; sai tên quá 10 lần / 24 giờ → 7 ngày; IP siêu thị khóa theo trình duyệt, quá 3 trình duyệt → khóa IP), lưu DB, gỡ trên web hoặc `scs-login-code -unlock`. **Mức 1 quản lý tài khoản mức 5–7** (duyệt, đổi mức, khóa, từ chối đăng ký), không đụng mức 1–4 | Đang chạy thật, đã kiểm đúng thiết kế |
 | Tăng cứng thêm web quản trị khi mở ra Internet: chứng chỉ tự ký; mã SSH vẫn còn khóa chung toàn hệ thống (20 lần sai / 5 phút) | Chưa có |
 
-Đã chạy trên Ubuntu + PostgreSQL / TimescaleDB thật (khoảng 400 máy): migration 0001–0020, heartbeat ngẫu nhiên, quét log
+Đã chạy trên Ubuntu + PostgreSQL / TimescaleDB thật (khoảng 700 máy, 28/11/2026): migration 0001–0020, heartbeat ngẫu nhiên, quét log
 và phát bộ rule, phân lượt tải (bản agent và bộ rule đúng 4 lượt, ≤ 20 Mbit/s), báo cáo server, cập nhật server có kiểm SQL
 trên `scs_test` (đã chặn đúng hai lỗi trước khi cài), **gia hạn chứng chỉ máy 90 ngày**, **duyệt và thay thế máy cũ**,
 **khóa đăng nhập theo IP / thiết bị**. Chưa kiểm thật: khôi phục DB từ bản sao lưu, chép server sang máy khác (menu mục 20),
@@ -110,7 +110,8 @@ trang Thiết bị LAN và tự cập nhật trang LAN / sức khỏe (migration
 
 ## Số đo thực tế
 
-Đo trên server thật ngày 20/11/2026, khoảng **400 máy** (398 máy đã duyệt, 363 máy gọi về trong 30 phút gần nhất),
+Hiện (28/11/2026) khoảng **700 máy** đang chạy — chưa đo lại; theo cùng cách tính, heartbeat khoảng 700 ÷ 17,5 ≈ 40 lần / phút.
+Số đo dưới đây đo trên server thật ngày 20/11/2026, khoảng **400 máy** (398 máy đã duyệt, 363 máy gọi về trong 30 phút gần nhất),
 agent gọi heartbeat ngẫu nhiên 5–30 phút; số liệu báo cáo server 24 giờ:
 
 | Chỉ số | Khoảng 400 máy (20/11) | Khoảng 150 máy (19/11) | Ghi chú |
