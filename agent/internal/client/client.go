@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,6 +22,7 @@ import (
 	"time"
 
 	"github.com/thangkes/SCS-System/agent/internal/identity"
+	"github.com/thangkes/SCS-System/agent/internal/rootfile"
 	"github.com/thangkes/SCS-System/common/protocol"
 )
 
@@ -47,7 +47,7 @@ type Client struct {
 // New tạo client. caFile là CA của server; không đọc được thì không gọi server được
 // (agent không bao giờ bỏ qua kiểm chứng chỉ server).
 func New(server, caFile, keyDir string, key *identity.Key, version string) (*Client, error) {
-	pemBytes, err := os.ReadFile(caFile)
+	pemBytes, err := rootfile.Read(caFile) // CA do root đặt: file bị thay thì không tin
 	if err != nil {
 		return nil, fmt.Errorf("đọc CA của server (%s): %w", caFile, err)
 	}

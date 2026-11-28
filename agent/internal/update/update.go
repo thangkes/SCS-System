@@ -29,6 +29,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thangkes/SCS-System/agent/internal/rootfile"
 	"github.com/thangkes/SCS-System/common/protocol"
 )
 
@@ -174,7 +175,7 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 
 // LoadPub đọc khóa công khai phát hành (PEM PKIX Ed25519).
 func LoadPub(path string) (ed25519.PublicKey, error) {
-	b, err := os.ReadFile(path)
+	b, err := rootfile.Read(path) // ở /opt thì phải thuộc root (xem rootfile)
 	if err != nil {
 		return nil, fmt.Errorf("đọc khóa phát hành %s: %w", path, err)
 	}

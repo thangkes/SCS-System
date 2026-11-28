@@ -86,6 +86,13 @@ SCS_PROBES=on                                # off = tắt hẳn kiểm thiết 
 
 `agent.env` thuộc root (640, nhóm scs-agent): agent và server không đổi được. Cài lại agent giữ nguyên `SCS_PROBES=off`.
 
+Agent **kiểm chủ sở hữu** trước khi dùng `agent.env`, `server-ca.pem` và `release.pub` (mọi file tin cậy nằm trong
+`/etc/` hoặc `/opt/`): phải là file thường, không phải symlink, thuộc root, nhóm / người khác không ghi được; sai thì
+agent không chạy và ghi rõ lý do. Lý do: thư mục `/etc/scs-agent` thuộc user scs-agent (để ghi khóa, chứng chỉ máy),
+nên ai chiếm được user này có thể xóa rồi đặt lại các file đó — nhưng file đặt lại luôn thuộc scs-agent, không thuộc
+root, nên bị từ chối (hardlink tới file của root đã bị Ubuntu chặn sẵn, `fs.protected_hardlinks=1`). Sửa tay các file này
+thì dùng `sudo` (giữ chủ root), đừng chép đè bằng user khác.
+
 ## Đăng ký
 
 Lần chạy đầu agent sinh khóa Ed25519 (`/etc/scs-agent/key.pem`, quyền 600), gửi gói đăng ký ký bằng khóa đó,

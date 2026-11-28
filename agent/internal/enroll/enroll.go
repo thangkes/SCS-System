@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
-	"os"
 	"time"
 
 	"github.com/thangkes/SCS-System/agent/internal/client"
 	"github.com/thangkes/SCS-System/agent/internal/identity"
+	"github.com/thangkes/SCS-System/agent/internal/rootfile"
 	"github.com/thangkes/SCS-System/agent/internal/sysinfo"
 	"github.com/thangkes/SCS-System/common/protocol"
 )
@@ -138,7 +138,7 @@ func checkCert(resp protocol.EnrollResponse, d Deps) error {
 	if err != nil {
 		return err
 	}
-	caPEM, err := os.ReadFile(d.CAFile)
+	caPEM, err := rootfile.Read(d.CAFile)
 	if err != nil {
 		return err
 	}

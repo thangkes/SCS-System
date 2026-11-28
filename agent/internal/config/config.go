@@ -6,13 +6,17 @@ package config
 
 import (
 	"bufio"
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/thangkes/SCS-System/agent/internal/rootfile"
 )
 
 // DefaultFile là file cấu hình khi cài bằng gói .deb.
@@ -45,9 +49,9 @@ func Load(path string) (*Config, error) {
 		path = DefaultFile
 	}
 	file := map[string]string{}
-	if f, err := os.Open(path); err == nil {
-		file, err = parse(f)
-		f.Close()
+	// agent.env do root đặt; file bị thay (thuộc user khác root, symlink) thì không dùng (xem rootfile).
+	if b, err := rootfile.Read(path); err == nil {
+		file, err = parse(bytes.NewReader(b))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
@@ -142,7 +146,7 @@ func checkServer(s string) error {
 }
 
 // parse đọc KEY=VALUE, bỏ dòng trống và dòng chú thích; giá trị có thể đặt trong ngoặc kép.
-func parse(f *os.File) (map[string]string, error) {
+func parse(f io.Reader) (map[string]string, error) {
 	out := map[string]string{}
 	sc := bufio.NewScanner(f)
 	for n := 1; sc.Scan(); n++ {
