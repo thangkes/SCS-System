@@ -11,7 +11,7 @@ và sự kiện log về **SCS-Server**; admin duyệt máy và theo dõi trên 
 and matched log events to SCS-Server, where admins approve machines and watch alerts on a web console.
 Code comments and docs are in Vietnamese.*
 
-> Trạng thái: giai đoạn 1, **đang chạy thật** từ 11/2026 (khoảng **700 máy** ngày 28/11/2026, xem [số đo thực tế](#số-đo-thực-tế)).
+> Trạng thái: giai đoạn 1, **đang chạy thật** từ 11/2026 (khoảng **700 máy** ngày 28/11/2026: CPU server 2–3%, RAM 31 MB, DB 21,7 MB — xem [số đo thực tế](#số-đo-thực-tế)).
 > Vẫn đang phát triển tiếp.
 > Đang chuyển sang **cụm nhiều server ngang hàng**: thiết kế đã chốt ở
 > [docs/thiet-ke-cum-server.md](docs/thiet-ke-cum-server.md). Đã có mốc C1 (khóa node, cổng 5222,
@@ -110,21 +110,21 @@ trang Thiết bị LAN và tự cập nhật trang LAN / sức khỏe (migration
 
 ## Số đo thực tế
 
-Hiện (28/11/2026) khoảng **700 máy** đang chạy — chưa đo lại; theo cùng cách tính, heartbeat khoảng 700 ÷ 17,5 ≈ 40 lần / phút.
-Số đo dưới đây đo trên server thật ngày 20/11/2026, khoảng **400 máy** (398 máy đã duyệt, 363 máy gọi về trong 30 phút gần nhất),
-agent gọi heartbeat ngẫu nhiên 5–30 phút; số liệu báo cáo server 24 giờ:
+Đo trên server thật, agent gọi heartbeat ngẫu nhiên 5–30 phút. Mốc 28/11/2026: khoảng **700 máy** (683 / 699 máy gọi về
+trong 30 phút gần nhất), server chạy liên tục ~19 giờ, đang tiếp tục thêm agent. Mốc 20/11/2026: khoảng 400 máy (398 máy đã
+duyệt, 363 máy gọi về trong 30 phút), số liệu báo cáo server 24 giờ.
 
-| Chỉ số | Khoảng 400 máy (20/11) | Khoảng 150 máy (19/11) | Ghi chú |
-|---|---|---|---|
-| Heartbeat | 16–20 lần / phút (~25.800 / ngày) | 5–15 lần / phút | khớp tính toán: 400 máy ÷ 17,5 phút trung bình ≈ 23 lần / phút |
-| CPU máy server | trung bình 3%, đỉnh 37,7% (vài lần ngắn) | 1–5% | máy 4 lõi |
-| RAM `scs-server` | 37–42 MB | 25–35 MB | RAM cả máy ~19% của 7,3 GB, gần như phẳng |
-| Dung lượng DB | 16,9 MB (tăng ~1,3 MB / ngày) | 13 MB | nhờ lưu theo giai đoạn (chỉ ghi khi có thay đổi) |
-| Băng thông | gửi trung bình 0,74 Mbit/s, đỉnh 7,3; nhận đỉnh 15 Mbit/s | — | đỉnh lúc phát bản agent / bộ rule (phân lượt ≤ 20 Mbit/s) |
-| Kết nối agent cùng lúc | tối đa 2 | — | mỗi agent chỉ mở vài giây khi gọi về |
-| Sự kiện log | ~1.550 / ngày (~0,9 / phút) | — | |
+| Chỉ số | Khoảng 700 máy (28/11) | Khoảng 400 máy (20/11) | Khoảng 150 máy (19/11) | Ghi chú |
+|---|---|---|---|---|
+| Heartbeat | 34 lần / phút | 16–20 lần / phút (~25.800 / ngày) | 5–15 lần / phút | khớp tính toán: số máy ÷ 17,5 phút trung bình (700 máy ≈ 40) |
+| CPU máy server | 2–3% | trung bình 3%, đỉnh 37,7% (vài lần ngắn) | 1–5% | máy 4 lõi |
+| RAM `scs-server` | 31,1 MB | 37–42 MB | 25–35 MB | không tăng theo số máy |
+| Dung lượng DB | 21,7 MB (+4,8 MB sau 8 ngày, ~0,6 MB / ngày) | 16,9 MB | 13 MB | nhờ lưu theo giai đoạn (chỉ ghi khi có thay đổi) |
+| Băng thông gửi | tới ~14 Mbit/s (đang phát agent cho máy mới) | trung bình 0,74 Mbit/s, đỉnh 7,3; nhận đỉnh 15 Mbit/s | — | đỉnh lúc phát bản agent / bộ rule (phân lượt ≤ 20 Mbit/s) |
+| Kết nối agent cùng lúc | — | tối đa 2 | — | mỗi agent chỉ mở vài giây khi gọi về |
+| Sự kiện log | 0 / phút (lúc chụp) | ~1.550 / ngày (~0,9 / phút) | — | |
 
-Tải tăng gần tuyến tính theo số heartbeat như ước lượng; RAM server gần như không đổi theo số máy.
+Số máy gần gấp đôi (400 → 700) mà CPU, RAM, DB gần như không đổi: tải tăng gần tuyến tính theo số heartbeat (vẫn dưới 1 request / giây), RAM server không phụ thuộc số máy, DB chỉ ghi khi trạng thái đổi. Băng thông cao chủ yếu lúc phát bản agent, đã giới hạn ≤ 20 Mbit/s.
 
 ## Định hướng tương lai (chưa triển khai)
 

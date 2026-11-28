@@ -471,7 +471,7 @@ rules:
   <p>Giả định: 20.000 máy, heartbeat khoảng 2,6 KB, ngẫu nhiên 5–30 phút (trung bình 17,5 phút, đo thật khớp), trung bình 50 sự kiện khớp rule mỗi máy mỗi ngày, mỗi sự kiện khoảng 1 KB. (Bản nháp đầu tính heartbeat cố định 5 phút và lưu từng heartbeat — đã thay bằng nhịp ngẫu nhiên và lưu theo giai đoạn.)</p>
   <div class="tbl"><table>
     <tr><th>Hạng mục</th><th>Cách tính</th><th>Kết quả</th></tr>
-    <tr><td>Request heartbeat trung bình</td><td>20.000 ÷ 1.050 giây</td><td>≈ 19 request/giây (đo thật 400 máy: 16–20 / phút, khớp)</td></tr>
+    <tr><td>Request heartbeat trung bình</td><td>20.000 ÷ 1.050 giây</td><td>≈ 19 request/giây (đo thật: 400 máy 16–20 / phút, 700 máy 34 / phút — khớp)</td></tr>
     <tr><td>Request đỉnh (giờ mở cửa)</td><td>Máy vừa khởi động dời heartbeat đầu 5–30 phút; rải ngẫu nhiên theo giây</td><td>≈ vài lần trung bình</td></tr>
     <tr><td>Heartbeat mỗi ngày</td><td>20.000 × ~82 lần × 2,6 KB</td><td>≈ 1,65 triệu lần, ≈ 4,3 GB qua mạng — <strong>không lưu từng heartbeat</strong> (lưu theo giai đoạn, chỉ ghi khi trạng thái đổi)</td></tr>
     <tr><td>Sự kiện log mỗi ngày</td><td>20.000 × 50 × 1 KB</td><td>1 triệu sự kiện, ≈ 1 GB</td></tr>
@@ -584,7 +584,9 @@ rules:
   cụm nhiều server, khoảng <strong>87%</strong> cho bản một server (18/11: ~72%). Còn chính: phát hành agent mới cho mọi máy (SMART, sức khỏe, kiểm
   thiết bị, kiểm kê LAN, gửi gấp theo trạng thái), diễn tập khôi phục DB, phân trang phía server (trước ~1.000 máy), cảnh báo đổi fingerprint, cụm C2
   phần hai và C4–C6.</p>
-  <p><strong>Quy mô hiện tại (28/11/2026):</strong> khoảng <strong>700 máy</strong> đang chạy thật (chưa đo lại tải; theo cách tính, heartbeat ≈ 40 lần / phút).</p>
+  <p><strong>Kết quả chạy thật (28/11/2026, khoảng 700 máy):</strong> 683 / 699 máy gọi về trong 30 phút, 34 heartbeat / phút, CPU máy server 2–3%,
+  RAM scs-server 31,1 MB, DB 21,7 MB (+4,8 MB sau 8 ngày), gửi tới ~14 Mbit/s lúc đang phát agent cho máy mới (giới hạn 20 Mbit/s). Số máy gần
+  gấp đôi so với 20/11 mà CPU, RAM, DB gần như không đổi.</p>
   <p><strong>Kết quả chạy thật (20/11/2026, khoảng 400 máy):</strong> 16–20 heartbeat / phút (~25.800 / ngày), CPU máy server trung bình 3% (đỉnh 37,7%), RAM scs-server 37–42 MB, DB 16,9 MB (tăng ~1,3 MB / ngày), gửi trung bình 0,74 Mbit/s. Đã chạy thật: gia hạn chứng chỉ máy 90 ngày, duyệt và thay thế máy cũ, khóa đăng nhập theo IP / thiết bị (đúng thiết kế).</p>
 </section>
 
